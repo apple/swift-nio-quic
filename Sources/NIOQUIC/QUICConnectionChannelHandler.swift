@@ -236,42 +236,30 @@ extension QUICConnectionChannelHandler: ChannelInboundHandler, ChannelOutboundHa
             self.logger.info("Could not find stream: \(readableStreamMessage.streamID)")
             return
         }
-        // Make sure the stream channel is active
-        if !stream.streamStateMachine.initialized && stream.isStreamChannelActive {
+
+        guard stream.isStreamChannelActive else {
+            stream.streamRead()
+            return
+        }
+
+        switch stream.pipelineStateMachine.startInitializer() {
+        case .runInitializer:
             self.logger.trace(
                 "QUICConnectionChannelHandler read with newly created id: \(readableStreamMessage.streamID)"
             )
             switch self.inboundStreamInitializer {
             case .multiplexer(let continuation):
-                let f = continuation.initialize(channel: stream, streamID: readableStreamMessage.streamID)
-                f.whenComplete { result in
-                    switch result {
-                    case .success(let output):
-                        stream.streamStateMachine.initialized = true
-                        continuation.yield(output: output, channel: stream)
-                        stream.streamRead()
-                    case .failure:
-                        stream.close(promise: nil)
-                    }
-                }
+                stream.initialize(multiplexerContinuation: continuation, streamID: readableStreamMessage.streamID)
             case .closure(let initializer):
-                initializer(stream).assumeIsolated().whenComplete { result in
-                    switch result {
-                    case .success:
-                        stream.streamStateMachine.initialized = true
-                        context.fireChannelRead(QUICConnectionChannelHandler.wrapInboundOut(stream))
-                        stream.streamRead()
-                    case .failure(let error):
-                        self.logger.error("Inbound stream failed to initialize: \(error)")
-                        stream.close(promise: nil)
-                    }
-                }
+                stream.initialize(context, initializer)
             case .none:
-                stream.streamStateMachine.initialized = true
-                context.fireChannelRead(self.wrapInboundOut(stream))
-                stream.streamRead()
+                stream.initialize(context)
             }
-        } else {
+
+        case .skipInitializerInProgress:
+            stream.streamRead()
+
+        case .skipInitializerComplete:
             stream.streamRead()
         }
     }

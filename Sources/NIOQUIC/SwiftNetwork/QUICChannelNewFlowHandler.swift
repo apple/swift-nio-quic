@@ -195,10 +195,11 @@ final class QUICChannelNewFlowHandler: ProtocolInstanceContainer, InboundFlowHan
                 keepAliveInterval: keepAliveInterval
             )
 
-            streamHandler.lowerProtocol = try self.lowerProtocol.invokeAttachUpperStreamProtocolToExistingFlow(
+            let linkage = try self.lowerProtocol.invokeAttachUpperStreamProtocolToExistingFlow(
                 streamHandler.reference,
                 flowReference: flowReference
             )
+            streamHandler.swiftNetworkStreamHandle = SwiftNetworkStreamHandle(linkage: linkage)
             streamHandler.setNewFlowMetadata(metadata)
             streamHandler.start(fromNewFlowHandler: true)
             self.connectionView.newInboundStream(streamHandler)

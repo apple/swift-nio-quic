@@ -88,6 +88,8 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
     internal var reference: ProtocolInstanceReference { ProtocolInstanceReference(custom: self) }
     internal var eventManager = ProtocolEventManager()
     internal var streamStateMachine: QUICStreamStateMachine
+    internal var pipelineStateMachine: QUICStreamPipelineStateMachine
+    internal var swiftNetworkStreamHandle: SwiftNetworkStreamHandle
 
     // Stream state machine (RFC 9000 Section 3 compliant)
     internal var context: SwiftNetwork.NetworkContext
@@ -103,9 +105,6 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
     private var originalMetadata: ProtocolMetadata<QUICProtocol>?
     private var connectedEventHandler: ((QUICStreamID?) -> Void)?
     private var disconnectedEventHandler: ((NetworkError?) -> Void)?
-
-    // Internal mutable state
-    internal var lowerProtocol = LowerProtocol(reference: .init())
 
     internal init(
         role: Role,
@@ -131,6 +130,8 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
         self.logPrefix = "[\(self.role.description)][S\(streamID == nil ? "?" : String(streamID!.rawValue))]"
         #endif
         self.streamStateMachine = QUICStreamStateMachine()
+        self.pipelineStateMachine = QUICStreamPipelineStateMachine()
+        self.swiftNetworkStreamHandle = SwiftNetworkStreamHandle()
 
         self.connectionChannel = connectionChannel
         self.eventLoop = connectionChannel.eventLoop
@@ -167,6 +168,8 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
         self.logPrefix = "[\(self.role.description)][S\(streamID == nil ? "?" : String(streamID!.rawValue))]"
         #endif
         self.streamStateMachine = QUICStreamStateMachine()
+        self.pipelineStateMachine = QUICStreamPipelineStateMachine()
+        self.swiftNetworkStreamHandle = SwiftNetworkStreamHandle()
 
         self.eventLoop = eventLoop
         self.allocator = connectionChannel?.allocator ?? ByteBufferAllocator()
@@ -175,8 +178,9 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
         self._isWritable = ManagedAtomic(true)
         self._closePromise = eventLoop.makePromise(of: Void.self)
 
+        let linkage: OutboundStreamLinkage
         do throws(NetworkError) {
-            self.lowerProtocol = try listenerProtocol.invokeAttachUpperStreamProtocolToNewFlow(
+            linkage = try listenerProtocol.invokeAttachUpperStreamProtocolToNewFlow(
                 reference,
                 remote: remote,
                 local: local,
@@ -187,6 +191,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
             self.log("Error attaching lower protocol: \(error)")
             return nil
         }
+        self.swiftNetworkStreamHandle = SwiftNetworkStreamHandle(linkage: linkage)
         self._pipeline = ChannelPipeline(channel: self)
     }
 
@@ -359,9 +364,9 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
     // Send a STOP_SENDING frame to close the read (Note, this stream will receive a RESET_STREAM in return)
     internal func abortInbound(error: NetworkError?) {
         self.fromExternal {
-            do {
+            do throws(NetworkError) {
                 self.log("abortInbound")
-                try self.lowerProtocol.invokeAbortInbound(self.reference, error: error)
+                try self.swiftNetworkStreamHandle.invokeAbortInbound(from: self.reference, error: error)
             } catch {
                 self.log("Failed to abort inbound: \(error)")
                 self.closeStream(mode: .disconnectOnly, error: error, promise: nil)
@@ -372,8 +377,8 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
     // Send a RESET_STREAM frame to close the write
     internal func abortOutbound(error: NetworkError?) {
         self.fromExternal {
-            do {
-                try self.lowerProtocol.invokeAbortOutbound(self.reference, error: error)
+            do throws(NetworkError) {
+                try self.swiftNetworkStreamHandle.invokeAbortOutbound(from: self.reference, error: error)
             } catch {
                 self.log("Failed to abort outbound: \(error)")
                 self.closeStream(mode: .disconnectOnly, error: error, promise: nil)
@@ -381,11 +386,76 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
         }
     }
 
+    // MARK: - Inbound initializer dispatch
+    //
+    // Called by `QUICConnectionChannelHandler.channelRead` after the per-stream
+    // pipeline state machine returns `.runInitializer`. Each overload runs one
+    // of the application-supplied initializer flavours, then on success calls
+    // `markInitializerComplete()` and surfaces the now-ready stream.
+
+    /// Run the multiplexer-style initializer; on success yield to the
+    /// continuation and trigger the first read.
+    internal func initialize(
+        multiplexerContinuation continuation: any StreamMultiplexerContinuation,
+        streamID: QUICStreamID
+    ) {
+        continuation.initialize(channel: self, streamID: streamID)
+            .whenComplete { result in
+                switch result {
+                case .success(let output):
+                    switch self.pipelineStateMachine.markInitializerComplete() {
+                    case .surfaceInitializedStream:
+                        continuation.yield(output: output, channel: self)
+                        self.streamRead()
+                    case .ignoreAlreadyComplete:
+                        break
+                    }
+                case .failure:
+                    self.close(promise: nil)
+                }
+            }
+    }
+
+    /// Run the closure-style initializer; on success deliver the ready stream
+    /// up `context` and trigger the first read.
+    internal func initialize(
+        _ context: ChannelHandlerContext,
+        _ initializer: @escaping @Sendable (any Channel) -> EventLoopFuture<Void>
+    ) {
+        initializer(self).assumeIsolated().whenComplete { result in
+            switch result {
+            case .success:
+                switch self.pipelineStateMachine.markInitializerComplete() {
+                case .surfaceInitializedStream:
+                    context.fireChannelRead(QUICConnectionChannelHandler.wrapInboundOut(self))
+                    self.streamRead()
+                case .ignoreAlreadyComplete:
+                    break
+                }
+            case .failure(let error):
+                self.logger.error("Inbound stream failed to initialize: \(error)")
+                self.close(promise: nil)
+            }
+        }
+    }
+
+    /// No initializer to run; synchronously deliver the stream up `context`
+    /// and trigger the first read.
+    internal func initialize(_ context: ChannelHandlerContext) {
+        switch self.pipelineStateMachine.markInitializerComplete() {
+        case .surfaceInitializedStream:
+            context.fireChannelRead(QUICConnectionChannelHandler.wrapInboundOut(self))
+            self.streamRead()
+        case .ignoreAlreadyComplete:
+            break
+        }
+    }
+
     // Start the stream handler
     func start(fromNewFlowHandler: Bool = false) {
         log("start")
         self.eventLoop.preconditionInEventLoop()
-        self.lowerProtocol.invokeConnect(self.reference)
+        self.swiftNetworkStreamHandle.invokeConnect(from: self.reference)
         // If started from NewFlowHandler then presumably there is application data waiting in the read queue
         // Do an optimistic read here when the flow is started and then all future data that comes in will get the handleInboundDataAvailableEvent event.
         // The handleInboundDataAvailableEvent signals that its time to read data on the stream.
@@ -409,12 +479,10 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
         case .ignoreAlreadyClosed:
             break
         }
-        self.lowerProtocol.invokeDisconnect(reference)
-        if detachFromLowerProtocol && !self.streamStateMachine.detached {
-            self.streamStateMachine.detached = true
+        self.swiftNetworkStreamHandle.invokeDisconnect(from: reference)
+        if detachFromLowerProtocol {
             do throws(NetworkError) {
-                try self.lowerProtocol.invokeDetach(reference)
-                self.lowerProtocol = .init(reference: .init())
+                try self.swiftNetworkStreamHandle.invokeDetach(from: reference)
             } catch {
                 self.log("Failed to detach lower protocol: \(error)")
             }
@@ -439,14 +507,10 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
         case .disconnectOnly:  // Calls stop and detach only, could result in disconnect event as well
             stop(detachFromLowerProtocol: true)
         case .detachAndClose:  // Called on disconnect event callback
-            if !self.streamStateMachine.detached {
-                self.streamStateMachine.detached = true
-                do throws(NetworkError) {
-                    try self.lowerProtocol.invokeDetach(reference)
-                    self.lowerProtocol = .init(reference: .init())
-                } catch {
-                    self.log("Failed to detach lower protocol: \(error)")
-                }
+            do throws(NetworkError) {
+                try self.swiftNetworkStreamHandle.invokeDetach(from: reference)
+            } catch {
+                self.log("Failed to detach lower protocol: \(error)")
             }
             if self.isActive {
                 self._close(error: error, promise: promise)
@@ -575,21 +639,12 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
     // Get metadata about the stream from the internal QUIC stack
     private final func getMetadata<P: NetworkProtocol>() -> ProtocolMetadata<P>? {
         self.fromExternal {
-            self.lowerProtocol.invokeGetMetadata(self.reference) as? ProtocolMetadata<P>
+            self.swiftNetworkStreamHandle.invokeGetMetadata(from: self.reference)
         }
     }
 
     var isStreamChannelActive: Bool {
         self.isActive
-    }
-
-    var isInitialized: Bool {
-        get {
-            self.streamStateMachine.initialized
-        }
-        set {
-            self.streamStateMachine.initialized = newValue
-        }
     }
 
     var hasPendingReadData: Bool {
@@ -647,8 +702,8 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
             }
             log("write \(frameArray.count) frames, \(totalBytes) bytes, fin: \(fin)")
 
-            try self.lowerProtocol.invokeSendStreamData(
-                self.reference,
+            try self.swiftNetworkStreamHandle.invokeSendStreamData(
+                from: self.reference,
                 streamData: frameArray
             )
             return true
@@ -666,8 +721,8 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
             self.log("sending connection complete")
             var finFrame = Frame(copyBuffer: [])
             finFrame.connectionComplete = true
-            try self.lowerProtocol.invokeSendStreamData(
-                self.reference,
+            try self.swiftNetworkStreamHandle.invokeSendStreamData(
+                from: self.reference,
                 streamData: FrameArray(frame: finFrame)
             )
         case .ignore(.alreadyFinished):
@@ -691,8 +746,8 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
 
         var frameArray: FrameArray?
         do throws(NetworkError) {
-            frameArray = try self.lowerProtocol.invokeReceiveStreamData(
-                self.reference,
+            frameArray = try self.swiftNetworkStreamHandle.invokeReceiveStreamData(
+                from: self.reference,
                 minimumBytes: 1,
                 maximumBytes: Int.max
             )
@@ -788,7 +843,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
             self.log(
                 "shutdownStream shutting down in both directions, applicationErrorCode: \(String(describing: applicationErrorCode))"
             )
-            if !streamStateMachine.detached {
+            if self.swiftNetworkStreamHandle.isAttached {
                 self.closeStream(mode: .disconnectOnly, error: nil, promise: nil)
             }
 
