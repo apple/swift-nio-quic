@@ -434,28 +434,19 @@ extension QUICConnectionChildChannelStateMachine {
     private mutating func drainFinalizedOutputAndHandleLifecycle(into actions: inout Actions) {
 
         // Drain.
-        do {
-            self.logger.trace("QUICConnectionChildChannelStateMachine drainFinalizedOutputAndHandleLifecycle loop")
-            var shouldFlush = false
-            while let buffer = try self.quicConnection.nextOutboundPacket() {
-                actions.append(
-                    .parentChannelWrite(
-                        message: AddressedEnvelope(remoteAddress: self.remoteAddress, data: buffer),
-                        promise: nil
-                    )
+        self.logger.trace("QUICConnectionChildChannelStateMachine drainFinalizedOutputAndHandleLifecycle loop")
+        var shouldFlush = false
+        while let buffer = self.quicConnection.nextOutboundPacket() {
+            actions.append(
+                .parentChannelWrite(
+                    message: AddressedEnvelope(remoteAddress: self.remoteAddress, data: buffer),
+                    promise: nil
                 )
-                shouldFlush = true
-            }
-            if shouldFlush {
-                actions.append(.childChannelFlush)
-            }
-        } catch {
-            self.logger.trace(
-                "QUICConnectionChildChannelStateMachine drainFinalizedOutputAndHandleLifecycle caught error",
-                metadata: ["error": "\(error)"]
             )
-            let promise = self.close()
-            actions.append(.childChannelEncounterError(error: error, promise: promise))
+            shouldFlush = true
+        }
+        if shouldFlush {
+            actions.append(.childChannelFlush)
         }
 
         // Lifecycle.

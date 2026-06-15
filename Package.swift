@@ -84,6 +84,7 @@ let package = Package(
                 .product(name: "X509", package: "swift-certificates"),
                 .product(name: "SwiftTLS", package: "swift-tls"),
                 .product(name: "SwiftNetwork", package: "swift-network-evolution"),
+                .product(name: "DequeModule", package: "swift-collections"),
                 .target(name: "ChildChannelMultiplexer"),
             ],
             swiftSettings: swiftSettings
