@@ -39,6 +39,8 @@ jobs:
       build_scheme: swift-nio-quic-Package
       swift_6_1_enabled: false
       swift_6_2_enabled: false
+      // Swift.String.UTF8View.span is unavailable here
+      watchos_xcode_build_enabled: false
 
   static-sdk:
     name: Static Linux Swift SDK
