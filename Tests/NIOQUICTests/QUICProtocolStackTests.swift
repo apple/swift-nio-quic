@@ -51,7 +51,6 @@ final class QUICProtocolStackTests: XCTestCase {
                             maxIdleTimeout: maxIdleTimeout,
                             forceVersionNegotiation: forceVersionNegotiation
                         ),
-                        maximumTokenLength: 0,
                         logger: logger,
                         metrics: nil,
                         inboundStreamChannelInitializer: { streamChannel in
@@ -95,7 +94,6 @@ final class QUICProtocolStackTests: XCTestCase {
                             sendRetry: sendRetry,
                             qLogConfiguration: qlogConfiguration
                         ),
-                        maximumTokenLength: 0,
                         logger: logger,
                         metrics: nil,
                         inboundStreamChannelInitializer: { streamChannel in

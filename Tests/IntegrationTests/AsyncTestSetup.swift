@@ -131,7 +131,6 @@ func makeMockClientAndServerPair(
                 ),
                 applicationProtocols: ["http/0.9"]
             ),
-            maximumTokenLength: 0,
             logger: Logger(label: "Testing Server"),
             metrics: nil,
             inboundStreamChannelInitializer: { streamChannel in
@@ -164,7 +163,6 @@ func makeMockClientAndServerPair(
         let (quicHandler, connectionMultiplexer) = try QUICHandler.makeHandlerAndConnectionMultiplexer(
             channel: clientChannel,
             quicConfiguration: clientConfiguration,
-            maximumTokenLength: 0,
             logger: Logger(label: "Testing Client"),
             metrics: nil,
             inboundStreamChannelInitializer: { channel in
@@ -275,7 +273,6 @@ private func setUpClientConnectionMultiplexer(
                 let (quicHandler, connectionMultiplexer) = try QUICHandler.makeHandlerAndConnectionMultiplexer(
                     channel: channel,
                     quicConfiguration: clientConfiguration,
-                    maximumTokenLength: 0,
                     logger: logger,
                     metrics: nil,
                     inboundStreamChannelInitializer: { channel in
@@ -327,7 +324,6 @@ private func setUpServerChannelAndConnectionMultiplexer(
                 let (quicHandler, connectionMultiplexer) = try QUICHandler.makeHandlerAndConnectionMultiplexer(
                     channel: channel,
                     quicConfiguration: quicConfiguration,
-                    maximumTokenLength: 0,
                     logger: logger,
                     metrics: nil,
                     inboundStreamChannelInitializer: { streamChannel in

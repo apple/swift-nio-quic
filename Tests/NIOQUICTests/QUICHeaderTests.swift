@@ -34,7 +34,7 @@ final class HeaderIDTests {
         let packet = QUICPackets.shortHeader(destinationID: connectionID)
         let buffer = ByteBuffer(bytes: packet)
 
-        let header = try buffer.getQUICPacketHeader(destinationIDLength: 16, maximumTokenLength: 10)
+        let header = try buffer.getQUICPacketHeader(destinationIDLength: 16)
 
         try #require(header?.type == .short)
         try #require(header?.destinationConnectionID == connectionID)
@@ -56,7 +56,7 @@ final class HeaderIDTests {
         let packet = QUICPackets.versionNegotiation(destinationID: connectionID, sourceID: connectionID)
         let buffer = ByteBuffer(bytes: packet)
 
-        let header = try buffer.getQUICPacketHeader(destinationIDLength: 16, maximumTokenLength: 10)
+        let header = try buffer.getQUICPacketHeader(destinationIDLength: 16)
 
         try #require(header?.type == .versionNegotiation)
         try #require(header?.destinationConnectionID == connectionID)
@@ -86,7 +86,7 @@ final class HeaderIDTests {
         )
         let buffer = ByteBuffer(bytes: packet)
 
-        let header = try buffer.getQUICPacketHeader(destinationIDLength: 16, maximumTokenLength: 10)
+        let header = try buffer.getQUICPacketHeader(destinationIDLength: 16)
 
         try #require(header?.type == .initial)
         try #require(header?.destinationConnectionID == connectionID)
@@ -111,7 +111,7 @@ final class HeaderIDTests {
         let packet = QUICPackets.zeroRTT(destinationID: connectionID, sourceID: connectionID, version: version)
         let buffer = ByteBuffer(bytes: packet)
 
-        let header = try buffer.getQUICPacketHeader(destinationIDLength: 16, maximumTokenLength: 10)
+        let header = try buffer.getQUICPacketHeader(destinationIDLength: 16)
 
         try #require(header?.type == .zeroRTT)
         try #require(header?.destinationConnectionID == connectionID)
@@ -135,7 +135,7 @@ final class HeaderIDTests {
         let packet = QUICPackets.handshake(destinationID: connectionID, sourceID: connectionID, version: version)
         let buffer = ByteBuffer(bytes: packet)
 
-        let header = try buffer.getQUICPacketHeader(destinationIDLength: 16, maximumTokenLength: 10)
+        let header = try buffer.getQUICPacketHeader(destinationIDLength: 16)
 
         try #require(header?.type == .handshake)
         try #require(header?.destinationConnectionID == connectionID)
@@ -165,7 +165,7 @@ final class HeaderIDTests {
         )
         let buffer = ByteBuffer(bytes: packet)
 
-        let header = try buffer.getQUICPacketHeader(destinationIDLength: 16, maximumTokenLength: 10)
+        let header = try buffer.getQUICPacketHeader(destinationIDLength: 16)
 
         try #require(header?.type == .retry)
         try #require(header?.destinationConnectionID == connectionID)
@@ -195,7 +195,7 @@ final class HeaderIDTests {
             version: 1
         )
         let buffer = ByteBuffer(bytes: packet)
-        let header = try buffer.parseQUICPacketHeader(destinationIDLength: 8, maximumTokenLength: 20)
+        let header = try buffer.parseQUICPacketHeader(destinationIDLength: 8)
         try #require(header?.destinationConnectionID == connectionID)
     }
 
@@ -226,7 +226,7 @@ final class HeaderIDTests {
         )
         let buffer = ByteBuffer(bytes: packet)
 
-        let header = try buffer.getQUICPacketHeader(destinationIDLength: 8, maximumTokenLength: 10)
+        let header = try buffer.getQUICPacketHeader(destinationIDLength: 8)
 
         try #require(header?.type == .initial)
         try #require(header?.destinationConnectionID == dcid)
@@ -254,7 +254,7 @@ final class HeaderIDTests {
         )
         let buffer = ByteBuffer(bytes: packet)
 
-        let header = try #require(try buffer.getQUICPacketHeader(destinationIDLength: 0, maximumTokenLength: 10))
+        let header = try #require(try buffer.getQUICPacketHeader(destinationIDLength: 0))
 
         try #require(header.type == .initial)
         let parsedDCID = header.destinationConnectionID
@@ -276,7 +276,7 @@ final class HeaderIDTests {
         let packet = QUICPackets.shortHeader(destinationID: zeroLengthCID)
         let buffer = ByteBuffer(bytes: packet)
 
-        let header = try #require(try buffer.getQUICPacketHeader(destinationIDLength: 0, maximumTokenLength: 10))
+        let header = try #require(try buffer.getQUICPacketHeader(destinationIDLength: 0))
 
         #expect(header.type == .short)
         #expect(header.destinationConnectionID.length == 0)
