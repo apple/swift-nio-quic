@@ -14,8 +14,15 @@
 
 import Logging
 import NIOCore
-import NIOPosix
 @_spi(Essentials) @_spi(ProtocolProvider) import SwiftNetwork
+
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#elseif canImport(Musl)
+import Musl
+#endif
 
 /// `QUICChannelOutputHandler` is the bridge between SwiftNetwork and our code on the network-side.
 /// It is registered with the SwiftNetwork `QUICConnectionImplementation` as an output handler.
