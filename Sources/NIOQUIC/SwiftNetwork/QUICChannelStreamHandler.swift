@@ -492,7 +492,13 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
     // Called when the stream handler receives a disconnected event
     internal func handleDisconnectedEvent(_ from: ProtocolInstanceReference, error: NetworkError?) {
         log("handleDisconnectedEvent error: \(String(describing: error))")
-        self.closeStream(mode: .detachAndClose, error: error, promise: nil)
+        // Defer to the next event-loop tick: SwiftNetwork can deliver this synchronously
+        // from inside our own `invokeDisconnect` call, and `closeStream(.detachAndClose)`
+        // mutates `swiftNetworkStreamHandle` (via `invokeDetach`) — running it inline would
+        // overlap that mutation with the outer borrow.
+        self.eventLoop.execute {
+            self.closeStream(mode: .detachAndClose, error: error, promise: nil)
+        }
     }
 
     @inline(__always)
