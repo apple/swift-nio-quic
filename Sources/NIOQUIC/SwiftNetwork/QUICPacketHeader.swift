@@ -187,11 +187,9 @@ extension NIOCore.ByteBuffer {
     ///
     /// - Parameters:
     ///   - shortHeaderDCIDLength: The length of the destination connection ID. Required to parse short header packets.
-    ///   - maximumTokenLength: The maximum length of the token. Checked when parsing the packet.
     /// - Returns: The parsed `QUICPacketHeader` or `nil` if the not enough bytes were readable.
     public func parseQUICPacketHeader(
-        destinationIDLength shortHeaderDCIDLength: Int,
-        maximumTokenLength: Int
+        destinationIDLength shortHeaderDCIDLength: Int
     ) throws -> QUICPacketHeader? {
         let routingHeader: QUICPacketHeader? = try self.withUnsafeReadableBytes { buffer in
             let header = QUICConnectionUtilities.parseInboundPacket(
@@ -229,8 +227,7 @@ extension NIOCore.ByteBuffer {
             return routingHeader
         } else {
             return try self.getQUICPacketHeader(
-                destinationIDLength: shortHeaderDCIDLength,
-                maximumTokenLength: maximumTokenLength
+                destinationIDLength: shortHeaderDCIDLength
             )
         }
     }
@@ -239,11 +236,9 @@ extension NIOCore.ByteBuffer {
     ///
     /// - Parameters:
     ///   - shortHeaderDCIDLength: The length of the destination connection ID. Required to parse short header packets.
-    ///   - maximumTokenLength: The maximum length of the token. Checked when parsing the packet.
     /// - Returns: The parsed `QUICPacketHeader` or `nil` if the not enough bytes were readable.
     public func getQUICPacketHeader(
-        destinationIDLength shortHeaderDCIDLength: Int,
-        maximumTokenLength: Int
+        destinationIDLength shortHeaderDCIDLength: Int
     ) throws -> QUICPacketHeader? {
         let packetType: QUICPacketHeader.PacketType
         var sourceConnectionID: QUICConnectionID? = nil

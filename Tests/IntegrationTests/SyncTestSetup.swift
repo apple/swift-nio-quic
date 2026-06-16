@@ -120,7 +120,6 @@ private func createQUICChannel(
             let quicHandler = QUICHandler(
                 channel: channel,
                 quicConfiguration: quicConfiguration,
-                maximumTokenLength: 0,
                 asyncVerifier: nil,
                 authenticator: nil,
                 logger: logger,

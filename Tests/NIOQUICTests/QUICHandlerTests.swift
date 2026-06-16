@@ -46,7 +46,6 @@ final class QUICHandlerTests: XCTestCase {
                 ),
                 applicationProtocols: []
             ),
-            maximumTokenLength: 1,
             logger: Logger(label: "Test"),
             inboundStreamChannelInitializer: { channel in
                 do {
@@ -99,8 +98,7 @@ final class QUICHandlerTests: XCTestCase {
         let packet = QUICPackets.versionNegotiation(destinationID: connectionID, sourceID: connectionID)
         let buffer = ByteBuffer(bytes: packet)
         let outboundHeader = try buffer.parseQUICPacketHeader(
-            destinationIDLength: 8,
-            maximumTokenLength: 8
+            destinationIDLength: 8
         )
         XCTAssertEqual(outboundHeader?.sourceConnectionID, connectionID)
         XCTAssertEqual(outboundHeader?.destinationConnectionID, connectionID)
@@ -120,8 +118,7 @@ final class QUICHandlerTests: XCTestCase {
         let packet = QUICPackets.versionNegotiation(destinationID: connectionID, sourceID: nil)
         let buffer = ByteBuffer(bytes: packet)
         let outboundHeader = try buffer.getQUICPacketHeader(
-            destinationIDLength: 8,
-            maximumTokenLength: 8
+            destinationIDLength: 8
         )
 
         XCTAssertEqual(outboundHeader?.destinationConnectionID, connectionID)
@@ -142,8 +139,7 @@ final class QUICHandlerTests: XCTestCase {
         let packet = QUICPackets.versionNegotiation(destinationID: nil, sourceID: connectionID)
         let buffer = ByteBuffer(bytes: packet)
         let outboundHeader = try buffer.getQUICPacketHeader(
-            destinationIDLength: 8,
-            maximumTokenLength: 8
+            destinationIDLength: 8
         )
         XCTAssertEqual(outboundHeader?.destinationConnectionID.length, 0)
         XCTAssertEqual(outboundHeader?.sourceConnectionID, connectionID)
@@ -154,8 +150,7 @@ final class QUICHandlerTests: XCTestCase {
         let packet = QUICPackets.versionNegotiation(destinationID: nil, sourceID: nil)
         let buffer = ByteBuffer(bytes: packet)
         let outboundHeader = try buffer.getQUICPacketHeader(
-            destinationIDLength: 1,
-            maximumTokenLength: 1
+            destinationIDLength: 1
         )
         XCTAssertEqual(outboundHeader?.sourceConnectionID?.length, 0)
         XCTAssertEqual(outboundHeader?.destinationConnectionID.length, 0)
