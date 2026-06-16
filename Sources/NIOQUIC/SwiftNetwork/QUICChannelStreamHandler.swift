@@ -15,12 +15,15 @@
 import Atomics
 import Logging
 import NIOCore
-import NIOPosix
 import NIOQUICHelpers
 @_spi(Essentials) @_spi(ProtocolProvider) import SwiftNetwork
 
-#if canImport(Glibc)
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
 import Glibc
+#elseif canImport(Musl)
+import Musl
 #endif
 
 extension StreamShutdownDirection {

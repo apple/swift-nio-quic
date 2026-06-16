@@ -14,8 +14,15 @@
 
 import Logging
 import NIOCore
-import NIOPosix
 @_spi(Essentials) @_spi(ProtocolProvider) import SwiftNetwork
+
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#elseif canImport(Musl)
+import Musl
+#endif
 
 /// `QUICChannelNewFlowHandler` is responsible for dealing with new SwiftNetwork 'flows' initiated by the other end of the connection.
 /// A flow in this case is a new stream of data that is registered with the QUIC stack and is represented here by `QUICChannelStreamHandler`.

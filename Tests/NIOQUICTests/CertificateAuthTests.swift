@@ -44,7 +44,6 @@ final class CertificateAuthTests: XCTestCase {
                             applicationProtocols: ["swift_nio_quic"],
                             maxIdleTimeout: maxIdleTimeout
                         ),
-                        maximumTokenLength: 0,
                         logger: Logger(label: "test"),
                         metrics: nil,
                         inboundStreamChannelInitializer: { streamChannel in
@@ -79,7 +78,6 @@ final class CertificateAuthTests: XCTestCase {
                             ),
                             applicationProtocols: ["swift_nio_quic"]
                         ),
-                        maximumTokenLength: 0,
                         logger: Logger(label: "test"),
                         metrics: nil,
                         inboundStreamChannelInitializer: { streamChannel in

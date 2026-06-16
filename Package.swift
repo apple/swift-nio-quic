@@ -76,7 +76,6 @@ let package = Package(
             name: "NIOQUIC",
             dependencies: [
                 .product(name: "NIOCore", package: "swift-nio"),
-                .product(name: "NIOHTTP1", package: "swift-nio"),
                 .product(name: "NIOQUICHelpers", package: "swift-nio-quic-helpers"),
                 .product(name: "Logging", package: "swift-log"),
                 .product(name: "Metrics", package: "swift-metrics"),
@@ -84,6 +83,7 @@ let package = Package(
                 .product(name: "X509", package: "swift-certificates"),
                 .product(name: "SwiftTLS", package: "swift-tls"),
                 .product(name: "SwiftNetwork", package: "swift-network-evolution"),
+                .product(name: "DequeModule", package: "swift-collections"),
                 .target(name: "ChildChannelMultiplexer"),
             ],
             swiftSettings: swiftSettings
@@ -120,6 +120,7 @@ let package = Package(
                 .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
                 .product(name: "NIOCore", package: "swift-nio"),
                 .product(name: "NIOPosix", package: "swift-nio"),
+                .product(name: "NIOEmbedded", package: "swift-nio"),
                 .product(name: "Logging", package: "swift-log"),
                 .product(name: "Metrics", package: "swift-metrics"),
                 .product(name: "NIOQUICHelpers", package: "swift-nio-quic-helpers"),
