@@ -44,8 +44,6 @@ public final class QUICHandler {
 
     /// The QUIC configuration used to accept connections.
     private let quicConfiguration: QUICConfiguration
-    /// The maximum length of tokens.
-    private let maximumTokenLength: Int
     /// The multiplexer used for multiplexing the connections.
     private let connectionMultiplexer:
         ChildChannelMultiplexer<
@@ -92,7 +90,6 @@ public final class QUICHandler {
     /// - Parameters:
     ///   - channel: The channel this handler resides in.
     ///   - QUICConfiguration: The quic configuration to use for this handler.
-    ///   - maximumTokenLength: The maximum length of tokens.
     ///   - logger: The logger.
     ///   - metrics: The optional metrics to be recorded.
     ///   - inboundStreamChannelInitializer: A closure called for any new inbound stream.
@@ -100,7 +97,6 @@ public final class QUICHandler {
     public static func makeHandlerAndConnectionMultiplexer<Output: Sendable>(
         channel: any Channel,
         quicConfiguration: QUICConfiguration,
-        maximumTokenLength: Int,
         logger: Logger,
         metrics: QUICMetrics? = nil,
         inboundStreamChannelInitializer: @Sendable @escaping (any Channel) -> EventLoopFuture<Output>
@@ -108,7 +104,6 @@ public final class QUICHandler {
         try self.makeHandlerAndConnectionMultiplexer(
             channel: channel,
             quicConfiguration: quicConfiguration,
-            maximumTokenLength: maximumTokenLength,
             logger: logger,
             metrics: metrics,
             inboundStreamChannelInitializer: inboundStreamChannelInitializer,
@@ -121,7 +116,6 @@ public final class QUICHandler {
     /// - Parameters:
     ///   - channel: The channel this handler resides in.
     ///   - QUICConfiguration: The quic configuration to use for this handler.
-    ///   - maximumTokenLength: The maximum length of tokens.
     ///   - logger: The logger.
     ///   - metrics: The optional metrics to be recorded.
     ///   - inboundStreamChannelInitializer: A closure called for any new inbound stream.
@@ -130,7 +124,6 @@ public final class QUICHandler {
     public static func makeHandlerAndConnectionMultiplexer<Output: Sendable>(
         channel: any Channel,
         quicConfiguration: QUICConfiguration,
-        maximumTokenLength: Int,
         logger: Logger,
         metrics: QUICMetrics? = nil,
         inboundStreamChannelInitializer: @Sendable @escaping (any Channel) -> EventLoopFuture<Output>,
@@ -182,7 +175,6 @@ public final class QUICHandler {
         let handler = QUICHandler(
             channel: channel,
             quicConfiguration: quicConfiguration,
-            maximumTokenLength: maximumTokenLength,
             asyncVerifier: asyncVerifier,
             authenticator: authenticator,
             logger: logger,
@@ -207,14 +199,12 @@ public final class QUICHandler {
     /// - Parameters:
     ///   - channel: The channel this handler resides in.
     ///   - quicConfiguration: The quic configuration to use for this handler.
-    ///   - maximumTokenLength: The maximum length of tokens.
-    ///   - asyncVerifier: Callback provider for SwiftTLS cerificate verification.
+    ///   - asyncVerifier: Callback provider for SwiftTLS certificate verification.
     ///   - logger: The logger.
     ///   - metrics: The optional metrics to be recorded.
     init(
         channel: any Channel,
         quicConfiguration: QUICConfiguration,
-        maximumTokenLength: Int,
         asyncVerifier: AsyncVerifier?,
         authenticator: Authenticator?,
         logger: Logger,
@@ -225,7 +215,6 @@ public final class QUICHandler {
         self.eventLoop = channel.eventLoop
         self.connectionMultiplexer = .init(eventLoop: self.eventLoop, logger: logger)
         self.quicConfiguration = quicConfiguration
-        self.maximumTokenLength = maximumTokenLength
         self.outboundBuffer = channel.allocator.buffer(capacity: ByteBuffer.maxDatagramSize)
         self.logger = logger
         self.metrics = metrics
@@ -242,7 +231,6 @@ public final class QUICHandler {
     /// - Parameters:
     ///   - channel: The channel this handler resides in.
     ///   - quicConfiguration: The quic configuration to use for this handler.
-    ///   - maximumTokenLength: The maximum length of tokens.
     ///   - asyncVerifier: Callback provider for SwiftTLS certificate verification.
     ///   - authenticator: Authenticator for SwiftTLS certificate verification.
     ///   - logger: The logger.
@@ -253,7 +241,6 @@ public final class QUICHandler {
     public init(
         channel: any Channel,
         quicConfiguration: QUICConfiguration,
-        maximumTokenLength: Int,
         asyncVerifier: AsyncVerifier?,
         authenticator: Authenticator?,
         logger: Logger,
@@ -267,7 +254,6 @@ public final class QUICHandler {
         self.eventLoop = channel.eventLoop
         self.connectionMultiplexer = .init(eventLoop: self.eventLoop, logger: logger)
         self.quicConfiguration = quicConfiguration
-        self.maximumTokenLength = maximumTokenLength
         self.outboundBuffer = channel.allocator.buffer(capacity: ByteBuffer.maxDatagramSize)
         self.logger = logger
         self.metrics = metrics
@@ -640,8 +626,7 @@ extension QUICHandler: ChannelInboundHandler {
         do {
             guard
                 let quicPacketHeader = try addressedEnvelope.data.parseQUICPacketHeader(
-                    destinationIDLength: self.quicConnectionIDGenerator.connectionIDLength,
-                    maximumTokenLength: self.maximumTokenLength
+                    destinationIDLength: self.quicConnectionIDGenerator.connectionIDLength
                 )
             else {
                 throw QUICError.quicPacketHeaderDecodingFailed

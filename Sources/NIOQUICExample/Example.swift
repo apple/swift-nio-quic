@@ -95,7 +95,6 @@ struct Example {
                     let (quicHandler, connectionMultiplexer) = try QUICHandler.makeHandlerAndConnectionMultiplexer(
                         channel: channel,
                         quicConfiguration: quicConfiguration,
-                        maximumTokenLength: 0,
                         logger: logger,
                         metrics: nil,
                         inboundStreamChannelInitializer: { streamChannel in
@@ -161,7 +160,6 @@ struct Example {
                 let (quicHandler, connectionMultiplexer) = try QUICHandler.makeHandlerAndConnectionMultiplexer(
                     channel: channel,
                     quicConfiguration: quicConfiguration,
-                    maximumTokenLength: 0,
                     logger: logger,
                     metrics: nil,
                     inboundStreamChannelInitializer: { channel -> EventLoopFuture<Never> in
