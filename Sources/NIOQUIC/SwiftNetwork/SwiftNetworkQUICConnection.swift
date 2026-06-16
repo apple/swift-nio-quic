@@ -13,6 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 import Crypto
+import DequeModule
 import Logging
 @_spi(CustomByteBufferAllocator) import NIOCore
 import NIOQUICHelpers
@@ -105,7 +106,7 @@ final class SwiftNetworkQUICConnection {
 
     private var connectionStateMachine = QUICConnectionStateMachine()
 
-    private var finalizedOutput: [NIOCore.ByteBuffer] = []
+    private var finalizedOutput: Deque<ByteBuffer> = []
     private var inputPacketQueue: FrameArray = FrameArray(capacity: 10)
     private var newlyConnectedStreams: Set<QUICStreamID> = []
     private var networkContext: NetworkContext
@@ -1126,11 +1127,8 @@ final class SwiftNetworkQUICConnection {
     ///
     @discardableResult
     @inlinable
-    func nextOutboundPacket() throws -> NIOCore.ByteBuffer? {
-        guard !self.finalizedOutput.isEmpty else {
-            return nil
-        }
-        return self.finalizedOutput.removeFirst()
+    func nextOutboundPacket() -> ByteBuffer? {
+        self.finalizedOutput.popFirst()
     }
 
     /// Returns stream IDs for newly connected streams.

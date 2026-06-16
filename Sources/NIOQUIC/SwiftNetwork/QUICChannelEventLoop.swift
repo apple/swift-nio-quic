@@ -13,7 +13,6 @@
 //===----------------------------------------------------------------------===//
 
 import NIOCore
-import NIOPosix
 @_spi(ProtocolProvider) @_spi(Essentials) import SwiftNetwork
 
 // TODO: Make ScheduledEntry ~Copyable with UniqueArray / PriorityQueue
