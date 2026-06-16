@@ -99,7 +99,6 @@ public struct QUICConfiguration: Sendable {
     public var initialMaxStreamDataUni: Int
     public var initialMaxStreamsBidi: Int
     public var initialMaxStreamsUni: Int
-    public var incrementalMaxStreamsUpdate: Int
     // Set a keep-alive interval in seconds
     var keepAliveInterval: Duration?
     // Client flag mainly for testing to ensure that forcing version negotiation completes successfully
@@ -125,7 +124,6 @@ public struct QUICConfiguration: Sendable {
         initialMaxStreamDataUni: Int,
         initialMaxStreamsBidi: Int,
         initialMaxStreamsUni: Int,
-        incrementalMaxStreamsUpdate: Int,
         keepAliveInterval: Duration?,
         forceVersionNegotiation: Bool,
         sendRetry: Bool,
@@ -146,7 +144,6 @@ public struct QUICConfiguration: Sendable {
         self.initialMaxStreamDataUni = initialMaxStreamDataUni
         self.initialMaxStreamsBidi = initialMaxStreamsBidi
         self.initialMaxStreamsUni = initialMaxStreamsUni
-        self.incrementalMaxStreamsUpdate = incrementalMaxStreamsUpdate
         self.keepAliveInterval = keepAliveInterval
         self.forceVersionNegotiation = forceVersionNegotiation
         self.sendRetry = sendRetry
@@ -177,7 +174,6 @@ public struct QUICConfiguration: Sendable {
         initialMaxStreamDataUni: Int = 2_097_152,
         initialMaxStreamsBidi: Int = 8,
         initialMaxStreamsUni: Int = 8,
-        incrementalMaxStreamsUpdate: Int = 64,
         keepAliveInterval: Duration? = nil,
         sendRetry: Bool = false,
         keyLogPath: String? = nil,
@@ -197,7 +193,6 @@ public struct QUICConfiguration: Sendable {
             initialMaxStreamDataUni: initialMaxStreamDataUni,
             initialMaxStreamsBidi: initialMaxStreamsBidi,
             initialMaxStreamsUni: initialMaxStreamsUni,
-            incrementalMaxStreamsUpdate: incrementalMaxStreamsUpdate,
             keepAliveInterval: keepAliveInterval,
             forceVersionNegotiation: false,
             sendRetry: sendRetry,
@@ -228,7 +223,6 @@ public struct QUICConfiguration: Sendable {
         initialMaxStreamDataUni: Int = 2_097_152,
         initialMaxStreamsBidi: Int = 8,
         initialMaxStreamsUni: Int = 8,
-        incrementalMaxStreamsUpdate: Int = 64,
         keepAliveInterval: Duration? = nil,
         forceVersionNegotiation: Bool = false,
         keyLogPath: String? = nil,
@@ -249,7 +243,6 @@ public struct QUICConfiguration: Sendable {
             initialMaxStreamDataUni: initialMaxStreamDataUni,
             initialMaxStreamsBidi: initialMaxStreamsBidi,
             initialMaxStreamsUni: initialMaxStreamsUni,
-            incrementalMaxStreamsUpdate: incrementalMaxStreamsUpdate,
             keepAliveInterval: keepAliveInterval,
             forceVersionNegotiation: forceVersionNegotiation,
             sendRetry: false,
