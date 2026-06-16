@@ -2029,7 +2029,6 @@ extension QUICStreamReceiveStateMachine.State {
     }
 }
 
-
 /// Tracks the channel pipeline initializer's lifecycle.
 ///
 /// As opposed to the other state machines this one specifically
@@ -2386,10 +2385,12 @@ struct SwiftNetworkStreamHandle: ~Copyable {
         operation: String,
         reason: StateMachine.ViolationReason
     ) -> NetworkError {
-        NetworkError(category: NetworkError.CommonCategory(
-            identifier: "swift-nio-quic.streamHandleViolation",
-            description: "\(operation): \(reason)"
-        ))
+        NetworkError(
+            category: NetworkError.CommonCategory(
+                identifier: "swift-nio-quic.streamHandleViolation",
+                description: "\(operation): \(reason)"
+            )
+        )
     }
 }
 
