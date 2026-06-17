@@ -48,7 +48,6 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-nio", from: "2.92.0"),
         .package(url: "https://github.com/apple/swift-log", from: "1.12.1", traits: maxLogLevel),
         .package(url: "https://github.com/apple/swift-metrics", from: "2.4.1"),
-        .package(url: "https://github.com/apple/swift-atomics.git", from: "1.1.0"),
         .package(url: "https://github.com/apple/swift-certificates.git", branch: "swift-crypto-5.x"),
         .package(url: "https://github.com/apple/swift-collections.git", from: "1.4.1"),
         .package(url: "https://github.com/apple/swift-crypto.git", exact: "5.0.0-beta.1"),
@@ -92,7 +91,6 @@ let package = Package(
             name: "ChildChannelMultiplexer",
             dependencies: [
                 .product(name: "NIOCore", package: "swift-nio"),
-                .product(name: "Atomics", package: "swift-atomics"),
                 .product(name: "Logging", package: "swift-log"),
                 .product(name: "HeapModule", package: "swift-collections"),
             ]

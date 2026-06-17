@@ -12,7 +12,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-import Atomics
 import Crypto
 import Foundation
 import Logging
@@ -21,6 +20,7 @@ import NIOCore
 import NIOEmbedded
 import NIOPosix
 import NIOQUICHelpers
+import Synchronization
 import XCTest
 
 @testable import NIOQUIC
@@ -55,7 +55,7 @@ final class IntegrationTests: XCTestCase {
                 }
             }
 
-            let responses = ManagedAtomic(0)
+            let responses = Atomic(0)
             for _ in 0..<requestCount {
                 let stream = try await connection.createBidirectionalStream { streamInitializer in
                     streamInitializer.channel.eventLoop.makeCompletedFuture {
@@ -75,7 +75,7 @@ final class IntegrationTests: XCTestCase {
 
                     for try await buffer in inbound {
                         XCTAssertEqual(buffer, .init(string: "<b>Success</b>"))
-                        responses.wrappingIncrement(ordering: .sequentiallyConsistent)
+                        responses.wrappingAdd(1, ordering: .sequentiallyConsistent)
                     }
                 }
             }
@@ -307,7 +307,7 @@ final class IntegrationTests: XCTestCase {
             return connection
         }
 
-        let clientGotResponse = ManagedAtomic(false)
+        let clientGotResponse = Atomic(false)
 
         try await withThrowingTaskGroup(of: Void.self) { group in
             group.addTask {
@@ -404,7 +404,7 @@ final class IntegrationTests: XCTestCase {
                 }
             }
 
-            let responses = ManagedAtomic(0)
+            let responses = Atomic(0)
             for _ in 0..<requestCount {
                 let stream = try await connection.createBidirectionalStream {
                     let channel = $0.channel
@@ -425,7 +425,7 @@ final class IntegrationTests: XCTestCase {
 
                     for try await buffer in inbound {
                         XCTAssertEqual(buffer, .init(string: "<b>Success</b>"))
-                        responses.wrappingIncrement(ordering: .sequentiallyConsistent)
+                        responses.wrappingAdd(1, ordering: .sequentiallyConsistent)
                     }
                 }
             }
@@ -536,7 +536,7 @@ final class IntegrationTests: XCTestCase {
                 clientKeepAliveTime: nil  // No keepalives - we want idle timeout to fire
             )
 
-        let connectionClosed = ManagedAtomic(false)
+        let connectionClosed = Atomic(false)
 
         try await withThrowingTaskGroup(of: Void.self) { group in
             // Server task - process one request then wait

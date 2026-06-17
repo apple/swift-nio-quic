@@ -12,11 +12,11 @@
 //
 //===----------------------------------------------------------------------===//
 
-import Atomics
 import HeapModule
 import Logging
 import NIOConcurrencyHelpers
 import NIOCore
+import Synchronization
 
 /// The delegate of a ``ChildChannel``.
 ///
@@ -304,10 +304,10 @@ where
     let allocator: ByteBufferAllocator
     /// Atomic that stores if this channel is currently active.
     @usableFromInline
-    let _isActive: ManagedAtomic<Bool>
+    let _isActive: Synchronization.Atomic<Bool>
     /// Atomic that stores if this channel is currently writable.
     @usableFromInline
-    let _isWritable: ManagedAtomic<Bool>
+    let _isWritable: Synchronization.Atomic<Bool>
     /// The actual channel pipeline.
     ///
     /// We don't have to `nil` this out since the ``ChannelPipeline`` will break the retain cycles
@@ -360,8 +360,8 @@ where
         self._localAddress = localAddress
         self._remoteAddress = remoteAddress
         self._closePromise = parent.eventLoop.makePromise(of: Void.self)
-        self._isActive = ManagedAtomic(false)
-        self._isWritable = ManagedAtomic(true)
+        self._isActive = Atomic(false)
+        self._isWritable = Atomic(true)
         self._activationState = .neverActivated
         self._multiplexedChannelIDs = []
         self._writabilityManager = ChildChannelWritabilityManager(

@@ -12,7 +12,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-import Atomics
 import Foundation
 import Logging
 import NIOConcurrencyHelpers
@@ -20,6 +19,7 @@ import NIOCore
 import NIOEmbedded
 import NIOPosix
 import NIOQUICHelpers
+import Synchronization
 import Testing
 import XCTest
 
@@ -152,7 +152,7 @@ final class QUICProtocolStackTests: XCTestCase {
                     }
                 }
             }
-            let responses = ManagedAtomic(0)
+            let responses = Atomic(0)
             let stream = try await clientConnection.createBidirectionalStream { streamInitializer in
                 streamInitializer.channel.eventLoop.makeCompletedFuture {
                     try NIOAsyncChannel(
@@ -171,7 +171,7 @@ final class QUICProtocolStackTests: XCTestCase {
 
                 for try await buffer in inbound {
                     XCTAssertEqual(buffer, .init(string: "<b>Success</b>"))
-                    responses.wrappingIncrement(ordering: .sequentiallyConsistent)
+                    responses.wrappingAdd(1, ordering: .sequentiallyConsistent)
                 }
             }
 
@@ -234,13 +234,13 @@ final class QUICProtocolStackTests: XCTestCase {
                     }
                 }
             }
-            let clientResponses = ManagedAtomic(0)
+            let clientResponses = Atomic(0)
             group.addTask {
                 for await stream in clientConnection.inboundStreams {
                     try await stream.executeThenClose { inbound, outbound in
                         for try await buffer in inbound {
                             XCTAssertEqual(buffer, .init(string: "Response to client"))
-                            clientResponses.wrappingIncrement(ordering: .sequentiallyConsistent)
+                            clientResponses.wrappingAdd(1, ordering: .sequentiallyConsistent)
                             try clientMultiplexer.eventLoop.close()
                         }
                     }
@@ -392,7 +392,7 @@ final class QUICProtocolStackTests: XCTestCase {
         XCTAssertNotNil(serverPort, "Server port code not be determined")
         try await withThrowingTaskGroup(of: Void.self) { group in
             group.addTask {
-                let handledStreams = ManagedAtomic(0)
+                let handledStreams = Atomic(0)
                 // Handle multiple connections
                 await withThrowingTaskGroup(of: Void.self) { connectionGroup in
                     for await connection in serverMultiplexer.inboundConnections {
@@ -405,9 +405,8 @@ final class QUICProtocolStackTests: XCTestCase {
                                         // count on the connection and then sending it back so it doesnt exactly match the incoming read.
                                         // There may be a better way to do this but for now we are just trying to test that the project
                                         // handles multiple connections with individual reads.
-                                        let streamNumber = handledStreams.wrappingIncrementThenLoad(
-                                            ordering: .sequentiallyConsistent
-                                        )
+                                        let result = handledStreams.wrappingAdd(1, ordering: .sequentiallyConsistent)
+                                        let streamNumber = result.newValue
                                         XCTAssertTrue(String(buffer: buffer).hasPrefix("GET /foo/"))
                                         let responseMessage = "<b>Success \(streamNumber)</b>"
                                         try await outbound.write(.init(string: responseMessage))
@@ -420,7 +419,7 @@ final class QUICProtocolStackTests: XCTestCase {
                 }
             }
             let connectionCount = 6
-            let responses = ManagedAtomic(0)
+            let responses = Atomic(0)
             // Runs a client side connections one at a time (server is handling connections concurrently)
             // NOTE: For this to work the client side needs to increment the local port used so packets do not get mixed up on connections.
             for connectionIndex in 0..<connectionCount {
@@ -457,7 +456,7 @@ final class QUICProtocolStackTests: XCTestCase {
                     for try await buffer in inbound {
                         // There may be a better way here, but for now just check for the prefix on the client side.
                         XCTAssertTrue(String(buffer: buffer).hasPrefix("<b>Success"))
-                        responses.wrappingIncrement(ordering: .sequentiallyConsistent)
+                        responses.wrappingAdd(1, ordering: .sequentiallyConsistent)
                     }
                 }
                 try await Task.sleep(for: .milliseconds(5))
@@ -479,7 +478,7 @@ final class QUICProtocolStackTests: XCTestCase {
         XCTAssertNotNil(serverPort, "Server port code not be determined")
         try await withThrowingTaskGroup(of: Void.self) { group in
             group.addTask {
-                let handledStreams = ManagedAtomic(0)
+                let handledStreams = Atomic(0)
                 // Handle multiple connections
                 await withThrowingTaskGroup(of: Void.self) { connectionGroup in
                     for await connection in serverMultiplexer.inboundConnections {
@@ -489,9 +488,8 @@ final class QUICProtocolStackTests: XCTestCase {
                                 try await stream.executeThenClose { inbound, outbound in
                                     for try await buffer in inbound {
                                         // Just incrementing the stream count on the connection.
-                                        let streamNumber = handledStreams.wrappingIncrementThenLoad(
-                                            ordering: .sequentiallyConsistent
-                                        )
+                                        let result = handledStreams.wrappingAdd(1, ordering: .sequentiallyConsistent)
+                                        let streamNumber = result.newValue
                                         let msg = String(buffer: buffer)
                                         XCTAssertTrue(msg.hasPrefix("GET /connection/"))
                                         let parts = msg.split(separator: "/")
@@ -512,7 +510,7 @@ final class QUICProtocolStackTests: XCTestCase {
             // Run 6 connections with 6 streams inside each connection
             let connectionCount = 6
             let streamCountPerConnection = 6
-            let streamResponses = ManagedAtomic(0)
+            let streamResponses = Atomic(0)
             // Runs a client side connections one at a time (server is handling connections concurrently)
             // NOTE: For this to work the client side needs to increment the local port used so packets do not get mixed up on connections.
             for connectionIndex in 0..<connectionCount {
@@ -559,7 +557,7 @@ final class QUICProtocolStackTests: XCTestCase {
                             let clientStreamNumber = try XCTUnwrap(Int(parts[2]), "Unexpected part: \(parts[2])")
                             XCTAssertEqual(connectionIndex + 1, clientConnectionNumber)
                             XCTAssertEqual(streamIndex + 1, clientStreamNumber)
-                            streamResponses.wrappingIncrement(ordering: .sequentiallyConsistent)
+                            streamResponses.wrappingAdd(1, ordering: .sequentiallyConsistent)
                         }
                     }
                 }
@@ -603,7 +601,7 @@ final class QUICProtocolStackTests: XCTestCase {
                     }
                 }
             }
-            let responses = ManagedAtomic(0)
+            let responses = Atomic(0)
             for _ in 0..<requestCount {
                 let stream = try await connection.createBidirectionalStream { streamInitializer in
                     streamInitializer.channel.eventLoop.makeCompletedFuture {
@@ -623,7 +621,7 @@ final class QUICProtocolStackTests: XCTestCase {
 
                     for try await buffer in inbound {
                         XCTAssertEqual(buffer, .init(string: "<b>Success</b>"))
-                        responses.wrappingIncrement(ordering: .sequentiallyConsistent)
+                        responses.wrappingAdd(1, ordering: .sequentiallyConsistent)
                     }
                 }
             }
@@ -653,8 +651,8 @@ final class QUICProtocolStackTests: XCTestCase {
             }
         )
 
-        let processedStreams = ManagedAtomic<Int>(0)
-        let allStreamsSent = ManagedAtomic<Bool>(false)
+        let processedStreams = Atomic<Int>(0)
+        let allStreamsSent = Atomic<Bool>(false)
         try await withThrowingTaskGroup(of: Void.self) { group in
             group.addTask {
                 for await connection in serverMultiplexer.inboundConnections {
@@ -663,7 +661,7 @@ final class QUICProtocolStackTests: XCTestCase {
                             for try await buffer in inbound {
                                 let str = String(decoding: Array(buffer: buffer), as: Unicode.UTF8.self)
                                 XCTAssert(str.starts(with: "GET /foo/"))
-                                processedStreams.wrappingIncrement(ordering: .sequentiallyConsistent)
+                                processedStreams.wrappingAdd(1, ordering: .sequentiallyConsistent)
                             }
                         }
                     }
@@ -738,7 +736,7 @@ final class QUICProtocolStackTests: XCTestCase {
                     }
                 }
             }
-            let responses = ManagedAtomic(0)
+            let responses = Atomic(0)
             for _ in 0..<requestCount {
                 let stream = try await connection.createBidirectionalStream { streamInitializer in
                     streamInitializer.channel.eventLoop.makeCompletedFuture {
@@ -758,7 +756,7 @@ final class QUICProtocolStackTests: XCTestCase {
 
                     for try await buffer in inbound {
                         XCTAssertEqual(buffer, .init(string: "<b>Success</b>"))
-                        responses.wrappingIncrement(ordering: .sequentiallyConsistent)
+                        responses.wrappingAdd(1, ordering: .sequentiallyConsistent)
                     }
                 }
             }
@@ -785,8 +783,8 @@ final class QUICProtocolStackTests: XCTestCase {
                 channel.eventLoop.makeCompletedFuture { fatalError() }
             }
         )
-        let processedStreams = ManagedAtomic<Int>(0)
-        let allStreamsSent = ManagedAtomic<Bool>(false)
+        let processedStreams = Atomic<Int>(0)
+        let allStreamsSent = Atomic<Bool>(false)
         try await withThrowingTaskGroup(of: Void.self) { group in
             group.addTask {
                 for await connection in serverMultiplexer.inboundConnections {
@@ -795,7 +793,7 @@ final class QUICProtocolStackTests: XCTestCase {
                             for try await buffer in inbound {
                                 let str = String(decoding: Array(buffer: buffer), as: Unicode.UTF8.self)
                                 XCTAssert(str.starts(with: "GET /foo/"))
-                                processedStreams.wrappingIncrement(ordering: .sequentiallyConsistent)
+                                processedStreams.wrappingAdd(1, ordering: .sequentiallyConsistent)
                             }
                         }
                     }
@@ -877,7 +875,7 @@ final class QUICProtocolStackTests: XCTestCase {
                     }
                 }
             }
-            let responses = ManagedAtomic(0)
+            let responses = Atomic(0)
             let stream = try await clientConnection.createBidirectionalStream { streamInitializer in
                 streamInitializer.channel.eventLoop.makeCompletedFuture {
                     try NIOAsyncChannel(
@@ -896,7 +894,7 @@ final class QUICProtocolStackTests: XCTestCase {
 
                 for try await buffer in inbound {
                     XCTAssertEqual(buffer, .init(string: "<b>Success</b>"))
-                    responses.wrappingIncrement(ordering: .sequentiallyConsistent)
+                    responses.wrappingAdd(1, ordering: .sequentiallyConsistent)
                 }
             }
 
@@ -940,7 +938,7 @@ final class QUICProtocolStackTests: XCTestCase {
                     }
                 }
             }
-            let responses = ManagedAtomic(0)
+            let responses = Atomic(0)
             let stream = try await clientConnection.createBidirectionalStream { streamInitializer in
                 streamInitializer.channel.eventLoop.makeCompletedFuture {
                     try NIOAsyncChannel(
@@ -959,7 +957,7 @@ final class QUICProtocolStackTests: XCTestCase {
 
                 for try await buffer in inbound {
                     XCTAssertEqual(buffer, .init(string: "<b>Success</b>"))
-                    responses.wrappingIncrement(ordering: .sequentiallyConsistent)
+                    responses.wrappingAdd(1, ordering: .sequentiallyConsistent)
                 }
             }
 

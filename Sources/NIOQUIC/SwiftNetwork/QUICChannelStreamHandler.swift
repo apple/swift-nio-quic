@@ -12,11 +12,11 @@
 //
 //===----------------------------------------------------------------------===//
 
-import Atomics
 import Logging
 import NIOCore
 import NIOQUICHelpers
 @_spi(Essentials) @_spi(ProtocolProvider) import SwiftNetwork
+import Synchronization
 
 #if canImport(Darwin)
 import Darwin
@@ -63,10 +63,10 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
     let allocator: ByteBufferAllocator
     /// Atomic that stores if this channel is currently active.
     @usableFromInline
-    let _isActive: ManagedAtomic<Bool>
+    let _isActive: Atomic<Bool>
     /// Atomic that stores if this channel is currently writable.
     @usableFromInline
-    let _isWritable: ManagedAtomic<Bool>
+    let _isWritable: Atomic<Bool>
     /// The actual channel pipeline.
     /// This needs to be an implicitly unwrapped optional because the ChannelPipeline holds a ref to this Channel
     /// and that the ChannelPipeline is responsible for breaking the retain cycle.
@@ -138,8 +138,8 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
         self.connectionChannel = connectionChannel
         self.eventLoop = connectionChannel.eventLoop
         self.allocator = connectionChannel.allocator
-        self._isActive = ManagedAtomic(false)
-        self._isWritable = ManagedAtomic(true)
+        self._isActive = Atomic(false)
+        self._isWritable = Atomic(true)
         self._closePromise = connectionChannel.eventLoop.makePromise(of: Void.self)
         self._pipeline = ChannelPipeline(channel: self)
     }
@@ -174,8 +174,8 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
         self.eventLoop = eventLoop
         self.allocator = connectionChannel?.allocator ?? ByteBufferAllocator()
         self.connectionChannel = connectionChannel
-        self._isActive = ManagedAtomic(false)
-        self._isWritable = ManagedAtomic(true)
+        self._isActive = Atomic(false)
+        self._isWritable = Atomic(true)
         self._closePromise = eventLoop.makePromise(of: Void.self)
 
         do throws(NetworkError) {
