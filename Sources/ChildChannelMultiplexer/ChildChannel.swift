@@ -75,6 +75,7 @@ protocol ChildChannelDelegate: AnyObject {
 ///
 /// It reaches out to its state machine for customization.
 @usableFromInline
+@available(macOS 15, iOS 18, tvOS 18, watchOS 11, visionOS 2, *)
 final class ChildChannel<
     ID: Hashable & _ChildChannelMultiplexerSendableMetatype,
     StateMachine: ChildChannelStateMachine & _ChildChannelMultiplexerSendableMetatype,
@@ -443,6 +444,7 @@ extension ChildChannel.TaskWithDeadline: Sendable {}
 
 // MARK: - Channel action processing
 
+@available(macOS 15, iOS 18, tvOS 18, watchOS 11, visionOS 2, *)
 extension ChildChannel {
     /// This method processed the generated actions by the state machine. It is protected against reentrancy.
     ///
@@ -1111,6 +1113,7 @@ extension ChildChannel {
 
 // MARK: - Channel initialization
 
+@available(macOS 15, iOS 18, tvOS 18, watchOS 11, visionOS 2, *)
 extension ChildChannel {
     @inlinable
     func configure(
@@ -1172,6 +1175,7 @@ extension ChildChannel {
 
 // MARK: Activation state management
 
+@available(macOS 15, iOS 18, tvOS 18, watchOS 11, visionOS 2, *)
 extension ChildChannel {
     /// An enum to keep track of whether we've notified the channel of activation or not.
     @usableFromInline
@@ -1226,6 +1230,7 @@ extension ChildChannel {
 
 // MARK: - Calls from the multiplexer
 
+@available(macOS 15, iOS 18, tvOS 18, watchOS 11, visionOS 2, *)
 extension ChildChannel {
     @inlinable
     func parentChannelInactive() {
@@ -1282,6 +1287,7 @@ extension ChildChannel {
 
 // MARK: - `Channel` & `ChannelCore` conformance
 
+@available(macOS 15, iOS 18, tvOS 18, watchOS 11, visionOS 2, *)
 extension ChildChannel: Channel, ChannelCore {
     @usableFromInline
     struct SynchronousOptions: NIOSynchronousChannelOptions {
@@ -1569,6 +1575,7 @@ extension ChildChannel.SynchronousOptions: Sendable {}
 
 // MARK: - Internal read and write handling
 
+@available(macOS 15, iOS 18, tvOS 18, watchOS 11, visionOS 2, *)
 extension ChildChannel {
     @inlinable
     func _tryToRead() {
@@ -1647,6 +1654,7 @@ extension ChildChannel {
     }
 }
 
+@available(macOS 15, iOS 18, tvOS 18, watchOS 11, visionOS 2, *)
 extension ChildChannel {
     /// Appends the passed dependent actions to the last action in the passed actions collection.
     /// If the actions collection is empty all dependent actions will be just appended to the collection.
@@ -1680,4 +1688,5 @@ extension ChildChannel {
 
 /// It's okay to mark ``ChildChannel`` as `@unchecked Sendable` because all operations are properly
 /// isolated to `EventLoop`s.
+@available(macOS 15, iOS 18, tvOS 18, watchOS 11, visionOS 2, *)
 extension ChildChannel: @unchecked Sendable {}

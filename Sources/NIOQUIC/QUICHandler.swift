@@ -17,7 +17,7 @@ import Logging
 import NIOCore
 import X509
 
-@available(macOS 11, iOS 14.0, tvOS 14.0, watchOS 7.0, macCatalyst 14.0, *)
+@available(anyAppleOS 26, *)
 private enum MultiplexerContinuation {
     case connectionMultiplexerContinuation(any ConnectionMultiplexerContinuation)
     case closure(
@@ -31,7 +31,7 @@ private enum MultiplexerContinuation {
 /// A handler for QUIC connections.
 /// Add this to a UDP channel.
 /// It can multiplex multiple QUIC connections.
-@available(macOS 11, iOS 14.0, tvOS 14.0, watchOS 7.0, macCatalyst 14.0, *)
+@available(anyAppleOS 26, *)
 public final class QUICHandler {
     private enum State {
         case accepting
@@ -562,7 +562,7 @@ public final class QUICHandler {
 @available(*, unavailable)
 extension QUICHandler: Sendable {}
 
-@available(macOS 11, iOS 14.0, tvOS 14.0, watchOS 7.0, macCatalyst 14.0, *)
+@available(anyAppleOS 26, *)
 extension QUICHandler: ChannelInboundHandler {
     public typealias InboundIn = AddressedEnvelope<ByteBuffer>
     public typealias OutboundOut = AddressedEnvelope<ByteBuffer>
@@ -942,7 +942,7 @@ extension QUICHandler: ChannelInboundHandler {
     }
 }
 
-@available(macOS 11, iOS 14.0, tvOS 14.0, watchOS 7.0, macCatalyst 14.0, *)
+@available(anyAppleOS 26, *)
 extension QUICHandler: ChildChannelMultiplexerDelegate {
     public typealias ChildChannelID = QUICConnectionID
     public typealias ChildChannelIDProperties = Never
@@ -1019,7 +1019,7 @@ extension ByteBuffer {
     fileprivate static let maxDatagramSize = 1350
 }
 
-@available(macOS 11, iOS 14.0, tvOS 14.0, watchOS 7.0, macCatalyst 14.0, *)
+@available(anyAppleOS 26, *)
 public struct QUICHandlerHandle: Sendable {
     private let _wrapped: NIOLoopBound<QUICHandler>
 
@@ -1039,7 +1039,7 @@ public struct QUICHandlerHandle: Sendable {
     }
 }
 
-@available(macOS 11, iOS 14.0, tvOS 14.0, watchOS 7.0, macCatalyst 14.0, *)
+@available(anyAppleOS 26, *)
 extension QUICHandler {
     public func makeHandle() -> QUICHandlerHandle {
         QUICHandlerHandle(wrapping: self, eventLoop: self.eventLoop)

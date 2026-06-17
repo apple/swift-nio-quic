@@ -19,6 +19,7 @@ import NIOPosix
 import NIOQUIC
 
 @main
+@available(anyAppleOS 26, *)
 struct Example {
     static func main() async throws {
         let logger = Logger(label: "quic.example")

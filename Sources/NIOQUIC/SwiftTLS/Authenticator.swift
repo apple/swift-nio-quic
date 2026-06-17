@@ -17,6 +17,7 @@ import SwiftASN1
 @_spi(SwiftTLSProtocol) import SwiftTLS
 import X509
 
+@available(macOS 11, iOS 14, tvOS 14, watchOS 7, *)
 enum AuthParameters {
     static var legacySignatureAlgorithms: Set<Certificate.SignatureAlgorithm> {
         [
@@ -26,6 +27,7 @@ enum AuthParameters {
 }
 
 /// Authenticates the server during TLS 1.3 handshakes using X509 certificates.
+@available(anyAppleOS 26, *)
 public final class Authenticator: Sendable {
     let privateKey: Certificate.PrivateKey
     let certificates: [Certificate]

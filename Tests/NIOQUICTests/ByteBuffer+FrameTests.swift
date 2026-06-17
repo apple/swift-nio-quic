@@ -21,6 +21,7 @@ import Testing
 private let testBuffer: [UInt8] = (0..<2048).flatMap { _ in [7, 6, 5, 4, 3, 2, 1, 9, 8] }
 
 struct ByteBuffer_FrameTests {
+    @available(anyAppleOS 26, *)
     @Test(
         "init(frame:) empty buffer"
     )
@@ -34,6 +35,7 @@ struct ByteBuffer_FrameTests {
         #expect(byteBuffer == ByteBuffer(bytes: bytes))
     }
 
+    @available(anyAppleOS 26, *)
     @Test(
         "init(frame:) buffer consistency"
     )
@@ -46,6 +48,7 @@ struct ByteBuffer_FrameTests {
         #expect(byteBuffer == ByteBuffer(bytes: testBuffer))
     }
 
+    @available(anyAppleOS 26, *)
     @Test(
         "init(frame:) independent backing storage"
     )

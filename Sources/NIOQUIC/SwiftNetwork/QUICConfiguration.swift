@@ -54,6 +54,7 @@ public enum KeyExchangeGroup: UInt16, Sendable {
     case x25519 = 0x001D
     case x25519MLKEM768 = 0x11EC
 
+    @available(anyAppleOS 26, *)
     internal var swiftTLSKeyExchangeGroup: SwiftTLS.SwiftTLSOptions.KeyExchangeGroup {
         switch self {
         case .secp256:
@@ -68,6 +69,7 @@ public enum KeyExchangeGroup: UInt16, Sendable {
     }
 }
 
+@available(anyAppleOS 26, *)
 public struct QUICConfiguration: Sendable {
     public struct QLogConfiguration: Sendable {
         /// The directory to where the qlog files are written to.

@@ -32,6 +32,7 @@ private final class UDPMarker: ChannelInboundHandler, Sendable {
     typealias InboundIn = NIOAny
 }
 
+@available(anyAppleOS 26, *)
 final class ChannelHierarchyTests: XCTestCase {
     /// End-to-end test that asserts the channel hierarchy from the perspective
     /// of a QUIC stream channel:

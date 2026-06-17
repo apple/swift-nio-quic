@@ -34,13 +34,11 @@ let swiftSettings: [SwiftSetting] =
     [
         .enableUpcomingFeature("ExistentialAny"),
         .enableUpcomingFeature("StrictConcurrency"),
+        .enableExperimentalFeature("AnyAppleOSAvailability"),
     ]
 
 let package = Package(
     name: "swift-nio-quic",
-    platforms: [
-        .macOS("26.0"), .iOS("26.0"), .tvOS("26.0"), .watchOS("26.0"), .visionOS("26.0"),
-    ],
     products: [
         .library(name: "NIOQUIC", targets: ["NIOQUIC"])
     ],
@@ -54,7 +52,7 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-nio-quic-helpers.git", branch: "main"),
         .package(
             url: "https://github.com/apple/swift-network-evolution",
-            revision: "1b7579b056416cdc53d7a66dde4c498bf6983afe",
+            revision: "7caf2a52bb68f1f1ec5ba4e287e729d40a02779e",
             traits: swiftNetworkTraits
         ),
         .package(url: "https://github.com/apple/swift-tls", branch: "main"),

@@ -43,7 +43,7 @@ extension NIOCore.ByteBuffer {
 
 /// A wrapper around the objects and state we need to keep track of and access a QUIC connection in SwiftNetwork.
 /// Holds the references required to access QUIC connections and streams
-@available(macOS 11, iOS 14.0, tvOS 14.0, watchOS 7.0, macCatalyst 14.0, *)
+@available(anyAppleOS 26, *)
 final class SwiftNetworkQUICConnection {
     /// Struct that contains the results of a read for a stream.
     struct ReadStreamResult {
@@ -1167,6 +1167,7 @@ final class SwiftNetworkQUICConnection {
 
 }
 
+@available(anyAppleOS 26, *)
 extension SwiftNetworkQUICConnection {
 
     /// Schedule a connection close due to a given error. This can be called from callbacks
@@ -1352,6 +1353,7 @@ extension SwiftNetworkQUICConnection {
 }
 
 // Callbacks coming from QUICChannelStreamHandler and QUICChannelNewFlowHandler
+@available(anyAppleOS 26, *)
 extension SwiftNetworkQUICConnection {
 
     /// Handle disconnected events from SwiftNetwork for individual stream handlers.
@@ -1488,6 +1490,7 @@ extension SwiftNetworkQUICConnection {
 }
 
 // Callbacks coming from QUICChannelNewFlowHandler
+@available(anyAppleOS 26, *)
 extension SwiftNetworkQUICConnection {
 
     /// Marks a new server stream as newly connected and adds the new stream to streamInputHandlers
@@ -1510,6 +1513,7 @@ extension SwiftNetworkQUICConnection {
     }
 }
 
+@available(anyAppleOS 26, *)
 extension SwiftNetworkQUICConnection {
     /// Request retiring a connection ID that we are using to address our peer.
     func requestRetirementOfConnectionID(_ connectionID: QUICConnectionID) throws {
@@ -1533,6 +1537,7 @@ extension SwiftNetworkQUICConnection {
     }
 }
 
+@available(anyAppleOS 26, *)
 extension SwiftNetworkQUICConnection {
     #if DEBUG  // For testing purposes only
     /// Injects a connection ID into the retired set. Useful for testing because it allows
@@ -1568,6 +1573,7 @@ extension SwiftNetworkQUICConnection {
 }
 
 // Callbacks coming from QUICChannelOutputHandler
+@available(anyAppleOS 26, *)
 extension SwiftNetworkQUICConnection {
 
     internal func flushOutputFrames() {
@@ -1664,6 +1670,7 @@ extension SwiftNetworkQUICConnection {
     }
 }
 
+@available(anyAppleOS 26, *)
 extension Frame {
     /// The frames returned by Swift QUIC were created in `QUICChannelOutputHandler.getDatagramsToSend`. They all hold
     /// the same buffer type and a pointer to allocated memory. Any other buffer type is unexpected and a logic error. To take ownership
@@ -1708,6 +1715,7 @@ extension Frame {
     }
 }
 
+@available(anyAppleOS 26, *)
 extension SwiftNetworkQUICConnection {
     /// A view over the connection for the `QUICChannelNewFlowHandler`.
     struct NewFlowView {

@@ -17,6 +17,7 @@ import Foundation
 import SwiftASN1
 import X509
 
+@available(macOS 11, iOS 14, tvOS 14, watchOS 7, *)
 func makeCertificate(
     commonName cn: String,
     issuer: (Certificate, Certificate.PrivateKey)? = nil,
@@ -125,6 +126,7 @@ func makeCertificate(
     }
 }
 
+@available(macOS 11, iOS 14, tvOS 14, watchOS 7, *)
 struct CertificateChain {
     let rootCert: Certificate
     let rootKey: Certificate.PrivateKey
@@ -202,6 +204,7 @@ struct CertificateChain {
 
 }
 
+@available(macOS 11, iOS 14, tvOS 14, watchOS 7, *)
 private func writeCertificates(
     _ certificates: [Certificate],
     directory: URL,
@@ -218,6 +221,7 @@ private func writeCertificates(
     return url
 }
 
+@available(macOS 11, iOS 14, tvOS 14, watchOS 7, *)
 private func writeKey(
     _ privateKey: Certificate.PrivateKey,
     directory: URL,

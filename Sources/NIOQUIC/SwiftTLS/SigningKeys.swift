@@ -15,6 +15,7 @@
 import Crypto
 import Foundation
 
+@available(macOS 11, iOS 14, tvOS 14, watchOS 7, *)
 extension P256.Signing.PrivateKey {
     static func fromDERFile(_ path: String) throws -> P256.Signing.PrivateKey {
         let data = try Data(contentsOf: URL(fileURLWithPath: path))
@@ -22,6 +23,7 @@ extension P256.Signing.PrivateKey {
     }
 }
 
+@available(macOS 11, iOS 14, tvOS 14, watchOS 7, *)
 extension P256.Signing.PublicKey {
     static func fromDERFile(_ path: String) throws -> P256.Signing.PublicKey {
         let data = try Data(contentsOf: URL(fileURLWithPath: path))

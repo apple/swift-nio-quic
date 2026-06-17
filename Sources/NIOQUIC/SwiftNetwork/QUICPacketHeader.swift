@@ -16,7 +16,7 @@ import NIOCore
 @_spi(ProtocolProvider) import SwiftNetwork
 
 /// A QUIC packet's header.
-@available(macOS 11, iOS 14.0, tvOS 14.0, watchOS 7.0, macCatalyst 14.0, *)
+@available(anyAppleOS 26, *)
 public struct QUICPacketHeader: Hashable, Sendable {
 
     static func form(_ firstByte: UInt8) -> PacketForm {
@@ -179,7 +179,7 @@ public struct QUICPacketHeader: Hashable, Sendable {
     fileprivate static let AES128GCMTagLength: Int = 16
 }
 
-@available(macOS 11, iOS 14.0, tvOS 14.0, watchOS 7.0, macCatalyst 14.0, *)
+@available(anyAppleOS 26, *)
 extension NIOCore.ByteBuffer {
 
     /// A method to parse a `QUICPacketHeader` from the `ByteBuffer`, mainly to parse the destinationConnectionID only for routing.

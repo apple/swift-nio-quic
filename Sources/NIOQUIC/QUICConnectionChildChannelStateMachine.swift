@@ -17,7 +17,7 @@ import Logging
 import NIOCore
 import NIOQUICHelpers
 
-@available(macOS 11, iOS 14.0, tvOS 14.0, watchOS 7.0, macCatalyst 14.0, *)
+@available(anyAppleOS 26, *)
 struct QUICConnectionChildChannelStateMachine: ChildChannelStateMachine {
     enum Task: Hashable, CustomStringConvertible {
         case writeToParent(ByteBuffer)
@@ -413,7 +413,7 @@ struct QUICConnectionChildChannelStateMachine: ChildChannelStateMachine {
     }
 }
 
-@available(macOS 11, iOS 14.0, tvOS 14.0, watchOS 7.0, macCatalyst 14.0, *)
+@available(anyAppleOS 26, *)
 extension QUICConnectionChildChannelStateMachine {
     /// Writes all outbound data from the QUIC connection to the parent channel.
     ///

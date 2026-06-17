@@ -48,6 +48,7 @@ enum StreamClosureState {
 
 /// `QUICChannelStreamHandler` is the bridge between SwiftNetwork and our code on the application-side;
 /// one `QUICChannelStreamHandler` exists for each QUIC stream.
+@available(anyAppleOS 26, *)
 final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHandler, @unchecked Sendable {
 
     // MARK: Channel and ChannelCore conformanace
@@ -840,6 +841,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
     }
 }
 
+@available(anyAppleOS 26, *)
 extension QUICChannelStreamHandler: UpperProtocolHandler {
     internal func handleNetworkProtocolEvent(
         _ from: SwiftNetwork.ProtocolInstanceReference,
@@ -873,6 +875,7 @@ extension QUICChannelStreamHandler: UpperProtocolHandler {
 
 // MARK: - `Channel` and `ChannelCore` conformance
 
+@available(anyAppleOS 26, *)
 extension QUICChannelStreamHandler: Channel, ChannelCore {
     var parent: (any Channel)? {
         self.connectionChannel

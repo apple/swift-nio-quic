@@ -18,7 +18,7 @@ import NIOCore
 /// Internal type to abstract away the `Output` type of the multiplexer. This means we are going through an existential
 /// in the `QUICHandler` when yielding a new `Channel`. However, this is okay for now otherwise
 /// we would need to make the handler generic as well.
-@available(macOS 11, iOS 14.0, tvOS 14.0, watchOS 7.0, macCatalyst 14.0, *)
+@available(anyAppleOS 26, *)
 protocol ConnectionMultiplexerContinuation: Sendable {
     /// We have to do a bit of an awkward dance here to carry the `Output` between the initializer and the continuation where
     /// we yield to. That's why we are using `Any` here to avoid making the handler generic.
@@ -33,7 +33,7 @@ protocol ConnectionMultiplexerContinuation: Sendable {
     func finish()
 }
 
-@available(macOS 11, iOS 14.0, tvOS 14.0, watchOS 7.0, macCatalyst 14.0, *)
+@available(anyAppleOS 26, *)
 extension QUICHandler {
     /// A multiplexer for the QUIC connections of a ``QUICHandler``.
     ///
