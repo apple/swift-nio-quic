@@ -13,7 +13,6 @@
 //===----------------------------------------------------------------------===//
 
 import NIOCore
-import Synchronization
 import XCTest
 
 @testable import NIOQUIC
@@ -126,7 +125,7 @@ final class AsyncStreamingTests: XCTestCase {
 
     private static func sendOneRequest(
         connection: QUICConnection<Never>,
-        responses: borrowing Atomic<Int>
+        responses: Counter
     ) async throws {
         let stream = try await connection.createBidirectionalStream { streamInitializer in
             streamInitializer.channel.eventLoop.makeCompletedFuture {
@@ -149,7 +148,7 @@ final class AsyncStreamingTests: XCTestCase {
                 accumulated.writeImmutableBuffer(buf)
             }
             if accumulated == .init(string: "<b>Success</b>") {
-                responses.wrappingAdd(1, ordering: .sequentiallyConsistent)
+                responses.increment()
             }
         }
     }
@@ -171,7 +170,7 @@ final class AsyncStreamingTests: XCTestCase {
                 channel.eventLoop.makeCompletedFuture { fatalError() }
             }
         )
-        let responses = Atomic(0)
+        let responses = Counter()
 
         try await withThrowingTaskGroup(of: Void.self) { group in
             group.addTask {
@@ -221,7 +220,7 @@ final class AsyncStreamingTests: XCTestCase {
         }
 
         XCTAssertEqual(
-            responses.load(ordering: .sequentiallyConsistent),
+            responses.load(),
             requestCount,
             file: file,
             line: line

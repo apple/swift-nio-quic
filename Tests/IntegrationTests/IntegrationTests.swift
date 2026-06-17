@@ -536,7 +536,7 @@ final class IntegrationTests: XCTestCase {
                 clientKeepAliveTime: nil  // No keepalives - we want idle timeout to fire
             )
 
-        let connectionClosed = Atomic(false)
+        let connectionClosed = Counter()
 
         try await withThrowingTaskGroup(of: Void.self) { group in
             // Server task - process one request then wait
@@ -552,7 +552,7 @@ final class IntegrationTests: XCTestCase {
                         }
                         // After first stream, wait for idle timeout then exit
                         try await Task.sleep(for: .seconds(3))
-                        connectionClosed.store(true, ordering: .sequentiallyConsistent)
+                        connectionClosed.increment()
                         return
                     }
                 }
@@ -594,7 +594,7 @@ final class IntegrationTests: XCTestCase {
         }
 
         // After idle timeout, the connection should be closed
-        XCTAssertTrue(connectionClosed.load(ordering: .sequentiallyConsistent))
+        XCTAssertEqual(connectionClosed.load(), 1)
     }
 
     // MARK: - Zero-length connection ID tests (RFC 9000 Section 5.1)

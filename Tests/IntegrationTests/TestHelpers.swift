@@ -14,6 +14,7 @@
 
 import NIOCore
 import NIOEmbedded
+import Synchronization
 import XCTest
 
 // taken from swift-nio-http2
@@ -112,5 +113,18 @@ func assertNoThrowWithValue<T>(
         } else {
             throw error
         }
+    }
+}
+
+final class Counter: Sendable {
+    private let value = Atomic<Int>(0)
+
+    @discardableResult
+    func increment() -> Int {
+        self.value.wrappingAdd(1, ordering: .sequentiallyConsistent).newValue
+    }
+
+    func load() -> Int {
+        self.value.load(ordering: .sequentiallyConsistent)
     }
 }

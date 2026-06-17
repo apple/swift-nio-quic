@@ -240,7 +240,7 @@ final class CertificateAuthTests: XCTestCase {
         XCTAssertNotNil(serverPort, "Server port code not be determined")
         try await withThrowingTaskGroup(of: Void.self) { group in
             group.addTask {
-                let handledStreams = Atomic(0)
+                let handledStreams = Counter()
                 // Handle multiple connections
                 await withThrowingTaskGroup(of: Void.self) { connectionGroup in
                     for await connection in serverMultiplexer.inboundConnections {
@@ -253,8 +253,7 @@ final class CertificateAuthTests: XCTestCase {
                                         // count on the connection and then sending it back so it doesnt exactly match the incoming read.
                                         // There may be a better way to do this but for now we are just trying to test that the project
                                         // handles multiple connections with individual reads.
-                                        let result = handledStreams.wrappingAdd(1, ordering: .sequentiallyConsistent)
-                                        let streamNumber = result.newValue
+                                        let streamNumber = handledStreams.increment()
                                         XCTAssertTrue(String(buffer: buffer).hasPrefix("GET /foo/"))
                                         let responseMessage = "<b>Success \(streamNumber)</b>"
                                         try await outbound.write(.init(string: responseMessage))
@@ -333,7 +332,7 @@ final class CertificateAuthTests: XCTestCase {
         XCTAssertNotNil(serverPort, "Server port code not be determined")
         try await withThrowingTaskGroup(of: Void.self) { group in
             group.addTask {
-                let handledStreams = Atomic(0)
+                let handledStreams = Counter()
                 // Handle multiple connections
                 await withThrowingTaskGroup(of: Void.self) { connectionGroup in
                     for await connection in serverMultiplexer.inboundConnections {
@@ -343,8 +342,7 @@ final class CertificateAuthTests: XCTestCase {
                                 try await stream.executeThenClose { inbound, outbound in
                                     for try await buffer in inbound {
                                         // Just incrementing the stream count on the connection.
-                                        let result = handledStreams.wrappingAdd(1, ordering: .sequentiallyConsistent)
-                                        let streamNumber = result.newValue
+                                        let streamNumber = handledStreams.increment()
                                         let msg = String(buffer: buffer)
                                         XCTAssertTrue(msg.hasPrefix("GET /connection/"))
                                         let parts = msg.split(separator: "/")

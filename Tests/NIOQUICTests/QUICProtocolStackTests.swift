@@ -392,7 +392,7 @@ final class QUICProtocolStackTests: XCTestCase {
         XCTAssertNotNil(serverPort, "Server port code not be determined")
         try await withThrowingTaskGroup(of: Void.self) { group in
             group.addTask {
-                let handledStreams = Atomic(0)
+                let handledStreams = Counter()
                 // Handle multiple connections
                 await withThrowingTaskGroup(of: Void.self) { connectionGroup in
                     for await connection in serverMultiplexer.inboundConnections {
@@ -405,8 +405,7 @@ final class QUICProtocolStackTests: XCTestCase {
                                         // count on the connection and then sending it back so it doesnt exactly match the incoming read.
                                         // There may be a better way to do this but for now we are just trying to test that the project
                                         // handles multiple connections with individual reads.
-                                        let result = handledStreams.wrappingAdd(1, ordering: .sequentiallyConsistent)
-                                        let streamNumber = result.newValue
+                                        let streamNumber = handledStreams.increment()
                                         XCTAssertTrue(String(buffer: buffer).hasPrefix("GET /foo/"))
                                         let responseMessage = "<b>Success \(streamNumber)</b>"
                                         try await outbound.write(.init(string: responseMessage))
@@ -478,7 +477,7 @@ final class QUICProtocolStackTests: XCTestCase {
         XCTAssertNotNil(serverPort, "Server port code not be determined")
         try await withThrowingTaskGroup(of: Void.self) { group in
             group.addTask {
-                let handledStreams = Atomic(0)
+                let handledStreams = Counter()
                 // Handle multiple connections
                 await withThrowingTaskGroup(of: Void.self) { connectionGroup in
                     for await connection in serverMultiplexer.inboundConnections {
@@ -488,8 +487,7 @@ final class QUICProtocolStackTests: XCTestCase {
                                 try await stream.executeThenClose { inbound, outbound in
                                     for try await buffer in inbound {
                                         // Just incrementing the stream count on the connection.
-                                        let result = handledStreams.wrappingAdd(1, ordering: .sequentiallyConsistent)
-                                        let streamNumber = result.newValue
+                                        let streamNumber = handledStreams.increment()
                                         let msg = String(buffer: buffer)
                                         XCTAssertTrue(msg.hasPrefix("GET /connection/"))
                                         let parts = msg.split(separator: "/")
@@ -651,7 +649,7 @@ final class QUICProtocolStackTests: XCTestCase {
             }
         )
 
-        let processedStreams = Atomic<Int>(0)
+        let processedStreams = Counter()
         let allStreamsSent = Atomic<Bool>(false)
         try await withThrowingTaskGroup(of: Void.self) { group in
             group.addTask {
@@ -661,7 +659,7 @@ final class QUICProtocolStackTests: XCTestCase {
                             for try await buffer in inbound {
                                 let str = String(decoding: Array(buffer: buffer), as: Unicode.UTF8.self)
                                 XCTAssert(str.starts(with: "GET /foo/"))
-                                processedStreams.wrappingAdd(1, ordering: .sequentiallyConsistent)
+                                processedStreams.increment()
                             }
                         }
                     }
@@ -689,17 +687,17 @@ final class QUICProtocolStackTests: XCTestCase {
 
             // Give it 4 seconds for all of the streams to be processed
             let startTime = ContinuousClock.now
-            while processedStreams.load(ordering: .sequentiallyConsistent) < requestCount {
+            while processedStreams.load() < requestCount {
                 let elapsed = ContinuousClock.now - startTime
                 if elapsed > .seconds(4) {
                     XCTFail(
-                        "Test timed out, only \(processedStreams.load(ordering: .sequentiallyConsistent))/\(requestCount) streams processed"
+                        "Test timed out, only \(processedStreams.load())/\(requestCount) streams processed"
                     )
                     break
                 }
                 try await Task.sleep(for: .milliseconds(10))
             }
-            XCTAssertEqual(processedStreams.load(ordering: .sequentiallyConsistent), requestCount)
+            XCTAssertEqual(processedStreams.load(), requestCount)
             group.cancelAll()
         }
 
@@ -783,7 +781,7 @@ final class QUICProtocolStackTests: XCTestCase {
                 channel.eventLoop.makeCompletedFuture { fatalError() }
             }
         )
-        let processedStreams = Atomic<Int>(0)
+        let processedStreams = Counter()
         let allStreamsSent = Atomic<Bool>(false)
         try await withThrowingTaskGroup(of: Void.self) { group in
             group.addTask {
@@ -793,7 +791,7 @@ final class QUICProtocolStackTests: XCTestCase {
                             for try await buffer in inbound {
                                 let str = String(decoding: Array(buffer: buffer), as: Unicode.UTF8.self)
                                 XCTAssert(str.starts(with: "GET /foo/"))
-                                processedStreams.wrappingAdd(1, ordering: .sequentiallyConsistent)
+                                processedStreams.increment()
                             }
                         }
                     }
@@ -823,17 +821,17 @@ final class QUICProtocolStackTests: XCTestCase {
 
             // Give it 4 seconds for all of the streams to be processed
             let startTime = ContinuousClock.now
-            while processedStreams.load(ordering: .sequentiallyConsistent) < requestCount {
+            while processedStreams.load() < requestCount {
                 let elapsed = ContinuousClock.now - startTime
                 if elapsed > .seconds(4) {
                     XCTFail(
-                        "Test timed out, only \(processedStreams.load(ordering: .sequentiallyConsistent))/\(requestCount) streams processed"
+                        "Test timed out, only \(processedStreams.load())/\(requestCount) streams processed"
                     )
                     break
                 }
                 try await Task.sleep(for: .milliseconds(10))
             }
-            XCTAssertEqual(processedStreams.load(ordering: .sequentiallyConsistent), requestCount)
+            XCTAssertEqual(processedStreams.load(), requestCount)
             group.cancelAll()
         }
 
