@@ -105,6 +105,13 @@ final class QUICChannelOutputHandler: ProtocolInstanceContainer, OutboundDatagra
 }
 
 extension QUICChannelOutputHandler: LowerProtocolHandler {
+    func getMetrics(
+        _ from: SwiftNetwork.ProtocolInstanceReference,
+        requestedNetworkMetric: SwiftNetwork.RequestedNetworkMetrics
+    ) -> SwiftNetwork.NetworkMetrics? {
+        nil
+    }
+
     internal func disconnect(_ from: SwiftNetwork.ProtocolInstanceReference, error: SwiftNetwork.NetworkError?) {
         log("received disconnect")
         upperProtocol.deliverDisconnectedEvent(reference, error: error)
