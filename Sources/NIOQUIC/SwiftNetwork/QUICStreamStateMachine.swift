@@ -2134,7 +2134,7 @@ extension QUICStreamPipelineStateMachine.State {
     }
 }
 
-/// Handle a QUIC stream uses to talk to the SwiftNetwork transport stack.
+/// The handle a QUIC stream uses to talk to the SwiftNetwork transport stack.
 struct SwiftNetworkStreamHandle: ~Copyable {
     /// Pure state machine: tracks attachment.
     ///
