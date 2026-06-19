@@ -1188,7 +1188,9 @@ struct QUICStreamStateMachineTests {
 
 struct QUICStreamPipelineStateMachineTests {
     /// Only the first read on a fresh stream is allowed to kick off the initializer.
-    @Test("startInitializer from .uninitialized with active channel returns .runInitializer and transitions to .initializing")
+    @Test(
+        "startInitializer from .uninitialized with active channel returns .runInitializer and transitions to .initializing"
+    )
     func startInitializerFromUninitialized() {
         var sm = QUICStreamPipelineStateMachine()
 
