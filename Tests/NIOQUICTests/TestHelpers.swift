@@ -13,6 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 import Foundation
+import Synchronization
 import XCTest
 
 extension XCTestCase {
@@ -26,4 +27,17 @@ extension XCTestCase {
 
     static let testPublicKeyPath: String = Bundle.module.url(forResource: "publicKey", withExtension: "der")!
         .path
+}
+
+final class Counter: Sendable {
+    private let value = Atomic<Int>(0)
+
+    @discardableResult
+    func increment() -> Int {
+        self.value.wrappingAdd(1, ordering: .sequentiallyConsistent).newValue
+    }
+
+    func load() -> Int {
+        self.value.load(ordering: .sequentiallyConsistent)
+    }
 }
