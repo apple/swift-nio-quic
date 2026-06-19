@@ -1396,7 +1396,6 @@ struct SwiftNetworkStreamHandleTests {
 
     /// Inbound init pathway: the listener-attached linkage is wrapped in an attached handle.
     @available(anyAppleOS 26, *)
-    @available(anyAppleOS 26, *)
     @Test("init(linkage:) is attached")
     func initWithLinkageIsAttached() {
         let handle = SwiftNetworkStreamHandle(linkage: OutboundStreamLinkage(reference: .init()))
