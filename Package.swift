@@ -34,13 +34,11 @@ let swiftSettings: [SwiftSetting] =
     [
         .enableUpcomingFeature("ExistentialAny"),
         .enableUpcomingFeature("StrictConcurrency"),
+        .enableExperimentalFeature("AnyAppleOSAvailability"),
     ]
 
 let package = Package(
     name: "swift-nio-quic",
-    platforms: [
-        .macOS("26.0"), .iOS("26.0"), .tvOS("26.0"), .watchOS("26.0"), .visionOS("26.0"),
-    ],
     products: [
         .library(name: "NIOQUIC", targets: ["NIOQUIC"])
     ],

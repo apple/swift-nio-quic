@@ -25,6 +25,7 @@ import XCTest
 @testable import NIOQUIC
 
 /// Reads in quic stream channels, runs the inboundStreamInitializer on them, then passes them down
+@available(anyAppleOS 26, *)
 final class HTTPConnectionHandler: ChannelInboundHandler {
     typealias InboundIn = any Channel  // stream channels
     typealias InboundOut = any Channel  // Pass through the stream channels
@@ -59,6 +60,7 @@ final class HTTPConnectionHandler: ChannelInboundHandler {
 }
 
 /// This channel gives a connection error as soon as it reads an inbound quic stream
+@available(anyAppleOS 26, *)
 final class RejectEverythingHTTPConnectionHandler: ChannelInboundHandler {
     typealias InboundIn = any Channel  // stream channels
     typealias InboundOut = any Channel  // Pass through the stream channels
@@ -77,6 +79,7 @@ final class RejectEverythingHTTPConnectionHandler: ChannelInboundHandler {
 }
 
 /// This channel immediately sends STOP_SENDING (with code 10) on every inbound stream.
+@available(anyAppleOS 26, *)
 final class StreamClosingHTTPConnectionHandler: ChannelInboundHandler {
     typealias InboundIn = any Channel  // stream channels
     typealias InboundOut = any Channel  // Pass through the stream channels
@@ -93,6 +96,7 @@ final class StreamClosingHTTPConnectionHandler: ChannelInboundHandler {
 }
 
 /// This channel immediately fires a RESET\_STREAM (with code 10) on every inbound stream.
+@available(anyAppleOS 26, *)
 final class StreamResettingHTTPConnectionHandler: ChannelInboundHandler {
     typealias InboundIn = any Channel  // stream channels
     typealias InboundOut = any Channel  // Pass through the stream channels
@@ -109,6 +113,7 @@ final class StreamResettingHTTPConnectionHandler: ChannelInboundHandler {
 }
 
 /// Waits for incoming requests, ensure they match GET /foo, then responds with success. Refuses to do this more than once
+@available(anyAppleOS 26, *)
 final class TestServerHandler: ChannelInboundHandler {
     typealias InboundIn = ByteBuffer
     typealias InboundOut = ByteBuffer
@@ -144,6 +149,7 @@ final class TestServerHandler: ChannelInboundHandler {
 }
 
 /// Waits for the channel to be active, sends a request, awaits the response and asserts that it is as expected. Then closes the channel.
+@available(anyAppleOS 26, *)
 final class TestClientHandler: ChannelInboundHandler {
     typealias InboundIn = ByteBuffer
     typealias InboundOut = ByteBuffer
@@ -207,6 +213,7 @@ final class TestClientHandler: ChannelInboundHandler {
     }
 }
 
+@available(anyAppleOS 26, *)
 final class ConnectionIDSideChannel: Sendable {
     let connectionID: Mutex<QUICConnectionID?>
 
@@ -216,6 +223,7 @@ final class ConnectionIDSideChannel: Sendable {
 }
 
 /// Waits for incoming "GET /foo" requests and answer them. Shuts down when receiving "GET /bye".
+@available(anyAppleOS 26, *)
 final class TestConnectionIDCycleServerHandler: ChannelInboundHandler {
     typealias InboundIn = ByteBuffer
     typealias InboundOut = ByteBuffer
@@ -290,6 +298,7 @@ final class TestConnectionIDCycleServerHandler: ChannelInboundHandler {
 /// 2. Receive an inbound event that the connection ID was associated with the connection.
 /// 3. Put the connection ID in the side channel for the server to request its retirement.
 /// 4. Receive an inbound event that the connection ID was retired from the connection.
+@available(anyAppleOS 26, *)
 final class TestConnectionIDCycleClientHandler: ChannelInboundHandler {
     typealias InboundIn = ByteBuffer
     typealias InboundOut = ByteBuffer
@@ -398,6 +407,7 @@ final class TestConnectionIDCycleClientHandler: ChannelInboundHandler {
 }
 
 /// Server handler for the protocol violation test. Just responds to requests.
+@available(anyAppleOS 26, *)
 final class TestProtocolViolationServerHandler: ChannelInboundHandler {
     typealias InboundIn = ByteBuffer
     typealias InboundOut = ByteBuffer
@@ -426,6 +436,7 @@ final class TestProtocolViolationServerHandler: ChannelInboundHandler {
 /// `handleAssociateConnectionID` runs on the client side (it's triggered by the local
 /// SwiftNetwork creating the SCID), so it finds the ID in `retiredSCIDs` and triggers
 /// the protocol violation close.
+@available(anyAppleOS 26, *)
 final class TestProtocolViolationClientHandler: ChannelInboundHandler {
     typealias InboundIn = ByteBuffer
     typealias InboundOut = ByteBuffer
@@ -500,6 +511,7 @@ final class TestProtocolViolationClientHandler: ChannelInboundHandler {
 
 /// Server handler for the buffered connection ID deletion test. Responds to requests
 /// and shuts down on "GET /bye".
+@available(anyAppleOS 26, *)
 final class TestBufferedDeletionServerHandler: ChannelInboundHandler {
     typealias InboundIn = ByteBuffer
     typealias InboundOut = ByteBuffer
@@ -548,6 +560,7 @@ final class TestBufferedDeletionServerHandler: ChannelInboundHandler {
 ///
 /// Phase transitions are managed by `BufferedDeletionStateMachine`. This handler
 /// switches over the returned actions to perform NIO channel operations.
+@available(anyAppleOS 26, *)
 final class TestBufferedDeletionClientHandler: ChannelInboundHandler {
     typealias InboundIn = ByteBuffer
     typealias InboundOut = ByteBuffer
@@ -717,6 +730,7 @@ final class TestBufferedDeletionClientHandler: ChannelInboundHandler {
     }
 }
 
+@available(anyAppleOS 26, *)
 final class ErrorCatchingHandler: ChannelInboundHandler, Sendable {
     typealias InboundIn = Never
     typealias OutboundIn = Never
@@ -734,6 +748,7 @@ final class ErrorCatchingHandler: ChannelInboundHandler, Sendable {
 }
 
 /// Captures a `QUICStopSendingEvent` delivered as a user inbound event and succeeds a promise.
+@available(anyAppleOS 26, *)
 final class StopSendingEventHandler: ChannelInboundHandler, Sendable {
     typealias InboundIn = ByteBuffer
 
@@ -752,6 +767,7 @@ final class StopSendingEventHandler: ChannelInboundHandler, Sendable {
 }
 
 /// Collects all read data into a shared buffer and succeeds a promise when data arrives.
+@available(anyAppleOS 26, *)
 final class ReadCollectorHandler: ChannelInboundHandler, Sendable {
     typealias InboundIn = ByteBuffer
 
@@ -778,6 +794,7 @@ final class ReadCollectorHandler: ChannelInboundHandler, Sendable {
 }
 
 /// Handler to track when connection becomes active
+@available(anyAppleOS 26, *)
 final class ConnectionActiveHandler: ChannelInboundHandler {
     typealias InboundIn = Never
     let activePromise: EventLoopPromise<Void>
@@ -793,6 +810,7 @@ final class ConnectionActiveHandler: ChannelInboundHandler {
 }
 
 /// Waits for incoming requests, ensure they match GET /foo, then responds with success. Refuses to do this more than once
+@available(anyAppleOS 26, *)
 final class StreamingServerHandler: ChannelInboundHandler {
     typealias InboundIn = ByteBuffer
     typealias InboundOut = ByteBuffer
@@ -850,6 +868,7 @@ final class StreamingServerHandler: ChannelInboundHandler {
 }
 
 /// Waits for the channel to be active, sends a request, awaits the response and asserts that it is as expected. Then closes the channel.
+@available(anyAppleOS 26, *)
 final class StreamingClientHandler: ChannelInboundHandler {
     typealias InboundIn = ByteBuffer
     typealias InboundOut = ByteBuffer
@@ -914,6 +933,7 @@ final class StreamingClientHandler: ChannelInboundHandler {
 }
 
 // These integration tests use the nio interfaces rather than async ones
+@available(anyAppleOS 26, *)
 final class SyncIntegrationTests: XCTestCase {
 
     func getChannelLoggers() -> (serverLogger: Logger, clientLogger: Logger) {

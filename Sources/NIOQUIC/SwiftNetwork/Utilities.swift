@@ -15,6 +15,7 @@
 import NIOQUICHelpers
 @_spi(Essentials) import SwiftNetwork
 
+@available(anyAppleOS 26, *)
 extension NetworkDuration {
     init(duration: Duration) {
         let components = duration.components

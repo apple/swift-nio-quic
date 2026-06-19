@@ -23,6 +23,7 @@ struct CustomFinalizerFrameOwnershipTests {
     private let bufferSize = 10
     private let deallocator: (UnsafeMutableRawBufferPointer) -> Void = { $0.baseAddress?.deallocate() }
 
+    @available(anyAppleOS 26, *)
     @Test("Empty frame: fully claimed from start, unclaimedLength == 0")
     func emptyFrame() {
         let buf = allocateAndFillBuffer(of: bufferSize)
@@ -55,6 +56,7 @@ struct CustomFinalizerFrameOwnershipTests {
         #expect(byteBuffer.capacity == bufferSize)
     }
 
+    @available(anyAppleOS 26, *)
     @Test("Partially filled frame: claimed from end")
     func partiallyFilledFrame() {
         let buf = allocateAndFillBuffer(of: bufferSize)
@@ -88,6 +90,7 @@ struct CustomFinalizerFrameOwnershipTests {
         #expect(byteBuffer.readBytes(length: 6) == [0, 1, 2, 3, 4, 5])
     }
 
+    @available(anyAppleOS 26, *)
     @Test("Partially filled + consumed: claimed from start and end")
     func partiallyFilledAndConsumedFrame() {
         let buf = allocateAndFillBuffer(of: bufferSize)
@@ -123,6 +126,7 @@ struct CustomFinalizerFrameOwnershipTests {
         #expect(byteBuffer.readBytes(length: 4) == [2, 3, 4, 5])
     }
 
+    @available(anyAppleOS 26, *)
     @Test("Fully filled frame: no claims")
     func fullyFilledFrame() {
         let buf = allocateAndFillBuffer(of: bufferSize)
@@ -154,6 +158,7 @@ struct CustomFinalizerFrameOwnershipTests {
         #expect(byteBuffer.readBytes(length: bufferSize) == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
     }
 
+    @available(anyAppleOS 26, *)
     @Test("Fully filled + fully consumed: all bytes claimed from start")
     func fullyFilledAndConsumedFrame() {
         let buf = allocateAndFillBuffer(of: bufferSize)

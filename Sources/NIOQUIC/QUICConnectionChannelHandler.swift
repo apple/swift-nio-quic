@@ -25,7 +25,7 @@ private enum StreamInitializer {
 
 /// A channel handler for QUIC connections.
 /// Lives in a connection child channel and multiplexes the streams of a connections into new child channels.
-@available(macOS 11, iOS 14.0, tvOS 14.0, watchOS 7.0, macCatalyst 14.0, *)
+@available(anyAppleOS 26, *)
 final class QUICConnectionChannelHandler {
     /// This machine makes sure that we don't fire inactive whilst in the middle of initializing a stream.
     struct StateMachine {
@@ -185,7 +185,7 @@ final class QUICConnectionChannelHandler {
     }
 }
 
-@available(macOS 11, iOS 14.0, tvOS 14.0, watchOS 7.0, macCatalyst 14.0, *)
+@available(anyAppleOS 26, *)
 extension QUICConnectionChannelHandler: ChannelInboundHandler, ChannelOutboundHandler {
     typealias InboundIn = QUICConnectionChannelInboundMessage
     typealias InboundOut = any Channel
@@ -384,7 +384,7 @@ extension NIOLoopBound {
     }
 }
 
-@available(macOS 11, iOS 14.0, tvOS 14.0, watchOS 7.0, macCatalyst 14.0, *)
+@available(anyAppleOS 26, *)
 extension QUICConnectionChannelHandler {
 
     /// Initiates creation of a new locally-initiated QUIC stream.

@@ -15,6 +15,7 @@
 import NIOCore
 @_spi(Essentials) @_spi(ProtocolProvider) import SwiftNetwork
 
+@available(anyAppleOS 26, *)
 extension SocketAddress {
     /// Returns an `Endpoint` set to a `HostEndpoint` created from this `SocketAddress`.
     func toEndpoint() -> Endpoint {

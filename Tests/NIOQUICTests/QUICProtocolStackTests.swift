@@ -26,6 +26,7 @@ import XCTest
 @testable import ChildChannelMultiplexer
 @testable import NIOQUIC
 
+@available(anyAppleOS 26, *)
 final class QUICProtocolStackTests: XCTestCase {
 
     private func buildClientChannel(

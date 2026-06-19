@@ -76,6 +76,7 @@ let privateKeyRSA = """
     """
 
 struct SingingKeysTests {
+    @available(macOS 11, iOS 14, tvOS 14, watchOS 7, *)
     @Test("Reading private key from disk")
     func readPrivateKey() throws {
         let privateKey = try P256.Signing.PrivateKey.fromDERFile(p256PrivateKeyPath)
@@ -84,6 +85,7 @@ struct SingingKeysTests {
         #expect(privateKey.derRepresentation == privateKeyData)
     }
 
+    @available(macOS 11, iOS 14, tvOS 14, watchOS 7, *)
     @Test("Reading public key from disk")
     func readPublicKey() throws {
         let publicKey = try P256.Signing.PublicKey.fromDERFile(p256PublicKeyPath)
@@ -92,6 +94,7 @@ struct SingingKeysTests {
         #expect(publicKey.derRepresentation == publicKeyData)
     }
 
+    @available(macOS 11, iOS 14, tvOS 14, watchOS 7, *)
     @Test("Reading EC private key")
     func readPrivateECKey() throws {
         // Write key.
@@ -106,6 +109,7 @@ struct SingingKeysTests {
         }
     }
 
+    @available(macOS 11, iOS 14, tvOS 14, watchOS 7, *)
     @Test("Reading EC private key with parameters")
     func readPrivateECKeyWithParameters() throws {
         // Write key.
@@ -120,6 +124,7 @@ struct SingingKeysTests {
         }
     }
 
+    @available(macOS 11, iOS 14, tvOS 14, watchOS 7, *)
     @Test("Reading RSA private key")
     func readPrivateRSAKey() throws {
         // Write key.

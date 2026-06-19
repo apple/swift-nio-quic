@@ -64,6 +64,7 @@ import Darwin
 //                                           └──────────┘
 
 /// A state machine managing the QUIC connection lifecycle.
+@available(anyAppleOS 26, *)
 struct QUICConnectionStateMachine: ~Copyable {
     /// The possible states of a QUIC connection.
     enum State: ~Copyable {

@@ -29,6 +29,7 @@ import Musl
 /// The `QUICChannelNewFlowHandler` registered with the SwiftNetwork `QUICConnectionImplementation` as a new flow handler.
 /// This object deals with creating and linking the objects describing a new flow, it creates a new `QUICChannelStreamHandler`
 /// for each new flow, registers it and keeps track of it.
+@available(anyAppleOS 26, *)
 final class QUICChannelNewFlowHandler: ProtocolInstanceContainer, InboundFlowHandler {
 
     internal typealias LowerProtocol = StreamListenerLinkage
@@ -221,6 +222,7 @@ final class QUICChannelNewFlowHandler: ProtocolInstanceContainer, InboundFlowHan
     }
 }
 
+@available(anyAppleOS 26, *)
 extension QUICChannelNewFlowHandler: UpperProtocolHandler {
     func handleNetworkProtocolEvent(
         _ from: SwiftNetwork.ProtocolInstanceReference,

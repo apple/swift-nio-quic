@@ -79,6 +79,7 @@ extension ChildChannelMultiplexerDelegate where ChildChannelIDProperties == Neve
 
 /// A generic multiplexer that is capable of multiplexing a single channel onto multiple child channels.
 @preconcurrency
+@available(macOS 15, iOS 18, tvOS 18, watchOS 11, visionOS 2, *)
 public final class ChildChannelMultiplexer<
     ChildChannelID: Hashable & _ChildChannelMultiplexerSendableMetatype,
     ChildChannelIDProperties: _ChildChannelMultiplexerSendableMetatype,
@@ -296,6 +297,7 @@ extension ChildChannelMultiplexer: Sendable {}
 
 // MARK: Calls from parent
 
+@available(macOS 15, iOS 18, tvOS 18, watchOS 11, visionOS 2, *)
 extension ChildChannelMultiplexer {
     /// Method to check if there is a child channel for a given ID.
     ///
@@ -808,6 +810,7 @@ extension ChildChannelMultiplexer {
     }
 }
 
+@available(macOS 15, iOS 18, tvOS 18, watchOS 11, visionOS 2, *)
 extension ChildChannelMultiplexer: ChildChannelDelegate {
     @inlinable
     func writeFromChildChannel(
@@ -1009,6 +1012,7 @@ extension ChildChannelMultiplexer: ChildChannelDelegate {
     }
 }
 
+@available(macOS 15, iOS 18, tvOS 18, watchOS 11, visionOS 2, *)
 extension ChildChannelMultiplexer {
     @usableFromInline
     struct ChildChannelMap: Collection {

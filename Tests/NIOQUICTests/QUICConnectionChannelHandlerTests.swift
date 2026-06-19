@@ -19,6 +19,7 @@ import XCTest
 
 @testable import NIOQUIC
 
+@available(anyAppleOS 26, *)
 final class QUICConnectionChannelHandlerTests: XCTestCase {
     private var eventLoop: EmbeddedEventLoop!
     private var channel: EmbeddedChannel!

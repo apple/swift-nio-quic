@@ -24,6 +24,7 @@ import XCTest
 @testable import ChildChannelMultiplexer
 @testable import NIOQUIC
 
+@available(anyAppleOS 26, *)
 final class CertificateAuthTests: XCTestCase {
 
     private func buildClientChannel(

@@ -27,6 +27,7 @@ import Musl
 /// `QUICChannelOutputHandler` is the bridge between SwiftNetwork and our code on the network-side.
 /// It is registered with the SwiftNetwork `QUICConnectionImplementation` as an output handler.
 /// This object deals with both getting bytes in and out of the `QUICConnectionImplementation` on the network-side.
+@available(anyAppleOS 26, *)
 final class QUICChannelOutputHandler: ProtocolInstanceContainer, OutboundDatagramHandler {
 
     typealias UpperProtocol = InboundDatagramLinkage
@@ -104,6 +105,7 @@ final class QUICChannelOutputHandler: ProtocolInstanceContainer, OutboundDatagra
     }
 }
 
+@available(anyAppleOS 26, *)
 extension QUICChannelOutputHandler: LowerProtocolHandler {
     func getMetrics(
         _ from: SwiftNetwork.ProtocolInstanceReference,

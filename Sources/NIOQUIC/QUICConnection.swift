@@ -30,7 +30,7 @@ protocol StreamMultiplexerContinuation: Sendable {
 
 /// A struct representing a single QUIC connection.
 /// Can iterate the inbound streams and create new outbound streams.
-@available(macOS 11, iOS 14.0, tvOS 14.0, watchOS 7.0, macCatalyst 14.0, *)
+@available(anyAppleOS 26, *)
 public struct QUICConnection<Output: Sendable>: Sendable, StreamMultiplexerContinuation {
     /// Channel initializer called for each new inbound stream.
     private let inboundStreamInitializer: @Sendable (any Channel) -> EventLoopFuture<Output>

@@ -20,6 +20,7 @@ import XCTest
 @testable import ChildChannelMultiplexer
 @testable import NIOQUIC
 
+@available(anyAppleOS 26, *)
 final class QUICConnectionChildChannelStateMachineTests: XCTestCase {
     private var eventLoop: EmbeddedEventLoop!
     private var channel: EmbeddedChannel!
