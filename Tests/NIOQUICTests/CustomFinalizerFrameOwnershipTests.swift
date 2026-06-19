@@ -12,11 +12,11 @@
 //
 //===----------------------------------------------------------------------===//
 
-import NIOCore
 @_spi(CustomByteBufferAllocator) import NIOCore
+import Testing
+
 @_spi(ProtocolProvider) @testable import NIOQUIC
 @_spi(ProtocolProvider) @testable import SwiftNetwork
-import Testing
 
 struct CustomFinalizerFrameOwnershipTests {
 
