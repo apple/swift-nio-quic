@@ -13,6 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 import NIOQUICHelpers
+@_spi(Essentials) @_spi(ProtocolProvider) import SwiftNetwork
 
 #if canImport(Glibc)
 import Glibc
@@ -185,9 +186,6 @@ struct QUICStreamStateMachine: ~Copyable {
     init() {
         self.state = .pendingID(.init())
     }
-
-    var initialized: Bool = false
-    var detached: Bool = false
 
     // MARK: - Internal Queries
 
@@ -2027,6 +2025,395 @@ extension QUICStreamReceiveStateMachine.State {
         case .resetRead(let resetRead):
             self = .resetRead(resetRead)
             return .ignore(.alreadyReset)
+        }
+    }
+}
+
+/// Tracks the channel pipeline initializer's lifecycle.
+///
+/// As opposed to the other state machines this one specifically
+/// relates to the *channel pipeline* state.
+struct QUICStreamPipelineStateMachine: ~Copyable {
+    enum State: ~Copyable {
+        /// No initializer has been started yet.
+        case uninitialized
+        /// The initializer's Future is in flight; the pipeline is not
+        /// yet ready to dispatch inbound events.
+        case initializing
+        /// The initializer has completed; the pipeline is wired up and
+        /// inbound events can be dispatched.
+        case initialized
+    }
+
+    private var state: State
+
+    init() {
+        self.state = .uninitialized
+    }
+
+    // MARK: - Queries
+
+    /// Returns `true` once the pipeline is ready to dispatch inbound events.
+    /// `.initializing` does not count.
+    var isInitialized: Bool {
+        switch self.state {
+        case .initialized:
+            return true
+        case .uninitialized:
+            return false
+        case .initializing:
+            return false
+        }
+    }
+
+    // MARK: - Transitions
+
+    enum StartInitializerAction: ~Copyable {
+        /// First caller; transition `.uninitialized → .initializing` and
+        /// run the application's initializer. Caller must follow up with
+        /// `markPipelineInitializerComplete()` once the Future succeeds.
+        case runInitializer
+        /// Don't run an initializer.
+        case ignore(IgnoreReason)
+
+        enum IgnoreReason: ~Copyable {
+            /// The stream's channel is not active; nothing to dispatch into.
+            case channelInactive
+            /// The initializer's `Future` is already in flight.
+            case initializerInProgress
+            /// The initializer already completed.
+            case initializerComplete
+        }
+    }
+
+    /// Synchronous gate: call before kicking off the initializer.
+    mutating func startInitializer(channelActive: Bool) -> StartInitializerAction {
+        self.state.startInitializer(channelActive: channelActive)
+    }
+
+    enum MarkInitializerCompleteAction: ~Copyable {
+        /// Newly transitioned `.initializing → .initialized`; surface the
+        /// now-ready stream upward (yield to multiplexer or fire channel
+        /// read) and trigger the initial `streamRead()`.
+        case surfaceInitializedStream
+        /// Idempotent re-call; the pipeline was already initialized.
+        case ignoreAlreadyComplete
+    }
+
+    /// Call once the initializer's Future has succeeded.
+    /// Traps if called before `startInitializer()` has run — that's a
+    /// programmer error (completing before starting).
+    mutating func markInitializerComplete() -> MarkInitializerCompleteAction {
+        self.state.markInitializerComplete()
+    }
+}
+
+// MARK: - Pipeline State Transitions
+
+extension QUICStreamPipelineStateMachine.State {
+    mutating func startInitializer(channelActive: Bool) -> QUICStreamPipelineStateMachine.StartInitializerAction {
+        guard channelActive else {
+            return .ignore(.channelInactive)
+        }
+
+        switch consume self {
+        case .uninitialized:
+            self = .initializing
+            return .runInitializer
+        case .initializing:
+            self = .initializing
+            return .ignore(.initializerInProgress)
+        case .initialized:
+            self = .initialized
+            return .ignore(.initializerComplete)
+        }
+    }
+
+    mutating func markInitializerComplete() -> QUICStreamPipelineStateMachine.MarkInitializerCompleteAction {
+        switch consume self {
+        case .uninitialized:
+            preconditionFailure("markInitializerComplete called before startInitializer")
+        case .initializing:
+            self = .initialized
+            return .surfaceInitializedStream
+        case .initialized:
+            self = .initialized
+            return .ignoreAlreadyComplete
+        }
+    }
+}
+
+/// The handle a QUIC stream uses to talk to the SwiftNetwork transport stack.
+struct SwiftNetworkStreamHandle: ~Copyable {
+    /// Pure state machine: tracks attachment.
+    ///
+    /// As opposed to the other state machines this one specifically
+    /// relates to the *SwiftNetwork reference/handle* state.
+    struct StateMachine: ~Copyable {
+        enum State: ~Copyable {
+            case attached
+            case detached
+        }
+
+        private var state: State
+
+        init() {
+            self.state = .attached
+        }
+
+        // MARK: - Queries
+
+        var isAttached: Bool {
+            switch self.state {
+            case .attached: return true
+            case .detached: return false
+            }
+        }
+
+        // MARK: - Per-operation transitions
+
+        enum ViolationReason: CustomStringConvertible {
+            /// The handle has been detached; the linkage is gone.
+            case detached
+
+            var description: String {
+                switch self {
+                case .detached: return "linkage detached"
+                }
+            }
+        }
+
+        enum InvokeConnectAction: ~Copyable {
+            case performConnect
+            case handleViolation(ViolationReason)
+        }
+        func invokeConnect() -> InvokeConnectAction {
+            switch self.state {
+            case .attached: return .performConnect
+            case .detached: return .handleViolation(.detached)
+            }
+        }
+
+        enum InvokeDisconnectAction: ~Copyable {
+            case performDisconnect
+            case ignore
+        }
+        func invokeDisconnect() -> InvokeDisconnectAction {
+            switch self.state {
+            case .attached: return .performDisconnect
+            case .detached: return .ignore
+            }
+        }
+
+        enum InvokeAbortInboundAction: ~Copyable {
+            case performAbortInbound
+            case ignore
+        }
+        func invokeAbortInbound() -> InvokeAbortInboundAction {
+            switch self.state {
+            case .attached: return .performAbortInbound
+            case .detached: return .ignore
+            }
+        }
+
+        enum InvokeAbortOutboundAction: ~Copyable {
+            case performAbortOutbound
+            case ignore
+        }
+        func invokeAbortOutbound() -> InvokeAbortOutboundAction {
+            switch self.state {
+            case .attached: return .performAbortOutbound
+            case .detached: return .ignore
+            }
+        }
+
+        enum InvokeSendStreamDataAction: ~Copyable {
+            case performSendStreamData
+            case handleViolation(ViolationReason)
+        }
+        func invokeSendStreamData() -> InvokeSendStreamDataAction {
+            switch self.state {
+            case .attached: return .performSendStreamData
+            case .detached: return .handleViolation(.detached)
+            }
+        }
+
+        enum InvokeReceiveStreamDataAction: ~Copyable {
+            case performReceiveStreamData
+            case handleViolation(ViolationReason)
+        }
+        func invokeReceiveStreamData() -> InvokeReceiveStreamDataAction {
+            switch self.state {
+            case .attached: return .performReceiveStreamData
+            case .detached: return .handleViolation(.detached)
+            }
+        }
+
+        enum InvokeGetMetadataAction: ~Copyable {
+            case performGetMetadata
+            case ignore
+        }
+        func invokeGetMetadata() -> InvokeGetMetadataAction {
+            switch self.state {
+            case .attached: return .performGetMetadata
+            case .detached: return .ignore
+            }
+        }
+
+        // MARK: - Detach (mutating; transitions `.attached` → `.detached`)
+
+        enum InvokeDetachAction: ~Copyable {
+            case performDetach
+            case skipAlreadyDetached
+        }
+        mutating func invokeDetach() -> InvokeDetachAction {
+            self.state.invokeDetach()
+        }
+    }
+
+    private var stateMachine: StateMachine
+    private var linkage: OutboundStreamLinkage
+
+    /// Initialise with a stub linkage (the outbound starting state, before
+    /// `invokeConnect` wires up a real reference).
+    init() {
+        self.stateMachine = StateMachine()
+        self.linkage = OutboundStreamLinkage(reference: .init())
+    }
+
+    /// Initialise with a specific linkage. Used by the inbound init path
+    /// once `invokeAttachUpperStreamProtocolToNewFlow` has succeeded.
+    init(linkage: OutboundStreamLinkage) {
+        self.stateMachine = StateMachine()
+        self.linkage = linkage
+    }
+
+    /// Returns `true` while the linkage is still attached.
+    var isAttached: Bool {
+        self.stateMachine.isAttached
+    }
+
+    // MARK: - Wrapper methods
+
+    func invokeConnect(from: ProtocolInstanceReference) {
+        switch self.stateMachine.invokeConnect() {
+        case .performConnect:
+            self.linkage.invokeConnect(from)
+        case .handleViolation(let reason):
+            preconditionFailure("invokeConnect on SwiftNetworkStreamHandle: \(reason)")
+        }
+    }
+
+    func invokeDisconnect(from: ProtocolInstanceReference, error: NetworkError? = nil) {
+        switch self.stateMachine.invokeDisconnect() {
+        case .performDisconnect:
+            self.linkage.invokeDisconnect(from, error: error)
+        case .ignore:
+            return
+        }
+    }
+
+    func invokeAbortInbound(
+        from: ProtocolInstanceReference,
+        error: NetworkError?
+    ) throws(NetworkError) {
+        switch self.stateMachine.invokeAbortInbound() {
+        case .performAbortInbound:
+            try self.linkage.invokeAbortInbound(from, error: error)
+        case .ignore:
+            return
+        }
+    }
+
+    func invokeAbortOutbound(
+        from: ProtocolInstanceReference,
+        error: NetworkError?
+    ) throws(NetworkError) {
+        switch self.stateMachine.invokeAbortOutbound() {
+        case .performAbortOutbound:
+            try self.linkage.invokeAbortOutbound(from, error: error)
+        case .ignore:
+            return
+        }
+    }
+
+    func invokeSendStreamData(
+        from: ProtocolInstanceReference,
+        streamData: consuming FrameArray
+    ) throws(NetworkError) {
+        switch self.stateMachine.invokeSendStreamData() {
+        case .performSendStreamData:
+            try self.linkage.invokeSendStreamData(from, streamData: streamData)
+        case .handleViolation(let reason):
+            throw Self.violationError(operation: "invokeSendStreamData", reason: reason)
+        }
+    }
+
+    func invokeReceiveStreamData(
+        from: ProtocolInstanceReference,
+        minimumBytes: Int,
+        maximumBytes: Int
+    ) throws(NetworkError) -> FrameArray? {
+        switch self.stateMachine.invokeReceiveStreamData() {
+        case .performReceiveStreamData:
+            return try self.linkage.invokeReceiveStreamData(
+                from,
+                minimumBytes: minimumBytes,
+                maximumBytes: maximumBytes
+            )
+        case .handleViolation(let reason):
+            throw Self.violationError(operation: "invokeReceiveStreamData", reason: reason)
+        }
+    }
+
+    func invokeGetMetadata<P: NetworkProtocol>(
+        from: ProtocolInstanceReference
+    ) -> ProtocolMetadata<P>? {
+        switch self.stateMachine.invokeGetMetadata() {
+        case .performGetMetadata:
+            return self.linkage.invokeGetMetadata(from)
+        case .ignore:
+            return nil
+        }
+    }
+
+    mutating func invokeDetach(from: ProtocolInstanceReference) throws(NetworkError) {
+        switch self.stateMachine.invokeDetach() {
+        case .performDetach:
+            try self.linkage.invokeDetach(from)
+        case .skipAlreadyDetached:
+            return
+        }
+    }
+
+    /// Builds the error raised by soft-violation operations
+    /// (`invokeSendStreamData`, `invokeReceiveStreamData`). The reason is
+    /// included in the description so callers and logs see exactly what
+    /// went wrong.
+    private static func violationError(
+        operation: String,
+        reason: StateMachine.ViolationReason
+    ) -> NetworkError {
+        NetworkError(
+            category: NetworkError.CommonCategory(
+                identifier: "swift-nio-quic.streamHandleViolation",
+                description: "\(operation): \(reason)"
+            )
+        )
+    }
+}
+
+// MARK: - SwiftNetwork Stream Handle State Transitions
+
+extension SwiftNetworkStreamHandle.StateMachine.State {
+    mutating func invokeDetach() -> SwiftNetworkStreamHandle.StateMachine.InvokeDetachAction {
+        switch consume self {
+        case .attached:
+            self = .detached
+            return .performDetach
+        case .detached:
+            self = .detached
+            return .skipAlreadyDetached
         }
     }
 }
