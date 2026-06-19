@@ -1366,7 +1366,7 @@ struct SwiftNetworkStreamHandleStateMachineTests {
     /// Hard violation: starting a torn-down stream is a programmer bug. The wrapper
     /// `preconditionFailure`s on this — which we can't test directly — so we verify
     /// the SM signals it via the action enum here, with the reason that explains why.
-    @available(macOS 26, *)
+    @available(anyAppleOS 26, *)
     @Test("invokeConnect returns .handleViolation(.detached) when detached")
     func invokeConnectReturnsHandleViolation() {
         var sm = SwiftNetworkStreamHandle.StateMachine()
