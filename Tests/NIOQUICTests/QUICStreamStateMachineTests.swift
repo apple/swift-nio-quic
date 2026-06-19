@@ -13,6 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 import NIOQUICHelpers
+@_spi(Essentials) @_spi(ProtocolProvider) import SwiftNetwork
 import Testing
 
 @testable import NIOQUIC
@@ -1250,5 +1251,244 @@ struct QUICStreamStateMachineTests {
             return
         }
         #expect(streamResetError.code.rawValue == 20)
+    }
+}
+
+// MARK: - QUICStreamPipelineStateMachine
+
+struct QUICStreamPipelineStateMachineTests {
+    /// Only the first read on a fresh stream is allowed to kick off the initializer.
+    @Test(
+        "startInitializer from .uninitialized with active channel returns .runInitializer and transitions to .initializing"
+    )
+    func startInitializerFromUninitialized() {
+        var sm = QUICStreamPipelineStateMachine()
+
+        let action = sm.startInitializer(channelActive: true)
+        guard case .runInitializer = action else {
+            Issue.record("Expected .runInitializer")
+            return
+        }
+
+        // .initializing does not count as initialized
+        let isInitialized = sm.isInitialized
+        #expect(!isInitialized)
+    }
+
+    /// Concurrent reads on the same event-loop tick must not double-initialize (race protection).
+    @Test("startInitializer from .initializing returns .ignore(.initializerInProgress)")
+    func startInitializerFromInitializing() {
+        var sm = QUICStreamPipelineStateMachine()
+
+        _ = sm.startInitializer(channelActive: true)
+
+        let action = sm.startInitializer(channelActive: true)
+        guard case .ignore(.initializerInProgress) = action else {
+            Issue.record("Expected .ignore(.initializerInProgress)")
+            return
+        }
+    }
+
+    /// Reads after init completes must not restart the initializer.
+    @Test("startInitializer from .initialized returns .ignore(.initializerComplete)")
+    func startInitializerFromInitialized() {
+        var sm = QUICStreamPipelineStateMachine()
+
+        _ = sm.startInitializer(channelActive: true)
+        _ = sm.markInitializerComplete()
+
+        let action = sm.startInitializer(channelActive: true)
+        guard case .ignore(.initializerComplete) = action else {
+            Issue.record("Expected .ignore(.initializerComplete)")
+            return
+        }
+    }
+
+    /// An inactive channel has nothing to dispatch into; no transition happens.
+    @Test("startInitializer with inactive channel returns .ignore(.channelInactive) and does not transition")
+    func startInitializerInactiveChannel() {
+        var sm = QUICStreamPipelineStateMachine()
+
+        let action = sm.startInitializer(channelActive: false)
+        guard case .ignore(.channelInactive) = action else {
+            Issue.record("Expected .ignore(.channelInactive)")
+            return
+        }
+
+        // No transition; a follow-up call with active channel should still be the first one.
+        let secondAction = sm.startInitializer(channelActive: true)
+        guard case .runInitializer = secondAction else {
+            Issue.record("Expected .runInitializer on follow-up")
+            return
+        }
+    }
+
+    /// Successful init transitions to `.initialized` and instructs the caller to surface the stream.
+    /// `.initializing` must NOT count as initialized — half-closure `receiveResetStream` defers based on this.
+    @Test("markInitializerComplete from .initializing returns .surfaceInitializedStream and flips isInitialized")
+    func markInitializerCompleteSurfaces() {
+        var sm = QUICStreamPipelineStateMachine()
+
+        _ = sm.startInitializer(channelActive: true)
+
+        let isInitializedDuring = sm.isInitialized
+        #expect(!isInitializedDuring)
+
+        let action = sm.markInitializerComplete()
+        guard case .surfaceInitializedStream = action else {
+            Issue.record("Expected .surfaceInitializedStream")
+            return
+        }
+
+        let isInitialized = sm.isInitialized
+        #expect(isInitialized)
+    }
+
+    /// Idempotent: a duplicate completion (e.g. retry path) must not re-surface the stream.
+    @Test("markInitializerComplete from .initialized returns .ignoreAlreadyComplete")
+    func markInitializerCompleteIdempotent() {
+        var sm = QUICStreamPipelineStateMachine()
+
+        _ = sm.startInitializer(channelActive: true)
+        _ = sm.markInitializerComplete()
+
+        let action = sm.markInitializerComplete()
+        guard case .ignoreAlreadyComplete = action else {
+            Issue.record("Expected .ignoreAlreadyComplete")
+            return
+        }
+    }
+}
+
+// MARK: - SwiftNetworkStreamHandle.StateMachine
+
+struct SwiftNetworkStreamHandleStateMachineTests {
+    /// Hard violation: starting a torn-down stream is a programmer bug. The wrapper
+    /// `preconditionFailure`s on this — which we can't test directly — so we verify
+    /// the SM signals it via the action enum here, with the reason that explains why.
+    @Test("invokeConnect returns .handleViolation(.detached) when detached")
+    func invokeConnectReturnsHandleViolation() {
+        var sm = SwiftNetworkStreamHandle.StateMachine()
+
+        _ = sm.invokeDetach()
+
+        let action = sm.invokeConnect()
+        guard case .handleViolation(.detached) = action else {
+            Issue.record("Expected .handleViolation(.detached)")
+            return
+        }
+    }
+}
+
+// MARK: - SwiftNetworkStreamHandle (wrapper)
+
+struct SwiftNetworkStreamHandleTests {
+    /// Outbound streams start with a stub linkage; the handle is usable from creation.
+    @Test("Default init is attached")
+    func defaultInitIsAttached() {
+        let handle = SwiftNetworkStreamHandle()
+
+        let isAttached = handle.isAttached
+        #expect(isAttached)
+    }
+
+    /// Inbound init pathway: the listener-attached linkage is wrapped in an attached handle.
+    @Test("init(linkage:) is attached")
+    func initWithLinkageIsAttached() {
+        let handle = SwiftNetworkStreamHandle(linkage: OutboundStreamLinkage(reference: .init()))
+
+        let isAttached = handle.isAttached
+        #expect(isAttached)
+    }
+
+    /// End-to-end detach contract: wrapper consumes the linkage on the first call and
+    /// tolerates duplicates (multiple call sites unconditionally try to tear down).
+    @Test("invokeDetach flips state and is idempotent")
+    func invokeDetachIsIdempotent() throws(NetworkError) {
+        var handle = SwiftNetworkStreamHandle()
+
+        try handle.invokeDetach(from: .init())
+
+        let isAttachedAfter = handle.isAttached
+        #expect(!isAttachedAfter)
+
+        // Second call should not throw or crash
+        try handle.invokeDetach(from: .init())
+    }
+
+    /// Stop sequencing: disconnect after detach is a normal teardown ordering and must not throw.
+    @Test("invokeDisconnect silently no-ops when detached")
+    func invokeDisconnectNoopsWhenDetached() throws(NetworkError) {
+        var handle = SwiftNetworkStreamHandle()
+
+        try handle.invokeDetach(from: .init())
+
+        // Should not throw or crash
+        handle.invokeDisconnect(from: .init())
+    }
+
+    /// Error/abort during teardown must not raise (called from the close-stream paths).
+    @Test("invokeAbortInbound silently no-ops when detached")
+    func invokeAbortInboundNoopsWhenDetached() throws(NetworkError) {
+        var handle = SwiftNetworkStreamHandle()
+
+        try handle.invokeDetach(from: .init())
+
+        // Should not throw or crash
+        try handle.invokeAbortInbound(from: .init(), error: nil)
+    }
+
+    /// Error/abort during teardown must not raise (called from the close-stream paths).
+    @Test("invokeAbortOutbound silently no-ops when detached")
+    func invokeAbortOutboundNoopsWhenDetached() throws(NetworkError) {
+        var handle = SwiftNetworkStreamHandle()
+
+        try handle.invokeDetach(from: .init())
+
+        // Should not throw or crash
+        try handle.invokeAbortOutbound(from: .init(), error: nil)
+    }
+
+    /// Soft-violation policy: write-after-detach surfaces as a throw the caller can recover
+    /// from (e.g. return false), not a silent no-op that drops bytes.
+    @Test("invokeSendStreamData throws NetworkError when detached")
+    func invokeSendStreamDataThrowsWhenDetached() throws(NetworkError) {
+        var handle = SwiftNetworkStreamHandle()
+
+        try handle.invokeDetach(from: .init())
+
+        do throws(NetworkError) {
+            try handle.invokeSendStreamData(from: .init(), streamData: FrameArray())
+            Issue.record("Expected throw")
+        } catch {
+            // Expected
+        }
+    }
+
+    /// Soft-violation policy: read-after-detach surfaces as a throw, not a silent nil that
+    /// the caller might confuse with "no data available".
+    @Test("invokeReceiveStreamData throws NetworkError when detached")
+    func invokeReceiveStreamDataThrowsWhenDetached() throws(NetworkError) {
+        var handle = SwiftNetworkStreamHandle()
+
+        try handle.invokeDetach(from: .init())
+
+        do throws(NetworkError) {
+            _ = try handle.invokeReceiveStreamData(from: .init(), minimumBytes: 1, maximumBytes: 100)
+            Issue.record("Expected throw")
+        } catch {
+            // Expected
+        }
+    }
+
+    /// Metadata is genuinely unavailable post-detach; nil is the natural API response.
+    @Test("invokeGetMetadata returns nil when detached")
+    func invokeGetMetadataReturnsNilWhenDetached() throws(NetworkError) {
+        var handle = SwiftNetworkStreamHandle()
+
+        try handle.invokeDetach(from: .init())
+
+        let metadata: ProtocolMetadata<QUICProtocol>? = handle.invokeGetMetadata(from: .init())
+        #expect(metadata == nil)
     }
 }

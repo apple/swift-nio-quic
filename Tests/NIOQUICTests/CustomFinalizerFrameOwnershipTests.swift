@@ -12,7 +12,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-import NIOCore
 @_spi(CustomByteBufferAllocator) import NIOCore
 import Testing
 
