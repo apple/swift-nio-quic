@@ -1366,6 +1366,7 @@ struct SwiftNetworkStreamHandleStateMachineTests {
     /// Hard violation: starting a torn-down stream is a programmer bug. The wrapper
     /// `preconditionFailure`s on this — which we can't test directly — so we verify
     /// the SM signals it via the action enum here, with the reason that explains why.
+    @available(macOS 26, *)
     @Test("invokeConnect returns .handleViolation(.detached) when detached")
     func invokeConnectReturnsHandleViolation() {
         var sm = SwiftNetworkStreamHandle.StateMachine()
@@ -1384,6 +1385,7 @@ struct SwiftNetworkStreamHandleStateMachineTests {
 
 struct SwiftNetworkStreamHandleTests {
     /// Outbound streams start with a stub linkage; the handle is usable from creation.
+    @available(anyAppleOS 26, *)
     @Test("Default init is attached")
     func defaultInitIsAttached() {
         let handle = SwiftNetworkStreamHandle()
@@ -1393,6 +1395,8 @@ struct SwiftNetworkStreamHandleTests {
     }
 
     /// Inbound init pathway: the listener-attached linkage is wrapped in an attached handle.
+    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 26, *)
     @Test("init(linkage:) is attached")
     func initWithLinkageIsAttached() {
         let handle = SwiftNetworkStreamHandle(linkage: OutboundStreamLinkage(reference: .init()))
@@ -1403,6 +1407,7 @@ struct SwiftNetworkStreamHandleTests {
 
     /// End-to-end detach contract: wrapper consumes the linkage on the first call and
     /// tolerates duplicates (multiple call sites unconditionally try to tear down).
+    @available(anyAppleOS 26, *)
     @Test("invokeDetach flips state and is idempotent")
     func invokeDetachIsIdempotent() throws(NetworkError) {
         var handle = SwiftNetworkStreamHandle()
@@ -1417,6 +1422,7 @@ struct SwiftNetworkStreamHandleTests {
     }
 
     /// Stop sequencing: disconnect after detach is a normal teardown ordering and must not throw.
+    @available(anyAppleOS 26, *)
     @Test("invokeDisconnect silently no-ops when detached")
     func invokeDisconnectNoopsWhenDetached() throws(NetworkError) {
         var handle = SwiftNetworkStreamHandle()
@@ -1428,6 +1434,7 @@ struct SwiftNetworkStreamHandleTests {
     }
 
     /// Error/abort during teardown must not raise (called from the close-stream paths).
+    @available(anyAppleOS 26, *)
     @Test("invokeAbortInbound silently no-ops when detached")
     func invokeAbortInboundNoopsWhenDetached() throws(NetworkError) {
         var handle = SwiftNetworkStreamHandle()
@@ -1439,6 +1446,8 @@ struct SwiftNetworkStreamHandleTests {
     }
 
     /// Error/abort during teardown must not raise (called from the close-stream paths).
+    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 26, *)
     @Test("invokeAbortOutbound silently no-ops when detached")
     func invokeAbortOutboundNoopsWhenDetached() throws(NetworkError) {
         var handle = SwiftNetworkStreamHandle()
@@ -1451,6 +1460,7 @@ struct SwiftNetworkStreamHandleTests {
 
     /// Soft-violation policy: write-after-detach surfaces as a throw the caller can recover
     /// from (e.g. return false), not a silent no-op that drops bytes.
+    @available(anyAppleOS 26, *)
     @Test("invokeSendStreamData throws NetworkError when detached")
     func invokeSendStreamDataThrowsWhenDetached() throws(NetworkError) {
         var handle = SwiftNetworkStreamHandle()
@@ -1467,6 +1477,7 @@ struct SwiftNetworkStreamHandleTests {
 
     /// Soft-violation policy: read-after-detach surfaces as a throw, not a silent nil that
     /// the caller might confuse with "no data available".
+    @available(anyAppleOS 26, *)
     @Test("invokeReceiveStreamData throws NetworkError when detached")
     func invokeReceiveStreamDataThrowsWhenDetached() throws(NetworkError) {
         var handle = SwiftNetworkStreamHandle()
@@ -1482,6 +1493,7 @@ struct SwiftNetworkStreamHandleTests {
     }
 
     /// Metadata is genuinely unavailable post-detach; nil is the natural API response.
+    @available(anyAppleOS 26, *)
     @Test("invokeGetMetadata returns nil when detached")
     func invokeGetMetadataReturnsNilWhenDetached() throws(NetworkError) {
         var handle = SwiftNetworkStreamHandle()

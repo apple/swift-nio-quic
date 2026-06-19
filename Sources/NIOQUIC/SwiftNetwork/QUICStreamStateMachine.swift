@@ -2151,6 +2151,7 @@ extension QUICStreamPipelineStateMachine.State {
 }
 
 /// The handle a QUIC stream uses to talk to the SwiftNetwork transport stack.
+@available(anyAppleOS 26, *)
 struct SwiftNetworkStreamHandle: ~Copyable {
     /// Pure state machine: tracks attachment.
     ///
@@ -2412,6 +2413,7 @@ struct SwiftNetworkStreamHandle: ~Copyable {
 
 // MARK: - SwiftNetwork Stream Handle State Transitions
 
+@available(anyAppleOS 26, *)
 extension SwiftNetworkStreamHandle.StateMachine.State {
     mutating func invokeDetach() -> SwiftNetworkStreamHandle.StateMachine.InvokeDetachAction {
         switch consume self {
