@@ -1446,7 +1446,6 @@ struct SwiftNetworkStreamHandleTests {
 
     /// Error/abort during teardown must not raise (called from the close-stream paths).
     @available(anyAppleOS 26, *)
-    @available(anyAppleOS 26, *)
     @Test("invokeAbortOutbound silently no-ops when detached")
     func invokeAbortOutboundNoopsWhenDetached() throws(NetworkError) {
         var handle = SwiftNetworkStreamHandle()
