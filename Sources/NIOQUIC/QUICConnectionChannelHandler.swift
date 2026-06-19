@@ -242,13 +242,33 @@ extension QUICConnectionChannelHandler: ChannelInboundHandler, ChannelOutboundHa
             self.logger.trace(
                 "QUICConnectionChannelHandler read with newly created id: \(readableStreamMessage.streamID)"
             )
-            switch self.inboundStreamInitializer {
-            case .multiplexer(let continuation):
-                stream.initialize(multiplexerContinuation: continuation, streamID: readableStreamMessage.streamID)
-            case .closure(let initializer):
-                stream.initialize(context, initializer)
-            case .none:
-                stream.initialize(context)
+
+            let loopBoundSelf = NIOLoopBound(self, eventLoop: self.eventLoop)
+            let loopBoundContext = NIOLoopBound(context, eventLoop: self.eventLoop)
+
+            // Inherit the parent channel's `autoRead` option onto the stream channel.
+            let setStreamAutoRead = context.channel.getOption(.autoRead).flatMapThrowing { autoRead in
+                // Force unwrap is safe here. `QUICChannelStreamHandler` always provides `syncOptions`.
+                try stream.syncOptions!.setOption(.autoRead, value: autoRead)
+            }
+
+            setStreamAutoRead.whenFailure { error in
+                loopBoundSelf.value.logger.error(
+                    "Failed to inherit autoRead option onto stream channel",
+                    metadata: ["error": "\(error)"]
+                )
+                stream.close(promise: nil)
+            }
+
+            setStreamAutoRead.whenSuccess {
+                switch loopBoundSelf.value.inboundStreamInitializer {
+                case .multiplexer(let continuation):
+                    stream.initialize(multiplexerContinuation: continuation, streamID: readableStreamMessage.streamID)
+                case .closure(let initializer):
+                    stream.initialize(loopBoundContext.value, initializer)
+                case .none:
+                    stream.initialize(loopBoundContext.value)
+                }
             }
 
         case .ignore:
@@ -433,7 +453,7 @@ extension QUICConnectionChannelHandler {
         channelActivationPromise: EventLoopPromise<any Channel>,
         streamChannelInitializer: @escaping (any Channel, QUICStreamID) -> EventLoopFuture<Void>
     ) {
-        guard self.context != nil else {
+        guard let context = self.context else {
             channelActivationPromise.fail(QUICError.noLocalAddress)
             self.logger.error(
                 "outboundStreamConnected called but context is nil, stream ID: \(streamID))"
@@ -447,14 +467,38 @@ extension QUICConnectionChannelHandler {
             channelActivationPromise.fail(QUICError.streamHandlerNotFound)
             return
         }
-        streamChannelInitializer(streamHandler, streamID)
-            .whenComplete { result in
-                switch result {
-                case .success:
-                    channelActivationPromise.succeed(streamHandler)
-                case .failure(let error):
-                    channelActivationPromise.fail(error)
+
+        // Inherit the parent channel's `autoRead` option onto the stream channel.
+        let setStreamAutoRead = context.channel.getOption(.autoRead).flatMapThrowing { autoRead in
+            // Force unwrap is safe here. `QUICChannelStreamHandler` always provides `syncOptions`.
+            try streamHandler.syncOptions!.setOption(.autoRead, value: autoRead)
+        }
+
+        let loopBoundSelf = NIOLoopBound(self, eventLoop: self.eventLoop)
+
+        setStreamAutoRead.whenFailure { error in
+            loopBoundSelf.value.logger.error(
+                "Failed to inherit autoRead option onto stream channel",
+                metadata: ["error": "\(error)"]
+            )
+            streamHandler.close(promise: nil)
+        }
+
+        let loopBoundStreamInitializer = NIOLoopBound(streamChannelInitializer, eventLoop: self.eventLoop)
+
+        setStreamAutoRead.whenSuccess {
+            loopBoundStreamInitializer.value(streamHandler, streamID)
+                .whenComplete { result in
+                    switch result {
+                    case .success:
+                        channelActivationPromise.succeed(streamHandler)
+                        // Run an empty `streamRead()` to fire `channelReadComplete` which will in turn fire a `read`
+                        // event on the pipeline.
+                        streamHandler.streamRead()
+                    case .failure(let error):
+                        channelActivationPromise.fail(error)
+                    }
                 }
-            }
+        }
     }
 }
