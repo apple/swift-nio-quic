@@ -1188,11 +1188,11 @@ struct QUICStreamStateMachineTests {
 
 struct QUICStreamPipelineStateMachineTests {
     /// Only the first read on a fresh stream is allowed to kick off the initializer.
-    @Test("startInitializer from .uninitialized returns .runInitializer and transitions to .initializing")
+    @Test("startInitializer from .uninitialized with active channel returns .runInitializer and transitions to .initializing")
     func startInitializerFromUninitialized() {
         var sm = QUICStreamPipelineStateMachine()
 
-        let action = sm.startInitializer()
+        let action = sm.startInitializer(channelActive: true)
         guard case .runInitializer = action else {
             Issue.record("Expected .runInitializer")
             return
@@ -1204,30 +1204,49 @@ struct QUICStreamPipelineStateMachineTests {
     }
 
     /// Concurrent reads on the same event-loop tick must not double-initialize (race protection).
-    @Test("startInitializer from .initializing returns .skipInitializerInProgress")
+    @Test("startInitializer from .initializing returns .ignore(.initializerInProgress)")
     func startInitializerFromInitializing() {
         var sm = QUICStreamPipelineStateMachine()
 
-        _ = sm.startInitializer()
+        _ = sm.startInitializer(channelActive: true)
 
-        let action = sm.startInitializer()
-        guard case .skipInitializerInProgress = action else {
-            Issue.record("Expected .skipInitializerInProgress")
+        let action = sm.startInitializer(channelActive: true)
+        guard case .ignore(.initializerInProgress) = action else {
+            Issue.record("Expected .ignore(.initializerInProgress)")
             return
         }
     }
 
     /// Reads after init completes must not restart the initializer.
-    @Test("startInitializer from .initialized returns .skipInitializerComplete")
+    @Test("startInitializer from .initialized returns .ignore(.initializerComplete)")
     func startInitializerFromInitialized() {
         var sm = QUICStreamPipelineStateMachine()
 
-        _ = sm.startInitializer()
+        _ = sm.startInitializer(channelActive: true)
         _ = sm.markInitializerComplete()
 
-        let action = sm.startInitializer()
-        guard case .skipInitializerComplete = action else {
-            Issue.record("Expected .skipInitializerComplete")
+        let action = sm.startInitializer(channelActive: true)
+        guard case .ignore(.initializerComplete) = action else {
+            Issue.record("Expected .ignore(.initializerComplete)")
+            return
+        }
+    }
+
+    /// An inactive channel has nothing to dispatch into; no transition happens.
+    @Test("startInitializer with inactive channel returns .ignore(.channelInactive) and does not transition")
+    func startInitializerInactiveChannel() {
+        var sm = QUICStreamPipelineStateMachine()
+
+        let action = sm.startInitializer(channelActive: false)
+        guard case .ignore(.channelInactive) = action else {
+            Issue.record("Expected .ignore(.channelInactive)")
+            return
+        }
+
+        // No transition; a follow-up call with active channel should still be the first one.
+        let secondAction = sm.startInitializer(channelActive: true)
+        guard case .runInitializer = secondAction else {
+            Issue.record("Expected .runInitializer on follow-up")
             return
         }
     }
@@ -1238,7 +1257,7 @@ struct QUICStreamPipelineStateMachineTests {
     func markInitializerCompleteSurfaces() {
         var sm = QUICStreamPipelineStateMachine()
 
-        _ = sm.startInitializer()
+        _ = sm.startInitializer(channelActive: true)
 
         let isInitializedDuring = sm.isInitialized
         #expect(!isInitializedDuring)
@@ -1258,7 +1277,7 @@ struct QUICStreamPipelineStateMachineTests {
     func markInitializerCompleteIdempotent() {
         var sm = QUICStreamPipelineStateMachine()
 
-        _ = sm.startInitializer()
+        _ = sm.startInitializer(channelActive: true)
         _ = sm.markInitializerComplete()
 
         let action = sm.markInitializerComplete()

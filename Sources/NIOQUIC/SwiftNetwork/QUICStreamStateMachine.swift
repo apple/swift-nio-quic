@@ -2073,17 +2073,22 @@ struct QUICStreamPipelineStateMachine: ~Copyable {
         /// run the application's initializer. Caller must follow up with
         /// `markPipelineInitializerComplete()` once the Future succeeds.
         case runInitializer
-        /// The initializer's Future is already in flight; do not start
-        /// another one. (Caller may still want to call `streamRead()`.)
-        case skipInitializerInProgress
-        /// The initializer already completed. (Caller may still want to
-        /// call `streamRead()`.)
-        case skipInitializerComplete
+        /// Don't run an initializer.
+        case ignore(IgnoreReason)
+
+        enum IgnoreReason: ~Copyable {
+            /// The stream's channel is not active; nothing to dispatch into.
+            case channelInactive
+            /// The initializer's `Future` is already in flight.
+            case initializerInProgress
+            /// The initializer already completed.
+            case initializerComplete
+        }
     }
 
     /// Synchronous gate: call before kicking off the initializer.
-    mutating func startInitializer() -> StartInitializerAction {
-        self.state.startInitializer()
+    mutating func startInitializer(channelActive: Bool) -> StartInitializerAction {
+        self.state.startInitializer(channelActive: channelActive)
     }
 
     enum MarkInitializerCompleteAction: ~Copyable {
@@ -2106,17 +2111,21 @@ struct QUICStreamPipelineStateMachine: ~Copyable {
 // MARK: - Pipeline State Transitions
 
 extension QUICStreamPipelineStateMachine.State {
-    mutating func startInitializer() -> QUICStreamPipelineStateMachine.StartInitializerAction {
+    mutating func startInitializer(channelActive: Bool) -> QUICStreamPipelineStateMachine.StartInitializerAction {
+        guard channelActive else {
+            return .ignore(.channelInactive)
+        }
+
         switch consume self {
         case .uninitialized:
             self = .initializing
             return .runInitializer
         case .initializing:
             self = .initializing
-            return .skipInitializerInProgress
+            return .ignore(.initializerInProgress)
         case .initialized:
             self = .initialized
-            return .skipInitializerComplete
+            return .ignore(.initializerComplete)
         }
     }
 
@@ -2187,34 +2196,34 @@ struct SwiftNetworkStreamHandle: ~Copyable {
 
         enum InvokeDisconnectAction: ~Copyable {
             case performDisconnect
-            case skipDetached
+            case ignore
         }
         func invokeDisconnect() -> InvokeDisconnectAction {
             switch self.state {
             case .attached: return .performDisconnect
-            case .detached: return .skipDetached
+            case .detached: return .ignore
             }
         }
 
         enum InvokeAbortInboundAction: ~Copyable {
             case performAbortInbound
-            case skipDetached
+            case ignore
         }
         func invokeAbortInbound() -> InvokeAbortInboundAction {
             switch self.state {
             case .attached: return .performAbortInbound
-            case .detached: return .skipDetached
+            case .detached: return .ignore
             }
         }
 
         enum InvokeAbortOutboundAction: ~Copyable {
             case performAbortOutbound
-            case skipDetached
+            case ignore
         }
         func invokeAbortOutbound() -> InvokeAbortOutboundAction {
             switch self.state {
             case .attached: return .performAbortOutbound
-            case .detached: return .skipDetached
+            case .detached: return .ignore
             }
         }
 
@@ -2242,12 +2251,12 @@ struct SwiftNetworkStreamHandle: ~Copyable {
 
         enum InvokeGetMetadataAction: ~Copyable {
             case performGetMetadata
-            case skipDetached
+            case ignore
         }
         func invokeGetMetadata() -> InvokeGetMetadataAction {
             switch self.state {
             case .attached: return .performGetMetadata
-            case .detached: return .skipDetached
+            case .detached: return .ignore
             }
         }
 
@@ -2299,7 +2308,7 @@ struct SwiftNetworkStreamHandle: ~Copyable {
         switch self.stateMachine.invokeDisconnect() {
         case .performDisconnect:
             self.linkage.invokeDisconnect(from, error: error)
-        case .skipDetached:
+        case .ignore:
             return
         }
     }
@@ -2311,7 +2320,7 @@ struct SwiftNetworkStreamHandle: ~Copyable {
         switch self.stateMachine.invokeAbortInbound() {
         case .performAbortInbound:
             try self.linkage.invokeAbortInbound(from, error: error)
-        case .skipDetached:
+        case .ignore:
             return
         }
     }
@@ -2323,7 +2332,7 @@ struct SwiftNetworkStreamHandle: ~Copyable {
         switch self.stateMachine.invokeAbortOutbound() {
         case .performAbortOutbound:
             try self.linkage.invokeAbortOutbound(from, error: error)
-        case .skipDetached:
+        case .ignore:
             return
         }
     }
@@ -2363,7 +2372,7 @@ struct SwiftNetworkStreamHandle: ~Copyable {
         switch self.stateMachine.invokeGetMetadata() {
         case .performGetMetadata:
             return self.linkage.invokeGetMetadata(from)
-        case .skipDetached:
+        case .ignore:
             return nil
         }
     }

@@ -237,12 +237,7 @@ extension QUICConnectionChannelHandler: ChannelInboundHandler, ChannelOutboundHa
             return
         }
 
-        guard stream.isStreamChannelActive else {
-            stream.streamRead()
-            return
-        }
-
-        switch stream.pipelineStateMachine.startInitializer() {
+        switch stream.pipelineStateMachine.startInitializer(channelActive: stream.isStreamChannelActive) {
         case .runInitializer:
             self.logger.trace(
                 "QUICConnectionChannelHandler read with newly created id: \(readableStreamMessage.streamID)"
@@ -256,10 +251,7 @@ extension QUICConnectionChannelHandler: ChannelInboundHandler, ChannelOutboundHa
                 stream.initialize(context)
             }
 
-        case .skipInitializerInProgress:
-            stream.streamRead()
-
-        case .skipInitializerComplete:
+        case .ignore:
             stream.streamRead()
         }
     }
