@@ -24,7 +24,7 @@ public struct QUICStreamCreator: Sendable, NIOQUICHelpers.QUICStreamCreator {
     private let _createOutboundStream:
         NIOLoopBound<
             (
-                EventLoopPromise<any Channel>, QUICStreamID.StreamType,
+                EventLoopPromise<any Channel>, QUICStreamType,
                 @escaping (any Channel, QUICStreamID) -> EventLoopFuture<Void>
             ) -> Void
         >
@@ -34,7 +34,7 @@ public struct QUICStreamCreator: Sendable, NIOQUICHelpers.QUICStreamCreator {
         role: Role,
         createOutboundStream: NIOLoopBound<
             (
-                EventLoopPromise<any Channel>, QUICStreamID.StreamType,
+                EventLoopPromise<any Channel>, QUICStreamType,
                 @escaping (any Channel, QUICStreamID) -> EventLoopFuture<Void>
             ) -> Void
         >
@@ -83,7 +83,7 @@ public struct QUICStreamCreator: Sendable, NIOQUICHelpers.QUICStreamCreator {
         private let role: Role
         private let _createOutboundStream:
             (
-                EventLoopPromise<any Channel>, QUICStreamID.StreamType,
+                EventLoopPromise<any Channel>, QUICStreamType,
                 @escaping (any Channel, QUICStreamID) -> EventLoopFuture<Void>
             ) -> Void
 
@@ -92,7 +92,7 @@ public struct QUICStreamCreator: Sendable, NIOQUICHelpers.QUICStreamCreator {
             role: Role,
             _createOutboundStream:
                 @escaping (
-                    EventLoopPromise<any Channel>, QUICStreamID.StreamType,
+                    EventLoopPromise<any Channel>, QUICStreamType,
                     @escaping (any Channel, QUICStreamID) -> EventLoopFuture<Void>
                 ) -> Void
         ) {
@@ -137,7 +137,7 @@ public struct QUICStreamCreator: Sendable, NIOQUICHelpers.QUICStreamCreator {
             let outputPromise = self.eventLoop.makePromise(of: InitializerOutput.self)
             channelPromise.futureResult.cascadeFailure(to: outputPromise)
 
-            let streamType: QUICStreamID.StreamType
+            let streamType: QUICStreamType
             switch (self.role, isBidirectional) {
             case (.client, true):
                 streamType = .clientInitiatedBidirectional

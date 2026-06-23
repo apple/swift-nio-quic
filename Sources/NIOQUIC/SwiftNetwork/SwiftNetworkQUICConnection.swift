@@ -643,7 +643,7 @@ final class SwiftNetworkQUICConnection {
     ///   - channelActivationPromise: Fulfilled with the new ``Channel`` once the stream is fully set up, or failed on error.
     ///   - streamChannelInitializer: Called with the new channel and its confirmed stream ID to configure the channel pipeline.
     internal func addNewOutboundStreamInputHandler(
-        streamType: QUICStreamID.StreamType,
+        streamType: QUICStreamType,
         channelActivationPromise: EventLoopPromise<any Channel>,
         connectionChannel: any Channel,
         streamChannelInitializer: @escaping (any Channel, QUICStreamID) -> EventLoopFuture<Void>

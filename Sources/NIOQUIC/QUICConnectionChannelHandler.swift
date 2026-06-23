@@ -398,7 +398,7 @@ extension QUICConnectionChannelHandler {
     ///   - streamChannelInitializer: Called with the new channel and its confirmed stream ID to configure the channel pipeline.
     func createOutboundStream(
         channelActivationPromise: EventLoopPromise<any Channel>,
-        streamType: QUICStreamID.StreamType,
+        streamType: QUICStreamType,
         streamChannelInitializer: @escaping (any Channel, QUICStreamID) -> EventLoopFuture<Void>
     ) {
         guard let context = self.context else {
