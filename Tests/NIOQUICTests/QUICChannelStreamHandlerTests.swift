@@ -23,6 +23,7 @@ import Testing
 
 @Suite
 struct QUICChannelStreamHandlerTests {
+    @available(anyAppleOS 26, *)
     @Test("autoRead can be configured on stream channel")
     func testConfigureAutoReadOnStreamChannel() throws {
         try Self.withServerStream { streamChannel in
@@ -45,6 +46,7 @@ struct QUICChannelStreamHandlerTests {
         }
     }
 
+    @available(anyAppleOS 26, *)
     @Test("Calling read sets the pendingRead flag")
     func callingReadSetsPendingReadFlag() throws {
         try Self.withServerStream { streamChannel in
@@ -62,6 +64,7 @@ struct QUICChannelStreamHandlerTests {
         }
     }
 
+    @available(anyAppleOS 26, *)
     @Test("Calling read when pendingRead flag is true")
     func callingReadWhenAlreadyPendingRead() throws {
         try Self.withServerStream { streamChannel in
@@ -83,6 +86,7 @@ struct QUICChannelStreamHandlerTests {
         }
     }
 
+    @available(anyAppleOS 26, *)
     @Test("read called before inbound data arrives", arguments: [true, false])
     func readCalledBeforeInboundDataArrives(autoRead: Bool) throws {
         try Self.withServerStream { streamChannel in
@@ -148,6 +152,7 @@ struct QUICChannelStreamHandlerTests {
         }
     }
 
+    @available(anyAppleOS 26, *)
     @Test("read called after inbound data arrives", arguments: [true, false])
     func readCalledAfterInboundDataArrives(autoRead: Bool) throws {
         try Self.withServerStream { streamChannel in
@@ -203,6 +208,7 @@ struct QUICChannelStreamHandlerTests {
         }
     }
 
+    @available(anyAppleOS 26, *)
     @Test("Interleaved read requests and inbound data arrival", arguments: [true, false])
     func interleavedReadRequestsAndInboundDataArrival(autoRead: Bool) throws {
         try Self.withServerStream { streamChannel in
@@ -293,6 +299,7 @@ struct QUICChannelStreamHandlerTests {
         }
     }
 
+    @available(anyAppleOS 26, *)
     @Test("Packet with FIN delivered to a pending read request")
     func finPacketDeliveredToPendingReadRequest() throws {
         try Self.withServerStream { streamChannel in
@@ -330,6 +337,7 @@ struct QUICChannelStreamHandlerTests {
     }
 }
 
+@available(anyAppleOS 26, *)
 extension QUICChannelStreamHandlerTests {
     static func withServerStream(
         streamID: UInt64 = 0,
