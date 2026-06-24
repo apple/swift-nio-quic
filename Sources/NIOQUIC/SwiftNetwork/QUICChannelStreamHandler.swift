@@ -1353,10 +1353,4 @@ extension QUICChannelStreamHandler {
         self.eventLoop.preconditionInEventLoop()
         return self.pendingRead
     }
-
-    /// Obtain the `autoRead` property.
-    internal var _testOnly_autoRead: Bool {
-        self.eventLoop.preconditionInEventLoop()
-        return self.autoRead
-    }
 }

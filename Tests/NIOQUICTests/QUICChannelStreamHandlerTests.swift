@@ -38,11 +38,11 @@ struct QUICChannelStreamHandlerTests {
 
             try streamChannelOptions.setOption(.autoRead, value: false)
             #expect(try streamChannelOptions.getOption(.autoRead) == false)
-            #expect(streamChannel._testOnly_autoRead == false)
+            #expect(try streamChannel.syncOptions?.getOption(.autoRead) == false)
 
             try streamChannelOptions.setOption(.autoRead, value: true)
             #expect(try streamChannelOptions.getOption(.autoRead) == true)
-            #expect(streamChannel._testOnly_autoRead == true)
+            #expect(try streamChannel.syncOptions?.getOption(.autoRead) == true)
         }
     }
 
