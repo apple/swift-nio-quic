@@ -50,14 +50,15 @@ struct QUICChannelStreamHandlerTests {
     @Test("Calling read sets the pendingRead flag")
     func callingReadSetsPendingReadFlag() throws {
         try Self.withServerStream { streamChannel in
+            let readHolder = ManualReadHandler()
             let recorder = RecordingHandler()
-            try streamChannel.pipeline.syncOperations.addHandler(recorder)
+            try streamChannel.pipeline.syncOperations.addHandlers([readHolder, recorder])
 
             #expect(streamChannel._testOnly_pendingRead == false)
 
             streamChannel.pipeline.read()
-            #expect(recorder.pendingReadRequests.count == 1)
-            recorder.releasePendingReadRequest(to: streamChannel.pipeline)
+            #expect(readHolder.pendingReadRequests.count == 1)
+            readHolder.releasePendingReadRequest(to: streamChannel.pipeline)
             #expect(streamChannel._testOnly_pendingRead == true)
 
             #expect(recorder.events == [.read])
@@ -68,19 +69,20 @@ struct QUICChannelStreamHandlerTests {
     @Test("Calling read when pendingRead flag is true")
     func callingReadWhenAlreadyPendingRead() throws {
         try Self.withServerStream { streamChannel in
+            let readHolder = ManualReadHandler()
             let recorder = RecordingHandler()
-            try streamChannel.pipeline.syncOperations.addHandler(recorder)
+            try streamChannel.pipeline.syncOperations.addHandlers([readHolder, recorder])
 
             #expect(streamChannel._testOnly_pendingRead == false)
 
             streamChannel.pipeline.read()
-            recorder.releasePendingReadRequest(to: streamChannel.pipeline)
+            readHolder.releasePendingReadRequest(to: streamChannel.pipeline)
             #expect(streamChannel._testOnly_pendingRead == true)
             #expect(recorder.events == [.read])
 
             // Call `read` again
             streamChannel.pipeline.read()
-            recorder.releasePendingReadRequest(to: streamChannel.pipeline)
+            readHolder.releasePendingReadRequest(to: streamChannel.pipeline)
             #expect(streamChannel._testOnly_pendingRead == true)
             #expect(recorder.events == [.read, .read])
         }
@@ -90,14 +92,16 @@ struct QUICChannelStreamHandlerTests {
     @Test("read called before inbound data arrives", arguments: [true, false])
     func readCalledBeforeInboundDataArrives(autoRead: Bool) throws {
         try Self.withServerStream { streamChannel in
-            let recorder = RecordingHandler()
             // Set the `autoRead` channel option.
             try streamChannel.syncOptions?.setOption(.autoRead, value: autoRead)
-            try streamChannel.pipeline.syncOperations.addHandler(recorder)
+
+            let readHolder = ManualReadHandler()
+            let recorder = RecordingHandler()
+            try streamChannel.pipeline.syncOperations.addHandlers([readHolder, recorder])
 
             // The downstream consumer now requests a read.
             streamChannel.pipeline.read()
-            recorder.releasePendingReadRequest(to: streamChannel.pipeline)
+            readHolder.releasePendingReadRequest(to: streamChannel.pipeline)
             // Since no data has arrived from the network yet, the read request cannot be satisfied. As such, the
             // `pendingRead` flag should be set to `true`.
             #expect(streamChannel._testOnly_pendingRead == true)
@@ -116,7 +120,7 @@ struct QUICChannelStreamHandlerTests {
             case false:
                 // The `read` event shouldn't have been fired. As such, the `pendingRead` flag should still be `false`.
                 #expect(recorder.events == [.read, .channelRead(testData), .channelReadComplete])
-                #expect(recorder.pendingReadRequests.count == 0)
+                #expect(readHolder.pendingReadRequests.count == 0)
                 #expect(streamChannel._testOnly_pendingRead == false)
 
                 // Manually fire a read request down the pipeline.
@@ -133,11 +137,11 @@ struct QUICChannelStreamHandlerTests {
                         .read,
                     ]
                 )
-                #expect(recorder.pendingReadRequests.count == 1)
+                #expect(readHolder.pendingReadRequests.count == 1)
                 #expect(streamChannel._testOnly_pendingRead == false)
 
-                // Now tell `RecorderHandler` to release the pending read request and deliver it to the channel.
-                recorder.releasePendingReadRequest(to: streamChannel.pipeline)
+                // Now tell `ReadHolderHandler` to release the pending read request and deliver it to the channel.
+                readHolder.releasePendingReadRequest(to: streamChannel.pipeline)
                 // The `pendingRead` flag should be set to `true` now.
                 #expect(streamChannel._testOnly_pendingRead == true)
 
@@ -156,10 +160,12 @@ struct QUICChannelStreamHandlerTests {
     @Test("read called after inbound data arrives", arguments: [true, false])
     func readCalledAfterInboundDataArrives(autoRead: Bool) throws {
         try Self.withServerStream { streamChannel in
-            let recorder = RecordingHandler()
             // Set the `autoRead` channel option.
             try streamChannel.syncOptions?.setOption(.autoRead, value: autoRead)
-            try streamChannel.pipeline.syncOperations.addHandler(recorder)
+
+            let readHolder = ManualReadHandler()
+            let recorder = RecordingHandler()
+            try streamChannel.pipeline.syncOperations.addHandlers([readHolder, recorder])
 
             // Simulate data arriving from the network.
             let testData = ByteBuffer(string: "test")
@@ -173,8 +179,8 @@ struct QUICChannelStreamHandlerTests {
 
             // Now the downstream requests a read.
             streamChannel.pipeline.read()
-            #expect(recorder.pendingReadRequests.count == 1)
-            recorder.releasePendingReadRequest(to: streamChannel.pipeline)
+            #expect(readHolder.pendingReadRequests.count == 1)
+            readHolder.releasePendingReadRequest(to: streamChannel.pipeline)
 
             // The downstream should have received this buffered data.
             #expect(recorder.channelReadCount == 1)
@@ -184,7 +190,7 @@ struct QUICChannelStreamHandlerTests {
             switch autoRead {
             case false:
                 #expect(recorder.events == [.read, .channelRead(testData), .channelReadComplete])
-                #expect(recorder.pendingReadRequests.count == 0)
+                #expect(readHolder.pendingReadRequests.count == 0)
                 #expect(streamChannel._testOnly_pendingRead == false)
 
                 // Manually fire a read request down the pipeline.
@@ -196,10 +202,10 @@ struct QUICChannelStreamHandlerTests {
             case true:
                 // The downstream should have automatically requested another read after reading the first data.
                 #expect(recorder.events == [.read, .channelRead(testData), .channelReadComplete, .read])
-                #expect(recorder.pendingReadRequests.count == 1)
-                // Now tell `RecorderHandler` to release the pending read request.
-                recorder.releasePendingReadRequest(to: streamChannel.pipeline)
-                #expect(recorder.pendingReadRequests.count == 0)
+                #expect(readHolder.pendingReadRequests.count == 1)
+                // Now tell `ReadHolderHandler` to release the pending read request.
+                readHolder.releasePendingReadRequest(to: streamChannel.pipeline)
+                #expect(readHolder.pendingReadRequests.count == 0)
 
                 // Since there is no further data to deliver, the downstream consumer's second read request remains
                 // pending.
@@ -212,10 +218,11 @@ struct QUICChannelStreamHandlerTests {
     @Test("Interleaved read requests and inbound data arrival", arguments: [true, false])
     func interleavedReadRequestsAndInboundDataArrival(autoRead: Bool) throws {
         try Self.withServerStream { streamChannel in
-            let recorder = RecordingHandler()
             // Set the `autoRead` channel option.
             try streamChannel.syncOptions?.setOption(.autoRead, value: autoRead)
-            try streamChannel.pipeline.syncOperations.addHandler(recorder)
+            let readHolder = ManualReadHandler()
+            let recorder = RecordingHandler()
+            try streamChannel.pipeline.syncOperations.addHandlers([readHolder, recorder])
 
             // Data arrives from the network before `read` is called.
             let testData = ByteBuffer(string: "test")
@@ -229,8 +236,8 @@ struct QUICChannelStreamHandlerTests {
 
             // Now the downstream requests a read;
             streamChannel.pipeline.read()
-            #expect(recorder.pendingReadRequests.count == 1)
-            recorder.releasePendingReadRequest(to: streamChannel.pipeline)
+            #expect(readHolder.pendingReadRequests.count == 1)
+            readHolder.releasePendingReadRequest(to: streamChannel.pipeline)
             // and receives the buffered data.
             #expect(recorder.channelReadCount == 1)
             #expect(recorder.totalReadBytes == testData.readableBytes)
@@ -246,7 +253,7 @@ struct QUICChannelStreamHandlerTests {
             switch autoRead {
             case false:
                 #expect(recorder.events == [.read, .channelRead(testData), .channelReadComplete])
-                #expect(recorder.pendingReadRequests.count == 0)
+                #expect(readHolder.pendingReadRequests.count == 0)
                 #expect(streamChannel._testOnly_pendingRead == false)
 
                 // Now manually fire a read request down the pipeline.
@@ -256,10 +263,10 @@ struct QUICChannelStreamHandlerTests {
             case true:
                 // The downstream should have automatically requested another read after reading the first data.
                 #expect(recorder.events == [.read, .channelRead(testData), .channelReadComplete, .read])
-                #expect(recorder.pendingReadRequests.count == 1)
+                #expect(readHolder.pendingReadRequests.count == 1)
 
                 // Release the read request.
-                recorder.releasePendingReadRequest(to: streamChannel.pipeline)
+                readHolder.releasePendingReadRequest(to: streamChannel.pipeline)
             }
 
             // Now the downstream should receive all the buffered data.
@@ -275,7 +282,7 @@ struct QUICChannelStreamHandlerTests {
             switch autoRead {
             case false:
                 #expect(recorder.events == expectedEvents)
-                #expect(recorder.pendingReadRequests.count == 0)
+                #expect(readHolder.pendingReadRequests.count == 0)
                 #expect(streamChannel._testOnly_pendingRead == false)
 
                 // Manually fire a read request down the pipeline.
@@ -287,11 +294,11 @@ struct QUICChannelStreamHandlerTests {
             case true:
                 // The downstream should have automatically requested another read after reading the first data.
                 #expect(recorder.events == expectedEvents + [.read])
-                #expect(recorder.pendingReadRequests.count == 1)
+                #expect(readHolder.pendingReadRequests.count == 1)
 
                 // Release the read request.
-                recorder.releasePendingReadRequest(to: streamChannel.pipeline)
-                #expect(recorder.pendingReadRequests.count == 0)
+                readHolder.releasePendingReadRequest(to: streamChannel.pipeline)
+                #expect(readHolder.pendingReadRequests.count == 0)
 
                 // Since there is no further data to deliver, the downstream consumer's read request remains pending.
                 #expect(streamChannel._testOnly_pendingRead == true)
@@ -303,15 +310,16 @@ struct QUICChannelStreamHandlerTests {
     @Test("Packet with FIN delivered to a pending read request")
     func finPacketDeliveredToPendingReadRequest() throws {
         try Self.withServerStream { streamChannel in
-            let recorder = RecordingHandler()
             // Set `autoRead` to `false`.
             try streamChannel.syncOptions?.setOption(.autoRead, value: false)
-            try streamChannel.pipeline.syncOperations.addHandler(recorder)
+            let readHolder = ManualReadHandler()
+            let recorder = RecordingHandler()
+            try streamChannel.pipeline.syncOperations.addHandlers([readHolder, recorder])
 
             // Simulate data with a FIN arriving from the network.
             let testData = ByteBuffer(string: "test")
             streamChannel._testOnly_appendToBufferedReadData(testData)
-            // Tell the state machine we have recieved a FIN.
+            // Tell the state machine we have received a FIN.
             _ = try streamChannel.streamStateMachine.receiveFin(finalSize: 0)
             streamChannel.handleInboundDataAvailableEvent(.init())
 
@@ -322,8 +330,8 @@ struct QUICChannelStreamHandlerTests {
 
             // Now the downstream requests a read.
             streamChannel.pipeline.read()
-            #expect(recorder.pendingReadRequests.count == 1)
-            recorder.releasePendingReadRequest(to: streamChannel.pipeline)
+            #expect(readHolder.pendingReadRequests.count == 1)
+            readHolder.releasePendingReadRequest(to: streamChannel.pipeline)
 
             // The downstream should have received this buffered data;
             #expect(recorder.channelReadCount == 1)
@@ -331,7 +339,7 @@ struct QUICChannelStreamHandlerTests {
             #expect(streamChannel._testOnly_pendingRead == false)
             // and an `inputClosed` event, since we received a FIN.
             #expect(recorder.events == [.read, .channelRead(testData), .channelReadComplete, .inputClosedEvent])
-            #expect(recorder.pendingReadRequests.count == 0)
+            #expect(readHolder.pendingReadRequests.count == 0)
             #expect(streamChannel._testOnly_pendingRead == false)
         }
     }
@@ -391,7 +399,7 @@ extension QUICChannelStreamHandlerTests {
 }
 
 extension QUICChannelStreamHandlerTests {
-    // Records events from the parent channel and allows control over propagating read requests.
+    // Records events from the parent channel.
     private final class RecordingHandler: ChannelDuplexHandler {
         typealias OutboundIn = ByteBuffer
         typealias InboundIn = ByteBuffer
@@ -404,8 +412,6 @@ extension QUICChannelStreamHandlerTests {
         }
 
         var events: [Event] = []
-
-        var pendingReadRequests: [EventLoopPromise<Void>] = []
 
         var totalReadBytes: Int {
             self.events.reduce(0) { accumulated, event in
@@ -454,10 +460,20 @@ extension QUICChannelStreamHandlerTests {
 
         func read(context: ChannelHandlerContext) {
             self.events.append(.read)
+            context.read()
+        }
+    }
 
+    /// Queues outbound `read()` requests and forwards them only when `releasePendingReadRequest(to:)` is called.
+    private final class ManualReadHandler: ChannelOutboundHandler {
+        typealias OutboundIn = ByteBuffer
+
+        var pendingReadRequests: [EventLoopPromise<Void>] = []
+
+        func read(context: ChannelHandlerContext) {
             // Don't call context.read() now; create a promise that will call `context.read()` and store that promise.
             // That promise will be fulfilled when `releasePendingReadRequest` is called. At that point, the read will
-            // be propagated further down the pipeline.
+            // be propagated down the pipeline.
             let readPromise = context.eventLoop.makePromise(of: Void.self)
             readPromise.futureResult.assumeIsolated().whenComplete { _ in
                 context.read()
