@@ -17,12 +17,16 @@ import PackageDescription
 
 let isRunningInCI = Context.environment["CI"] != nil
 
-// Enable the QlogOutput in CI as some tests depend on it.
+// Enable the QlogOutput in CI as some tests depend on it; also enable a setting our
+// tests can depend on to gate whether the Qlog tests are expected to run or not.
 let swiftNetworkTraits: Set<Package.Dependency.Trait>
+let qlogSetting: [SwiftSetting]
 if isRunningInCI {
     swiftNetworkTraits = [.defaults, "QlogOutput"]
+    qlogSetting = [.define("QLOG_ENABLED")]
 } else {
     swiftNetworkTraits = [.defaults]
+    qlogSetting = []
 }
 
 // controls logs emitted, lower levels are compiled out
@@ -107,7 +111,7 @@ let package = Package(
                 .copy("privateKey.der"),
                 .copy("publicKey.der"),
             ],
-            swiftSettings: swiftSettings
+            swiftSettings: swiftSettings + qlogSetting
         ),
         .testTarget(
             name: "IntegrationTests",
