@@ -1344,8 +1344,7 @@ extension QUICChannelStreamHandler {
     /// Append bytes directly into the NIO read buffer.
     internal func _testOnly_appendToBufferedReadData(_ buffer: ByteBuffer) {
         self.eventLoop.preconditionInEventLoop()
-        var buffer = buffer
-        self.bufferedReadData.writeBuffer(&buffer)
+        self.bufferedReadData.writeImmutableBuffer(buffer)
     }
 
     /// Obtain the `pendingRead` property.
