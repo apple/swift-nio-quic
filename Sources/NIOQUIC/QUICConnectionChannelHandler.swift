@@ -456,9 +456,8 @@ extension QUICConnectionChannelHandler {
                 switch result {
                 case .success:
                     channelActivationPromise.succeed(streamHandler)
-                    // Run an empty `streamRead()` to fire `channelReadComplete` which will in turn fire a `read`
-                    // event on the pipeline.
-                    streamHandler.streamRead()
+                    // Trigger the first read.
+                    streamHandler.tryToAutoRead()
                 case .failure(let error):
                     channelActivationPromise.fail(error)
                 }

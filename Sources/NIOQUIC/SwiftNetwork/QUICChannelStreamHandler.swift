@@ -584,11 +584,11 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
         self.log("ChildChannel fire channel read complete")
         self.pipeline.fireChannelReadComplete()
 
-        self._tryToAutoRead()
+        self.tryToAutoRead()
     }
 
     /// Issues a `read()` on the pipeline if `autoRead` is enabled and there is no outstanding read request.
-    private func _tryToAutoRead() {
+    func tryToAutoRead() {
         if self.autoRead, !self.pendingRead {
             self.pipeline.read()
         }
