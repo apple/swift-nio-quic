@@ -1339,6 +1339,7 @@ extension QUICChannelStreamHandler: Channel, ChannelCore {
 //
 // These methods are intended to only be used in tests. They exist to let unit tests drive the inbound delivery path
 // without a live SwiftNetwork peer.
+@available(anyAppleOS 26, *)
 extension QUICChannelStreamHandler {
     /// Append bytes directly into the NIO read buffer.
     internal func _testOnly_appendToBufferedReadData(_ buffer: ByteBuffer) {
