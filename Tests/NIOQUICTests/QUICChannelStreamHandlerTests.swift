@@ -459,9 +459,8 @@ extension QUICChannelStreamHandlerTests {
             // That promise will be fulfilled when `releasePendingReadRequest` is called. At that point, the read will
             // be propagated further down the pipeline.
             let readPromise = context.eventLoop.makePromise(of: Void.self)
-            let loopBoundContext = context.loopBound
-            readPromise.futureResult.whenComplete { _ in
-                loopBoundContext.value.read()
+            readPromise.futureResult.assumeIsolated().whenComplete { _ in
+                context.read()
             }
             self.pendingReadRequests.append(readPromise)
         }
