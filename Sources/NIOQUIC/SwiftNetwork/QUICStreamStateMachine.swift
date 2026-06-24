@@ -2103,7 +2103,7 @@ struct QUICStreamPipelineStateMachine: ~Copyable {
     enum MarkInitializerCompleteAction: ~Copyable {
         /// Newly transitioned `.initializing → .initialized`; surface the
         /// now-ready stream upward (yield to multiplexer or fire channel
-        /// read) and trigger the initial `streamRead()`.
+        /// read) and trigger the initial `read`.
         case surfaceInitializedStream
         /// Idempotent re-call; the pipeline was already initialized.
         case ignoreAlreadyComplete

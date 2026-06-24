@@ -255,7 +255,8 @@ extension QUICConnectionChannelHandler: ChannelInboundHandler, ChannelOutboundHa
             }
 
         case .ignore:
-            stream.streamRead()
+            // Trigger the first read.
+            stream.tryToAutoRead()
         }
     }
 

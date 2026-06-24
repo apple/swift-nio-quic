@@ -425,7 +425,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
                     switch self.pipelineStateMachine.markInitializerComplete() {
                     case .surfaceInitializedStream:
                         continuation.yield(output: output, channel: self)
-                        self.streamRead()
+                        self.tryToAutoRead()
                     case .ignoreAlreadyComplete:
                         break
                     }
@@ -448,7 +448,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
                 switch self.pipelineStateMachine.markInitializerComplete() {
                 case .surfaceInitializedStream:
                     context.fireChannelRead(QUICConnectionChannelHandler.wrapInboundOut(self))
-                    self.streamRead()
+                    self.tryToAutoRead()
                 case .ignoreAlreadyComplete:
                     break
                 }
@@ -465,7 +465,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
         switch self.pipelineStateMachine.markInitializerComplete() {
         case .surfaceInitializedStream:
             context.fireChannelRead(QUICConnectionChannelHandler.wrapInboundOut(self))
-            self.streamRead()
+            self.tryToAutoRead()
         case .ignoreAlreadyComplete:
             break
         }
@@ -580,7 +580,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
     }
 
     /// Fires `channelReadComplete` down the pipeline and then attempts issuing a read event on the pipeline.
-    private func _fireChannelReadComplete() {
+    private func fireChannelReadComplete() {
         self.log("ChildChannel fire channel read complete")
         self.pipeline.fireChannelReadComplete()
 
@@ -606,6 +606,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
             )
             self.pipeline.fireChannelRead(bufferedReadData)
             bufferedReadData.clear()
+            self.fireChannelReadComplete()
         }
         switch self.streamStateMachine.completeRead() {
         case .reportFin(let streamFullyClosed):
@@ -621,8 +622,6 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
         case .nothingToReport:
             break
         }
-        // Make sure read complete is called after everything has run.
-        self._fireChannelReadComplete()
     }
 
     internal func handleOutboundRoomAvailableEvent(_ from: ProtocolInstanceReference) {
