@@ -243,31 +243,14 @@ extension QUICConnectionChannelHandler: ChannelInboundHandler, ChannelOutboundHa
                 "QUICConnectionChannelHandler read with newly created id: \(readableStreamMessage.streamID)"
             )
 
-            let loopBoundSelf = NIOLoopBound(self, eventLoop: self.eventLoop)
-            let loopBoundContext = NIOLoopBound(context, eventLoop: self.eventLoop)
-
-            // Inherit the parent channel's `autoRead` option onto the stream channel.
-            let setStreamAutoRead = context.channel.getOption(.autoRead).flatMapThrowing { autoRead in
-                // Force unwrap is safe here. `QUICChannelStreamHandler` always provides `syncOptions`.
-                try stream.syncOptions!.setOption(.autoRead, value: autoRead)
-            }
-
-            setStreamAutoRead.whenFailure { error in
-                loopBoundSelf.value.logger.error(
-                    "Failed to inherit autoRead option onto stream channel",
-                    metadata: ["error": "\(error)"]
-                )
-                stream.close(promise: nil)
-            }
-
-            setStreamAutoRead.whenSuccess {
-                switch loopBoundSelf.value.inboundStreamInitializer {
+            self.setAutoReadOnStreamChannel(context: context, streamChannel: stream) {
+                switch self.inboundStreamInitializer {
                 case .multiplexer(let continuation):
                     stream.initialize(multiplexerContinuation: continuation, streamID: readableStreamMessage.streamID)
                 case .closure(let initializer):
-                    stream.initialize(loopBoundContext.value, initializer)
+                    stream.initialize(context, initializer)
                 case .none:
-                    stream.initialize(loopBoundContext.value)
+                    stream.initialize(context)
                 }
             }
 
@@ -468,37 +451,86 @@ extension QUICConnectionChannelHandler {
             return
         }
 
-        // Inherit the parent channel's `autoRead` option onto the stream channel.
-        let setStreamAutoRead = context.channel.getOption(.autoRead).flatMapThrowing { autoRead in
-            // Force unwrap is safe here. `QUICChannelStreamHandler` always provides `syncOptions`.
-            try streamHandler.syncOptions!.setOption(.autoRead, value: autoRead)
-        }
-
-        let loopBoundSelf = NIOLoopBound(self, eventLoop: self.eventLoop)
-
-        setStreamAutoRead.whenFailure { error in
-            loopBoundSelf.value.logger.error(
-                "Failed to inherit autoRead option onto stream channel",
-                metadata: ["error": "\(error)"]
-            )
-            streamHandler.close(promise: nil)
-        }
-
-        let loopBoundStreamInitializer = NIOLoopBound(streamChannelInitializer, eventLoop: self.eventLoop)
-
-        setStreamAutoRead.whenSuccess {
-            loopBoundStreamInitializer.value(streamHandler, streamID)
-                .whenComplete { result in
-                    switch result {
-                    case .success:
-                        channelActivationPromise.succeed(streamHandler)
-                        // Run an empty `streamRead()` to fire `channelReadComplete` which will in turn fire a `read`
-                        // event on the pipeline.
-                        streamHandler.streamRead()
-                    case .failure(let error):
-                        channelActivationPromise.fail(error)
-                    }
+        self.setAutoReadOnStreamChannel(context: context, streamChannel: streamHandler) {
+            streamChannelInitializer(streamHandler, streamID).whenComplete { result in
+                switch result {
+                case .success:
+                    channelActivationPromise.succeed(streamHandler)
+                    // Run an empty `streamRead()` to fire `channelReadComplete` which will in turn fire a `read`
+                    // event on the pipeline.
+                    streamHandler.streamRead()
+                case .failure(let error):
+                    channelActivationPromise.fail(error)
                 }
+            }
+        }
+    }
+}
+
+@available(anyAppleOS 26, *)
+extension QUICConnectionChannelHandler {
+    /// Obtains the parent channel's `autoRead` option, and sets that `autoRead` value on `streamChannel`. Uses the
+    /// `syncOptions` path if the parent channel supports it, and otherwise falls back to the asynchronous API.
+    ///
+    /// - Important: Closes `streamChannel` if there was an error in (1) obtaining the `autoRead` option from the
+    ///   parent, or (2) applying the option to `streamChannel`.
+    ///
+    /// - Parameters:
+    ///   - context: The context of the parent connection channel.
+    ///   - streamChannel: The newly created stream channel that should inherit the parent channel's `autoRead` value.
+    ///   - onSuccess: Invoked after the `autoRead` option has been successfully applied to `streamChannel`.
+    private func setAutoReadOnStreamChannel(
+        context: ChannelHandlerContext,
+        streamChannel: QUICChannelStreamHandler,
+        onSuccess: @escaping () -> Void
+    ) {
+        let handleResult = { (result: Result<Void, any Error>) in
+            switch result {
+            case .success:
+                onSuccess()
+
+            case .failure(let error):
+                self.logger.error(
+                    "Failed to inherit autoRead option onto stream channel",
+                    metadata: ["error": "\(error)"]
+                )
+                streamChannel.close(promise: nil)
+            }
+        }
+
+        if let syncOptions = context.channel.syncOptions {
+            let result = self.inheritAutoRead(syncOptions: syncOptions, streamChannel: streamChannel)
+            handleResult(result)
+        } else {
+            // The parent channel does not support sync options. Try to obtain `autoRead` via the async API.
+            self.inheritAutoRead(autoReadFuture: context.channel.getOption(.autoRead), streamChannel: streamChannel)
+                .assumeIsolated()
+                .whenComplete { handleResult($0) }
+        }
+    }
+
+    /// Synchronously reads the parent channel's `autoRead` option via `syncOptions` and applies it to `streamChannel`.
+    private func inheritAutoRead(
+        syncOptions: any NIOSynchronousChannelOptions,
+        streamChannel: QUICChannelStreamHandler
+    ) -> Result<Void, any Error> {
+        Result(catching: {
+            let autoReadValue = try syncOptions.getOption(.autoRead)
+
+            // Force unwrap is safe here. `QUICChannelStreamHandler` always provides `syncOptions`.
+            try streamChannel.syncOptions!.setOption(.autoRead, value: autoReadValue)
+        })
+    }
+
+    /// Asynchronously reads the parent channel's `autoRead` option and applies it to `streamChannel`. Used when the
+    /// parent channel does not expose `syncOptions`.
+    private func inheritAutoRead(
+        autoReadFuture: EventLoopFuture<Bool>,
+        streamChannel: QUICChannelStreamHandler
+    ) -> EventLoopFuture<Void> {
+        autoReadFuture.flatMapThrowing { autoReadValue in
+            // Force unwrap is safe here. `QUICChannelStreamHandler` always provides `syncOptions`.
+            try streamChannel.syncOptions!.setOption(.autoRead, value: autoReadValue)
         }
     }
 }
