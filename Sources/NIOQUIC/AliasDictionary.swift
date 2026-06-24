@@ -196,7 +196,8 @@ struct AliasDictionary<Key: Hashable, Value> {
                 removed = true
             } else {
                 removed = false
-                assertionFailure("""
+                assertionFailure(
+                    """
                     Alias (\(key)) maps to canonical key (\(canonical)) but the canonical key has \
                     no record of the inverse mapping. This is a bug in \(#file).
                     """

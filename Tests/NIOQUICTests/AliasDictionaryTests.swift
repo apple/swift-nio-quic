@@ -12,8 +12,9 @@
 //
 //===----------------------------------------------------------------------===//
 
-@testable import NIOQUIC
 import Testing
+
+@testable import NIOQUIC
 
 struct AliasDictionaryTests {
     @Test
