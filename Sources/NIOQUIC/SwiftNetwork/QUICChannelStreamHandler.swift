@@ -589,7 +589,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
 
     /// Issues a `read()` on the pipeline if `autoRead` is enabled and there is no outstanding read request.
     private func _tryToAutoRead() {
-        if self.autoRead, self.pendingRead == false {
+        if self.autoRead, !self.pendingRead {
             self.pipeline.read()
         }
     }
