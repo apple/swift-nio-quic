@@ -420,7 +420,7 @@ extension QUICChannelStreamHandlerTests {
         }
 
         var channelReadCount: Int {
-            self.events.filter {
+            self.events.count {
                 switch $0 {
                 case .channelRead:
                     true
@@ -428,7 +428,7 @@ extension QUICChannelStreamHandlerTests {
                 default:
                     false
                 }
-            }.count
+            }
         }
 
         func channelRead(context: ChannelHandlerContext, data: NIOAny) {
