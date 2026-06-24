@@ -15,6 +15,7 @@
 @_spi(CustomByteBufferAllocator) import NIOCore
 @_spi(Essentials) @_spi(ProtocolProvider) import SwiftNetwork
 
+@available(anyAppleOS 26, *)
 enum FrameMemory {
     static let allocator = ByteBufferAllocator(
         allocate: { UnsafeMutableRawPointer.allocate(byteCount: Int($0), alignment: 1) },
@@ -31,6 +32,7 @@ enum FrameMemory {
     )
 }
 
+@available(anyAppleOS 26, *)
 extension Frame {
     // Wrap creation of a new Frame with a .customFinalizer buffer. Allocates `size` bytes
     // and sets a finalizer that deallocates the memory.

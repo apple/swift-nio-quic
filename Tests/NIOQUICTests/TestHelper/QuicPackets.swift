@@ -14,6 +14,7 @@
 
 @testable import NIOQUIC
 
+@available(anyAppleOS 26, *)
 extension QUICConnectionID {
     var asBytes: [UInt8] {
         self.withUnsafeBufferPointer { buffer in
@@ -22,6 +23,7 @@ extension QUICConnectionID {
     }
 }
 
+@available(anyAppleOS 26, *)
 enum QUICPackets {
     static func shortHeader(destinationID: QUICConnectionID) -> [UInt8] {
         [

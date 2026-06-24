@@ -18,6 +18,8 @@ import NIOQUICHelpers
 
 #if canImport(Glibc)
 import Glibc
+#elseif canImport(Musl)
+import Musl
 #elseif canImport(Darwin)
 import Darwin
 #endif
@@ -64,6 +66,7 @@ import Darwin
 //                                           └──────────┘
 
 /// A state machine managing the QUIC connection lifecycle.
+@available(anyAppleOS 26, *)
 struct QUICConnectionStateMachine: ~Copyable {
     /// The possible states of a QUIC connection.
     enum State: ~Copyable {

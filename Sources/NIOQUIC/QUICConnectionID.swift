@@ -14,12 +14,14 @@
 
 #if canImport(Darwin)
 import Darwin
-#else
+#elseif canImport(Glibc)
 import Glibc
+#elseif canImport(Musl)
+import Musl
 #endif
 
 /// A QUIC connection ID.
-@available(macOS 11, iOS 14.0, tvOS 14.0, watchOS 7.0, macCatalyst 14.0, *)
+@available(anyAppleOS 26, *)
 public struct QUICConnectionID: CustomStringConvertible, Sendable {
     /// The maximum length of a connection ID.
     public static let maxLength = UInt8(20)
@@ -163,7 +165,7 @@ public struct QUICConnectionID: CustomStringConvertible, Sendable {
     }
 }
 
-@available(macOS 11, iOS 14.0, tvOS 14.0, watchOS 7.0, macCatalyst 14.0, *)
+@available(anyAppleOS 26, *)
 extension QUICConnectionID: Equatable {
     public static func == (lhs: QUICConnectionID, rhs: QUICConnectionID) -> Bool {
         guard lhs.length == rhs.length else {
@@ -184,7 +186,7 @@ extension QUICConnectionID: Equatable {
     }
 }
 
-@available(macOS 11, iOS 14.0, tvOS 14.0, watchOS 7.0, macCatalyst 14.0, *)
+@available(anyAppleOS 26, *)
 extension QUICConnectionID: Hashable {
     public func hash(into hasher: inout Hasher) {
         self.withUnsafeBufferPointer {

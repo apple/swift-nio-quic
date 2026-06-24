@@ -17,6 +17,8 @@ import NIOQUICHelpers
 
 #if canImport(Glibc)
 import Glibc
+#elseif canImport(Musl)
+import Musl
 #elseif canImport(Darwin)
 import Darwin
 #endif
@@ -86,6 +88,7 @@ enum StreamShutdownDirection {
 ///
 /// For bidirectional streams, both send and receive state machines are active.
 /// For unidirectional streams, only one direction is relevant.
+@available(anyAppleOS 26, *)
 struct QUICStreamStateMachine: ~Copyable {
 
     /// Error thrown when a transition is called in an invalid state.
@@ -741,6 +744,7 @@ struct QUICStreamStateMachine: ~Copyable {
 
 // MARK: - State Transitions
 
+@available(anyAppleOS 26, *)
 extension QUICStreamStateMachine.State {
     /// Replay the FIN with the original finalSize that was received before the stream connected.
     mutating func replayEarlyFin(finalSize: UInt64) {
@@ -1177,6 +1181,7 @@ extension QUICStreamStateMachine.State {
 
 // MARK: - StreamState with*State Helpers
 
+@available(anyAppleOS 26, *)
 extension QUICStreamStateMachine.State.StreamState {
     /// Mutates the send sub-state-machine via `body`, if this stream has a send direction.
     ///
@@ -1293,6 +1298,7 @@ extension QUICStreamStateMachine.State.StreamState {
 //                └────────────┘
 
 /// State machine for the sending direction of a QUIC stream per RFC 9000 Section 3.1.
+@available(anyAppleOS 26, *)
 struct QUICStreamSendStateMachine: ~Copyable {
     enum State: ~Copyable {
         /// Stream created but no data sent yet.
@@ -1508,6 +1514,7 @@ struct QUICStreamSendStateMachine: ~Copyable {
 
 // MARK: - State Transitions
 
+@available(anyAppleOS 26, *)
 extension QUICStreamSendStateMachine.State {
     mutating func writeData() -> QUICStreamSendStateMachine.WriteDataAction {
         switch consume self {
@@ -1677,6 +1684,7 @@ extension QUICStreamSendStateMachine.State {
 /// The RFC defines a `Size Known` state between `Recv` and `Data Recvd` for when
 /// the FIN has been received but data gaps remain. Since the transport layer handles
 /// reassembly, we skip `Size Known` and go directly from `Recv` to `Data Recvd`.
+@available(anyAppleOS 26, *)
 struct QUICStreamReceiveStateMachine: ~Copyable {
     enum State: ~Copyable {
         /// Receiving data, FIN not yet received.
@@ -1922,6 +1930,7 @@ struct QUICStreamReceiveStateMachine: ~Copyable {
 
 // MARK: - Receive State Transitions
 
+@available(anyAppleOS 26, *)
 extension QUICStreamReceiveStateMachine.State {
     mutating func receiveData() -> QUICStreamReceiveStateMachine.ReceiveDataAction {
         switch consume self {
@@ -2144,6 +2153,7 @@ extension QUICStreamPipelineStateMachine.State {
 }
 
 /// The handle a QUIC stream uses to talk to the SwiftNetwork transport stack.
+@available(anyAppleOS 26, *)
 struct SwiftNetworkStreamHandle: ~Copyable {
     /// Pure state machine: tracks attachment.
     ///
@@ -2405,6 +2415,7 @@ struct SwiftNetworkStreamHandle: ~Copyable {
 
 // MARK: - SwiftNetwork Stream Handle State Transitions
 
+@available(anyAppleOS 26, *)
 extension SwiftNetworkStreamHandle.StateMachine.State {
     mutating func invokeDetach() -> SwiftNetworkStreamHandle.StateMachine.InvokeDetachAction {
         switch consume self {

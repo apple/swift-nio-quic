@@ -16,12 +16,14 @@ import NIOCore
 @_spi(ProtocolProvider) @_spi(Essentials) import SwiftNetwork
 
 // TODO: Make ScheduledEntry ~Copyable with UniqueArray / PriorityQueue
+@available(anyAppleOS 26, *)
 struct ScheduledEntry {
     var milliseconds: Int64
     var reference: SwiftNetwork.TimerReference
     var scheduledTask: Scheduled<Void>??
 }
 
+@available(anyAppleOS 26, *)
 final class QUICChannelEventLoop: NetworkContext.Scheduler, CustomStringConvertible {
 
     internal let description = "QUICChannelEventLoop"

@@ -24,6 +24,7 @@ let testIPv6Address = "::1"
 let testPort = 443
 
 struct SocketAddress_EndpointTests {
+    @available(anyAppleOS 26, *)
     @Test(
         "Convert a IPv4 SocketAddress to an Endpoint"
     )
@@ -45,6 +46,7 @@ struct SocketAddress_EndpointTests {
         }
     }
 
+    @available(anyAppleOS 26, *)
     @Test(
         "Convert a IPv6 SocketAddress to an Host Endpoint"
     )
@@ -61,6 +63,7 @@ struct SocketAddress_EndpointTests {
         }
     }
 
+    @available(anyAppleOS 26, *)
     @Test(
         "Convert a IPv6 SocketAddress to an Endpoint",
         .disabled("Requirement: Implement conversion to address type")
@@ -83,6 +86,7 @@ struct SocketAddress_EndpointTests {
         }
     }
 
+    @available(anyAppleOS 26, *)
     @Test(
         "Convert a Unix domain SocketAddress to an Endpoint",
         .disabled("Requirement: Implement conversion to address type")

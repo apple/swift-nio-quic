@@ -16,6 +16,7 @@ import XCTest
 
 @testable import NIOQUIC
 
+@available(anyAppleOS 26, *)
 final class QUICConnectionIDGeneratorTests: XCTestCase {
     func testRandomGeneratorDefaultLength() {
         var generator = RandomQUICConnectionIDGenerator()

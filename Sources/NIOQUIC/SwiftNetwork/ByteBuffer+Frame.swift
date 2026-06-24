@@ -15,6 +15,7 @@
 import NIOCore
 @_spi(ProtocolProvider) import SwiftNetwork
 
+@available(anyAppleOS 26, *)
 extension ByteBuffer {
     @discardableResult
     mutating func writeFrame(_ frame: consuming SwiftNetwork.Frame) -> Int {

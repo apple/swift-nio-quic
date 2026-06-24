@@ -16,6 +16,7 @@ import XCTest
 
 @testable import ChildChannelMultiplexer
 
+@available(anyAppleOS 26, *)
 extension ChildChannelAction.Action {
     func assertIsChildChannelCompleteActivation(file: StaticString = #filePath, line: UInt = #line) {
         switch self {

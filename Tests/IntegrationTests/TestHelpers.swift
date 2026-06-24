@@ -116,6 +116,7 @@ func assertNoThrowWithValue<T>(
     }
 }
 
+@available(macOS 15, iOS 18, tvOS 18, watchOS 11, visionOS 2, *)
 final class Counter: Sendable {
     private let value = Atomic<Int>(0)
 

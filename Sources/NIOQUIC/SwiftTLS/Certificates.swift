@@ -16,6 +16,7 @@ import Foundation
 import SwiftASN1
 import X509
 
+@available(macOS 11, iOS 14, tvOS 14, watchOS 7, *)
 func loadCertificates(fromPEMFile path: String) throws -> [Certificate] {
     let pemData = try Data(contentsOf: URL(fileURLWithPath: path))
     let pemString = String(decoding: pemData, as: UTF8.self)
@@ -28,6 +29,7 @@ func loadCertificates(fromPEMFile path: String) throws -> [Certificate] {
     }
 }
 
+@available(macOS 11, iOS 14, tvOS 14, watchOS 7, *)
 func loadPrivateKey(fromPEMFile path: String) throws -> Certificate.PrivateKey {
     let pemData = try Data(contentsOf: URL(fileURLWithPath: path))
     let pemString = String(decoding: pemData, as: UTF8.self)

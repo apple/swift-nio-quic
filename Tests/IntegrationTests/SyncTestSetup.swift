@@ -33,6 +33,7 @@ import XCTest
 ///     accepted connections. Defaults to a no-op.
 ///   - noMoreConnections: Called when the handler becomes inactive and no
 ///     further connections will be accepted.
+@available(anyAppleOS 26, *)
 func createServerChannel(
     eventLoopGroup: any EventLoopGroup,
     host: String,
@@ -72,6 +73,7 @@ func createServerChannel(
 /// - Parameter udpChannelInitializer: Called once the UDP channel is bound,
 ///   before the `QUICHandler` is added. Use this to install handlers on
 ///   the UDP channel pipeline.
+@available(anyAppleOS 26, *)
 func createClientChannel(
     eventLoopGroup: any EventLoopGroup,
     host: String,
@@ -99,6 +101,7 @@ func createClientChannel(
     )
 }
 
+@available(anyAppleOS 26, *)
 private func createQUICChannel(
     eventLoopGroup: any EventLoopGroup,
     host: String,

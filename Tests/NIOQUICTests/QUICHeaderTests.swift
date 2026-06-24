@@ -18,6 +18,7 @@ import Testing
 @testable import NIOQUIC
 
 final class HeaderIDTests {
+    @available(anyAppleOS 26, *)
     @Test(
         "short header"
     )
@@ -40,6 +41,7 @@ final class HeaderIDTests {
         try #require(header?.destinationConnectionID == connectionID)
     }
 
+    @available(anyAppleOS 26, *)
     @Test(
         "version negotiation"
     )
@@ -63,6 +65,7 @@ final class HeaderIDTests {
         try #require(header?.sourceConnectionID == connectionID)
     }
 
+    @available(anyAppleOS 26, *)
     @Test(
         "initial",
         arguments: [1, 2]
@@ -94,6 +97,7 @@ final class HeaderIDTests {
         try #require(header?.token == token)
     }
 
+    @available(anyAppleOS 26, *)
     @Test(
         "zeroRTT",
         arguments: [1, 2]
@@ -118,6 +122,7 @@ final class HeaderIDTests {
         try #require(header?.sourceConnectionID == connectionID)
     }
 
+    @available(anyAppleOS 26, *)
     @Test(
         "handshake",
         arguments: [1, 2]
@@ -142,6 +147,7 @@ final class HeaderIDTests {
         try #require(header?.sourceConnectionID == connectionID)
     }
 
+    @available(anyAppleOS 26, *)
     @Test(
         "retry",
         arguments: [1, 2]
@@ -173,6 +179,7 @@ final class HeaderIDTests {
         try #require(header?.token == token)
     }
 
+    @available(anyAppleOS 26, *)
     @Test(
         "dcid"
     )
@@ -201,6 +208,7 @@ final class HeaderIDTests {
 
     // MARK: - Zero-length connection ID tests (RFC 9000 Section 5.1)
 
+    @available(anyAppleOS 26, *)
     @Test(
         "initial with zero-length SCID",
         arguments: [1, 2]
@@ -236,6 +244,7 @@ final class HeaderIDTests {
         try #require(header?.token == token)
     }
 
+    @available(anyAppleOS 26, *)
     @Test(
         "initial with zero-length DCID and SCID",
         arguments: [1, 2]
@@ -265,6 +274,7 @@ final class HeaderIDTests {
         try #require(header.token == token)
     }
 
+    @available(anyAppleOS 26, *)
     @Test(
         "short header with zero-length DCID"
     )

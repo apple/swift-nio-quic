@@ -19,7 +19,7 @@
 ///
 /// All generated CIDs must have a length equal to ``connectionIDLength``
 /// and must be unique across the lifetime of the connection (RFC 9000 Section 5.1).
-@available(macOS 11, iOS 14.0, tvOS 14.0, watchOS 7.0, macCatalyst 14.0, *)
+@available(anyAppleOS 26, *)
 public protocol QUICConnectionIDGenerator: Sendable {
     /// The length of connection IDs produced by this generator (0-20).
     ///
@@ -48,7 +48,7 @@ public protocol QUICConnectionIDGenerator: Sendable {
 }
 
 /// Generates random connection IDs using a `RandomNumberGenerator`.
-@available(macOS 11, iOS 14.0, tvOS 14.0, watchOS 7.0, macCatalyst 14.0, *)
+@available(anyAppleOS 26, *)
 public struct RandomQUICConnectionIDGenerator: QUICConnectionIDGenerator {
     @usableFromInline
     var randomNumberGenerator: any RandomNumberGenerator & Sendable
