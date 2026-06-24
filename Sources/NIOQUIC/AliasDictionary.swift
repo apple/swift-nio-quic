@@ -85,7 +85,7 @@ struct AliasDictionary<Key: Hashable, Value> {
     /// All values in the dictionary, in no particular order.
     ///
     /// - Complexity: O(1) to obtain the collection. Iterating it is O(*n*) where *n* is `count`.
-    var values: some Collection<Value> {
+    var values: Dictionary<Key, Value>.Values {
         self.storage.values
     }
 
