@@ -2162,6 +2162,7 @@ struct SwiftNetworkStreamHandle: ~Copyable {
     struct StateMachine: ~Copyable {
         enum State: ~Copyable {
             case attached
+            case invokeDisconnectInFlight
             case detached
         }
 
@@ -2175,8 +2176,9 @@ struct SwiftNetworkStreamHandle: ~Copyable {
 
         var isAttached: Bool {
             switch self.state {
-            case .attached: return true
-            case .detached: return false
+            case .attached:      return true
+            case .invokeDisconnectInFlight: return false
+            case .detached:      return false
             }
         }
 
@@ -2185,11 +2187,78 @@ struct SwiftNetworkStreamHandle: ~Copyable {
         enum ViolationReason: CustomStringConvertible {
             /// The handle has been detached; the linkage is gone.
             case detached
+            /// We are currently inside our own `invokeDisconnect` call on the linkage.
+            case invokeDisconnectInFlight
 
             var description: String {
                 switch self {
-                case .detached: return "linkage detached"
+                case .detached:           return "linkage detached"
+                case .invokeDisconnectInFlight: return "invokeDisconnect already in flight"
                 }
+            }
+        }
+
+        func invokeConnect() -> InvokeConnectAction {
+            switch self.state {
+            case .attached:      return .performConnect
+            case .invokeDisconnectInFlight: return .handleViolation(.invokeDisconnectInFlight)
+            case .detached:      return .handleViolation(.detached)
+            }
+        }
+
+        func invokeDisconnect() -> InvokeDisconnectAction {
+            switch self.state {
+            case .attached:      return .performDisconnect
+            case .invokeDisconnectInFlight: return .performDisconnect
+            case .detached:      return .ignore
+            }
+        }
+
+        func invokeAbortInbound() -> InvokeAbortInboundAction {
+            switch self.state {
+            case .attached:      return .performAbortInbound
+            case .invokeDisconnectInFlight: return .performAbortInbound
+            case .detached:      return .ignore
+            }
+        }
+
+        func invokeAbortOutbound() -> InvokeAbortOutboundAction {
+            switch self.state {
+            case .attached:      return .performAbortOutbound
+            case .invokeDisconnectInFlight: return .performAbortOutbound
+            case .detached:      return .ignore
+            }
+        }
+
+        func invokeSendStreamData() -> InvokeSendStreamDataAction {
+            switch self.state {
+            case .attached:      return .performSendStreamData
+            case .invokeDisconnectInFlight: return .handleViolation(.invokeDisconnectInFlight)
+            case .detached:      return .handleViolation(.detached)
+            }
+        }
+
+        func invokeReceiveStreamData() -> InvokeReceiveStreamDataAction {
+            switch self.state {
+            case .attached:      return .performReceiveStreamData
+            case .invokeDisconnectInFlight: return .handleViolation(.invokeDisconnectInFlight)
+            case .detached:      return .handleViolation(.detached)
+            }
+        }
+
+        func invokeGetMetadata() -> InvokeGetMetadataAction {
+            switch self.state {
+            case .attached:      return .performGetMetadata
+            case .invokeDisconnectInFlight: return .performGetMetadata
+            case .detached:      return .ignore
+            }
+        }
+
+        func handleDisconnectedEvent() -> HandleDisconnectedEventAction {
+            switch self.state {
+            case .attached:      return .performCleanup
+            case .invokeDisconnectInFlight: return .ignore(.invokeDisconnectInFlight)
+            case .detached:      return .ignore(.alreadyDetached)
             }
         }
 
@@ -2197,88 +2266,55 @@ struct SwiftNetworkStreamHandle: ~Copyable {
             case performConnect
             case handleViolation(ViolationReason)
         }
-        func invokeConnect() -> InvokeConnectAction {
-            switch self.state {
-            case .attached: return .performConnect
-            case .detached: return .handleViolation(.detached)
-            }
-        }
 
         enum InvokeDisconnectAction: ~Copyable {
             case performDisconnect
             case ignore
-        }
-        func invokeDisconnect() -> InvokeDisconnectAction {
-            switch self.state {
-            case .attached: return .performDisconnect
-            case .detached: return .ignore
-            }
         }
 
         enum InvokeAbortInboundAction: ~Copyable {
             case performAbortInbound
             case ignore
         }
-        func invokeAbortInbound() -> InvokeAbortInboundAction {
-            switch self.state {
-            case .attached: return .performAbortInbound
-            case .detached: return .ignore
-            }
-        }
 
         enum InvokeAbortOutboundAction: ~Copyable {
             case performAbortOutbound
             case ignore
-        }
-        func invokeAbortOutbound() -> InvokeAbortOutboundAction {
-            switch self.state {
-            case .attached: return .performAbortOutbound
-            case .detached: return .ignore
-            }
         }
 
         enum InvokeSendStreamDataAction: ~Copyable {
             case performSendStreamData
             case handleViolation(ViolationReason)
         }
-        func invokeSendStreamData() -> InvokeSendStreamDataAction {
-            switch self.state {
-            case .attached: return .performSendStreamData
-            case .detached: return .handleViolation(.detached)
-            }
-        }
 
         enum InvokeReceiveStreamDataAction: ~Copyable {
             case performReceiveStreamData
             case handleViolation(ViolationReason)
-        }
-        func invokeReceiveStreamData() -> InvokeReceiveStreamDataAction {
-            switch self.state {
-            case .attached: return .performReceiveStreamData
-            case .detached: return .handleViolation(.detached)
-            }
         }
 
         enum InvokeGetMetadataAction: ~Copyable {
             case performGetMetadata
             case ignore
         }
-        func invokeGetMetadata() -> InvokeGetMetadataAction {
-            switch self.state {
-            case .attached: return .performGetMetadata
-            case .detached: return .ignore
-            }
+
+        enum HandleDisconnectedEventAction: ~Copyable {
+            case performCleanup
+            case ignore(IgnoreReason)
         }
 
-        // MARK: - Detach (mutating; transitions `.attached` → `.detached`)
-
-        enum InvokeDetachAction: ~Copyable {
-            case performDetach
-            case skipAlreadyDetached
+        enum IgnoreReason {
+            case invokeDisconnectInFlight
+            case alreadyDetached
         }
-        mutating func invokeDetach() -> InvokeDetachAction {
+
+        mutating func beginInvokeDisconnect() -> State.BeginDisconnectAction {
+            self.state.beginInvokeDisconnect()
+        }
+
+        mutating func invokeDetach() -> State.InvokeDetachAction {
             self.state.invokeDetach()
         }
+
     }
 
     private var stateMachine: StateMachine
@@ -2321,6 +2357,14 @@ struct SwiftNetworkStreamHandle: ~Copyable {
         case .ignore:
             return
         }
+    }
+
+    mutating func beginInvokeDisconnect() -> StateMachine.State.BeginDisconnectAction {
+        self.stateMachine.beginInvokeDisconnect()
+    }
+
+    func handleDisconnectedEvent() -> StateMachine.HandleDisconnectedEventAction {
+        self.stateMachine.handleDisconnectedEvent()
     }
 
     func invokeAbortInbound(
@@ -2417,14 +2461,42 @@ struct SwiftNetworkStreamHandle: ~Copyable {
 
 @available(anyAppleOS 26, *)
 extension SwiftNetworkStreamHandle.StateMachine.State {
-    mutating func invokeDetach() -> SwiftNetworkStreamHandle.StateMachine.InvokeDetachAction {
+    mutating func beginInvokeDisconnect() -> BeginDisconnectAction {
         switch consume self {
         case .attached:
+            self = .invokeDisconnectInFlight
+            return .proceed
+        case .invokeDisconnectInFlight:
+            self = .invokeDisconnectInFlight
+            return .handleViolation(.invokeDisconnectInFlight)
+        case .detached:
+            self = .detached
+            return .ignoreAlreadyDetached
+        }
+    }
+
+    mutating func invokeDetach() -> InvokeDetachAction {
+        switch consume self {
+        case .attached:
+            self = .detached
+            return .performDetach
+        case .invokeDisconnectInFlight:
             self = .detached
             return .performDetach
         case .detached:
             self = .detached
             return .skipAlreadyDetached
         }
+    }
+
+    enum BeginDisconnectAction: ~Copyable {
+        case proceed
+        case ignoreAlreadyDetached
+        case handleViolation(SwiftNetworkStreamHandle.StateMachine.ViolationReason)
+    }
+
+    enum InvokeDetachAction: ~Copyable {
+        case performDetach
+        case skipAlreadyDetached
     }
 }

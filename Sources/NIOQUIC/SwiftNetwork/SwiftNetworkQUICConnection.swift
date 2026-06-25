@@ -609,7 +609,7 @@ final class SwiftNetworkQUICConnection {
         } catch {
             fatalError("Could not attach output handler to SwiftNetwork QUIC connection instance")
         }
-        streamHandler.setDisconnectedEventHandler { error in
+        streamHandler.setCloseCompletedHandler { error in
             self.streamHandlerHandleDisconnected(streamID: streamID, error: error)
         }
         streamHandler.start()
@@ -839,7 +839,7 @@ final class SwiftNetworkQUICConnection {
         log("stream with temporary ID \(temporaryID) connected as stream \(streamID)")
         self.streamInputHandlers[streamID] = streamHandler
 
-        streamHandler.setDisconnectedEventHandler { error in
+        streamHandler.setCloseCompletedHandler { error in
             self.streamHandlerHandleDisconnected(streamID: streamID, error: error)
         }
 
@@ -953,10 +953,10 @@ final class SwiftNetworkQUICConnection {
     private func tearDownConnectionState() {
         self.inputPacketQueue.finalizeAllFramesAsFailed()
         for (_, streamHandler) in self.streamInputHandlers {
-            streamHandler.stop(detachFromLowerProtocol: true)
+            streamHandler.teardown(error: nil, promise: nil)
         }
         for (_, pendingStreamData) in self.pendingOutboundStreams {
-            pendingStreamData.streamHandler.stop(detachFromLowerProtocol: true)
+            pendingStreamData.streamHandler.teardown(error: nil, promise: nil)
             pendingStreamData.channelActivationPromise.fail(ChannelError.ioOnClosedChannel)
         }
         self.pendingOutboundStreams.removeAll()
@@ -1066,7 +1066,7 @@ final class SwiftNetworkQUICConnection {
         }
         let futures = streamInputHandlers.values.map { $0.closeFuture }
         for stream in streamInputHandlers.values {
-            stream.stop(detachFromLowerProtocol: true)
+            stream.teardown(error: nil, promise: nil)
         }
         return futures
     }
@@ -1140,8 +1140,8 @@ final class SwiftNetworkQUICConnection {
     /// - Returns: An array of stream IDs (empty if no streams are newly connected).
     func newlyConnectedStreamIDs() -> [QUICStreamID] {
         // Return all newly connected streams that still have handlers and are
-        // still in the connected state. A stream that had `stop()` called
-        // (transitioning to `.closed`) should not be returned as newly connected.
+        // still in the connected state. A stream that has already transitioned
+        // to `.closed` should not be returned as newly connected.
         let streamIDs: [QUICStreamID] = self.newlyConnectedStreams.compactMap { streamID in
             guard let streamHandler = self.streamInputHandlers[streamID] else {
                 return nil
@@ -1508,7 +1508,7 @@ extension SwiftNetworkQUICConnection {
         if let streamID = streamHandler.streamID {
             self.newlyConnectedStreams.insert(streamID)
             self.streamInputHandlers[streamID] = streamHandler
-            streamHandler.setDisconnectedEventHandler { error in
+            streamHandler.setCloseCompletedHandler { error in
                 self.streamHandlerHandleDisconnected(streamID: streamID, error: error)
             }
         }
