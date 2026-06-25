@@ -514,12 +514,12 @@ extension QUICConnectionChannelHandler {
         syncOptions: any NIOSynchronousChannelOptions,
         streamChannel: QUICChannelStreamHandler
     ) -> Result<Void, any Error> {
-        Result(catching: {
+        Result {
             let autoReadValue = try syncOptions.getOption(.autoRead)
 
             // Force unwrap is safe here. `QUICChannelStreamHandler` always provides `syncOptions`.
             try streamChannel.syncOptions!.setOption(.autoRead, value: autoReadValue)
-        })
+        }
     }
 
     /// Asynchronously reads the parent channel's `autoRead` option and applies it to `streamChannel`. Used when the
