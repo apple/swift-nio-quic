@@ -1037,3 +1037,66 @@ extension QUICHandler {
         QUICHandlerHandle(wrapping: self, eventLoop: self.eventLoop)
     }
 }
+
+@available(anyAppleOS 26, *)
+extension QUICHandler {
+    internal func writeDatagram(
+        _ envelope: AddressedEnvelope<ByteBuffer>,
+        promise: EventLoopPromise<Void>?
+    ) {
+        guard let context = self.context else {
+            promise?.fail(ChannelError.ioOnClosedChannel)
+            return
+        }
+
+        self.logger.trace(
+            "QUICHandler writing outbound data",
+            metadata: [
+                LoggingKeys.addressRemote: "\(envelope.remoteAddress)",
+                LoggingKeys.channelOutboundBytes: "\(envelope.data.readableBytes)",
+            ]
+        )
+        self.didWrite = true
+        context.write(QUICHandler.wrapOutboundOut(envelope), promise: promise)
+    }
+
+    internal func flush() {
+        if self.didWrite && !self.expectingChannelReadComplete {
+            self.logger.trace("QUICHandler flushing")
+            self.didWrite = false
+            self.context?.flush()
+        }
+    }
+
+    internal func read() {
+        self.logger.trace("QUICHandler read from child channel")
+        self.context?.read()
+    }
+}
+
+@available(anyAppleOS 26, *)
+extension QUICHandler {
+    struct ChildView {
+        private let handler: QUICHandler
+
+        init(_ handler: QUICHandler) {
+            handler.eventLoop.assertInEventLoop()
+            self.handler = handler
+        }
+
+        func writeDatagram(
+            _ envelope: AddressedEnvelope<ByteBuffer>,
+            promise: EventLoopPromise<Void>?
+        ) {
+            self.handler.writeDatagram(envelope, promise: promise)
+        }
+
+        func flush() {
+            self.handler.flush()
+        }
+
+        func read() {
+            self.handler.read()
+        }
+    }
+}
