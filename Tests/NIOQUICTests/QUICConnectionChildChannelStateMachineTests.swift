@@ -46,13 +46,11 @@ final class QUICConnectionChildChannelStateMachineTests: XCTestCase {
                 applicationProtocols: []
             ),
             sourceConnectionID: .random(using: &randomNumberGenerator),
-            originalDestinationConnectionID: .random(using: &randomNumberGenerator),
             authenticator: nil,
             localAddress: localAddress,
             remoteAddress: remoteAddress,
             logger: logger,
-            eventLoop: self.eventLoop,
-            udpChannel: self.channel
+            eventLoop: self.eventLoop
         )
         self.stateMachine = QUICConnectionChildChannelStateMachine(
             quicConnection: self.swiftNetworkQUICConnection,

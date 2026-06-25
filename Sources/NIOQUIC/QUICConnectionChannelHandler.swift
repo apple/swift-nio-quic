@@ -140,8 +140,6 @@ final class QUICConnectionChannelHandler {
         )
 
         let connection = QUICConnection(
-            eventLoop: channel.eventLoop,
-            role: role,
             inboundStreamInitializer: inboundStreamInitializer,
             streamCreator: handler.makeStreamCreator(role: role)
         )

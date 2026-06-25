@@ -341,17 +341,7 @@ struct QUICConnectionChildChannelStateMachine: ChildChannelStateMachine {
             "QUICConnectionChildChannelStateMachine parentChannelReadMessage",
             metadata: ["message": "\(message)"]
         )
-        var message = message
-        do {
-            try self.quicConnection.receivePacket(
-                &message.data,
-                localAddress: self.localAddress,
-                remoteAddress: message.remoteAddress
-            )
-        } catch {
-            let promise = self.close()
-            return Actions(.childChannelEncounterError(error: error, promise: promise))
-        }
+        self.quicConnection.receivePacket(message.data)
         return Actions()
     }
 
