@@ -129,8 +129,6 @@ struct AliasDictionary<Key: Hashable, Value> {
     /// `key` may be either the canonical key or an existing alias; in either case the new alias
     /// is registered against the canonical key.
     ///
-    /// - Precondition: `alias` must not already exist as a canonical key or alias in this
-    ///   dictionary.
     /// - Parameters:
     ///   - alias: The alias to register.
     ///   - key: A canonical key or existing alias whose value `alias` should also resolve to.
