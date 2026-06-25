@@ -16,6 +16,7 @@ import Foundation
 import Logging
 import NIOCore
 import NIOEmbedded
+import NIOQUICHelpers
 @_spi(ProtocolProvider) import SwiftNetwork
 import Testing
 
@@ -330,13 +331,11 @@ extension QUICChannelStreamHandlerTests {
                 applicationProtocols: []
             ),
             sourceConnectionID: .random(using: &rng),
-            originalDestinationConnectionID: .random(using: &rng),
             authenticator: nil,
             localAddress: try SocketAddress(ipAddress: "127.0.0.1", port: 1234),
             remoteAddress: try SocketAddress(ipAddress: "127.0.0.1", port: 1234),
             logger: Logger(label: "test"),
-            eventLoop: eventLoop,
-            udpChannel: udpChannel
+            eventLoop: eventLoop
         )
 
         connection.setConnectionChannel(connectionChannel)

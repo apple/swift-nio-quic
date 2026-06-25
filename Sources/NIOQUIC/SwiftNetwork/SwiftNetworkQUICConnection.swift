@@ -786,6 +786,35 @@ final class SwiftNetworkQUICConnection {
         self.streamChannelCreationHandler?(streamID, channelActivationPromise, streamChannelInitializer)
     }
 
+    /// Registers a stub stream handler that has been transitioned to the connected state.
+    /// This is only intended for use in tests where the network stack isn't running.
+    func registerConnectedStubStreamHandler(
+        for streamID: QUICStreamID,
+        direction: QUICStreamDirection
+    ) {
+        guard let connectionChannel = self.channel else {
+            fatalError("Connection channel unavailable")
+        }
+
+        let handler = QUICChannelStreamHandler(
+            role: self.role,
+            parameters: self.swiftNetworkParameters,
+            streamID: streamID,
+            logger: self.logger,
+            remoteAddress: self.remoteAddress,
+            localAddress: self.localAddress,
+            connectionChannel: connectionChannel
+        )
+        switch handler.streamStateMachine.streamConnected(direction: direction) {
+        case .activateStream: break
+        case .ignoreAlreadyConnected:
+            assertionFailure("freshly created handler should not already be connected")
+        case .ignoreAlreadyClosed:
+            assertionFailure("freshly created handler should not already be closed")
+        }
+        self.streamInputHandlers[streamID] = handler
+    }
+
     /// Sets the handler called when an outbound stream is confirmed by Swift QUIC to create a stream channel in the multiplexer.
     ///
     /// The handler receives `(QUICStreamID, EventLoopPromise<any Channel>, @escaping (any Channel, QUICStreamID) -> EventLoopFuture<Void>)` and is invoked from the event loop.
