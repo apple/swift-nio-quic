@@ -33,9 +33,7 @@ final class QUICChannelOutputHandler: ProtocolInstanceContainer, OutboundDatagra
     typealias UpperProtocol = InboundDatagramLinkage
 
     // Private Constant state
-    private let role: Role
     private let logger: Logger
-    private let remoteAddress: SocketAddress
     private let defaultFrameSize: Int = 1400
 
     // Internal Mutable state
@@ -48,19 +46,15 @@ final class QUICChannelOutputHandler: ProtocolInstanceContainer, OutboundDatagra
     private var upperProtocol = UpperProtocol(reference: .init())
     private var asLower: OutboundDatagramLinkage { .init(reference: reference) }
     private var inputFramesHandler: ((Int) -> FrameArray?)?
-    private var flushOutputFramesHandler: (() -> Void)?
-    private var finalizeOutputFramesHandler: ((consuming FrameArray, Role, SocketAddress) -> Void)?
+    private var finalizeOutputFramesHandler: ((consuming FrameArray) -> Void)?
 
     init(
         role: Role,
         logger: Logger,
-        remoteAddress: SocketAddress,
         context: NetworkContext
     ) {
         self.logPrefix = "[\(role.description)][OutputHandler]"
-        self.role = role
         self.logger = logger
-        self.remoteAddress = remoteAddress
         self.context = context
     }
 
@@ -69,13 +63,9 @@ final class QUICChannelOutputHandler: ProtocolInstanceContainer, OutboundDatagra
     }
 
     func setFinalizeOutputFramesHandler(
-        finalizeOutputFramesHandler: @escaping (consuming FrameArray, Role, SocketAddress) -> Void
+        finalizeOutputFramesHandler: @escaping (consuming FrameArray) -> Void
     ) {
         self.finalizeOutputFramesHandler = finalizeOutputFramesHandler
-    }
-
-    func setFlushOutputFramesHandler(flushOutputFramesHandler: @escaping () -> Void) {
-        self.flushOutputFramesHandler = flushOutputFramesHandler
     }
 
     /// Local logging function to debug the datapath
@@ -201,10 +191,6 @@ extension QUICChannelOutputHandler: LowerProtocolHandler {
             datagrams.finalizeAllFramesAsFailed()
             return
         }
-        finalizeOutputFramesHandler(
-            datagrams,
-            self.role,
-            self.remoteAddress
-        )
+        finalizeOutputFramesHandler(datagrams)
     }
 }

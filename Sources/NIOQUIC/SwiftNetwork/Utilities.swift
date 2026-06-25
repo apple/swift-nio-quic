@@ -31,12 +31,6 @@ extension NetworkDuration {
     }
 }
 
-extension QUICStreamID {
-    var isUnidirectional: Bool {
-        self.type == .serverInitiatedUnidirectional || self.type == .clientInitiatedUnidirectional
-    }
-}
-
 /// Generator for IDs with a numeric value that cannot be accessed from the `ID` type. IDs are backed by
 /// a `Counter` that must conform to `FixedWidthInteger` and `Hashable`. The internal ID will
 /// overflow without an error.

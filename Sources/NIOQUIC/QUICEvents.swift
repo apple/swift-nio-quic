@@ -94,24 +94,11 @@ internal struct _QUICForTestingPoisonRetiredSCIDEvent: Sendable {
 /// the initial SCID (which doesn't generate an association event).
 /// This event will be handled by the stream state machine.
 @available(anyAppleOS 26, *)
-public struct _QUICForTestingGetActiveSCIDsEvent: Sendable {
-    public var result: NIOLockedValueBox<[QUICConnectionID]>
+package struct _QUICForTestingGetActiveSCIDsEvent: Sendable {
+    package var result: NIOLockedValueBox<[QUICConnectionID]>
 
-    public init(result: NIOLockedValueBox<[QUICConnectionID]>) {
+    package init(result: NIOLockedValueBox<[QUICConnectionID]>) {
         self.result = result
-    }
-}
-
-/// Test-only event: Simulates receiving a RETIRE_CONNECTION_ID frame from the peer
-/// by calling `handleRetireConnectionID` directly. This exercises the `scidPendingDeletion`
-/// buffering mechanism without requiring actual QUIC frame exchange.
-/// This event will be handled by the stream state machine.
-@available(anyAppleOS 26, *)
-public struct _QUICForTestingSimulateRetireEvent: Sendable {
-    public var scid: QUICConnectionID
-
-    public init(scid: QUICConnectionID) {
-        self.scid = scid
     }
 }
 
@@ -122,10 +109,10 @@ public struct _QUICForTestingSimulateRetireEvent: Sendable {
 /// active SCID, it is stored in `scidPendingDeletion` instead of removed.
 /// This event will be handled by the stream state machine.
 @available(anyAppleOS 26, *)
-public struct _QUICForTestingRemoveActiveSCIDEvent: Sendable {
-    public var scid: QUICConnectionID
+package struct _QUICForTestingRemoveActiveSCIDEvent: Sendable {
+    package var scid: QUICConnectionID
 
-    public init(scid: QUICConnectionID) {
+    package init(scid: QUICConnectionID) {
         self.scid = scid
     }
 }

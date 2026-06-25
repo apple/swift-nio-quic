@@ -43,13 +43,11 @@ final class QUICConnectionChannelHandlerTests: XCTestCase {
                 applicationProtocols: []
             ),
             sourceConnectionID: .random(using: &randomNumberGenerator),
-            originalDestinationConnectionID: .random(using: &randomNumberGenerator),
             authenticator: nil,
             localAddress: try! SocketAddress(ipAddress: "127.0.0.1", port: 1234),
             remoteAddress: try! SocketAddress(ipAddress: "127.0.0.1", port: 1234),
             logger: logger,
             eventLoop: self.eventLoop,
-            udpChannel: self.channel
         )
         self.quicConnection = quicConnection
         let (handler, _) = QUICConnectionChannelHandler.makeHandlerAndQUICConnection(

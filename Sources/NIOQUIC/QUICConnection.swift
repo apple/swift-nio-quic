@@ -36,10 +36,6 @@ public struct QUICConnection<Output: Sendable>: Sendable, StreamMultiplexerConti
     private let inboundStreamInitializer: @Sendable (any Channel) -> EventLoopFuture<Output>
     /// The inboundStreams' continuation.
     private let inboundStreamsContinuation: AsyncStream<Output>.Continuation
-    /// The event loop of the `QUICHandler`.
-    private let eventLoop: any EventLoop
-    /// The type of the underlying QUIC connection.
-    private let role: Role
 
     /// A method to create a new outbound stream.
     private let streamCreator: QUICStreamCreator
@@ -48,13 +44,9 @@ public struct QUICConnection<Output: Sendable>: Sendable, StreamMultiplexerConti
     public let inboundStreams: InboundStreams
 
     init(
-        eventLoop: any EventLoop,
-        role: Role,
         inboundStreamInitializer: @escaping @Sendable (any Channel) -> EventLoopFuture<Output>,
         streamCreator: QUICStreamCreator
     ) {
-        self.eventLoop = eventLoop
-        self.role = role
         self.inboundStreamInitializer = inboundStreamInitializer
         self.streamCreator = streamCreator
         let (stream, continuation) = AsyncStream<Output>.makeStream()
