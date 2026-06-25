@@ -26,19 +26,6 @@ import Glibc
 import Musl
 #endif
 
-extension StreamShutdownDirection {
-    init(_ mode: CloseMode) {
-        switch mode {
-        case .all:
-            self = .all
-        case .input:
-            self = .read
-        case .output:
-            self = .write
-        }
-    }
-}
-
 enum StreamClosureState {
     case closeAndDisconnect  // Calls close and stop to detach everything
     case closeOnly  // Calls close only
@@ -112,10 +99,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
 
     internal init(
         role: Role,
-        local: Endpoint,
-        remote: Endpoint,
         parameters: Parameters,
-        path: PathProperties,
         streamID: QUICStreamID?,
         logger: Logger,
         remoteAddress: SocketAddress,
@@ -657,10 +641,6 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
         self.isActive
     }
 
-    var hasPendingReadData: Bool {
-        self.bufferedReadData.readableBytes > 0
-    }
-
     // Write data to the QUIC stream, optionally setting the FIN flag.
     internal func writeDataToStream(_ byteBuffer: inout ByteBuffer, fin: Bool = false) -> Bool {
         self.writeBuffersToStream(CollectionOfOne(byteBuffer), fin: fin)
@@ -977,9 +957,6 @@ extension QUICChannelStreamHandler: Channel, ChannelCore {
     @inlinable
     func _getOption0<Option: ChannelOption>(_ option: Option) throws -> Option.Value {
         self.eventLoop.preconditionInEventLoop()
-        if option is _QUICStreamIDChannelOption {
-            return self.streamID as! Option.Value
-        }
         if option is ChannelOptions.Types.QUICStreamIDChannelOption {
             return self.streamID!.rawValue as! Option.Value
         }
