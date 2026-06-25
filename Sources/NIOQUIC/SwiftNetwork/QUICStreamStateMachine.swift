@@ -2176,9 +2176,9 @@ struct SwiftNetworkStreamHandle: ~Copyable {
 
         var isAttached: Bool {
             switch self.state {
-            case .attached:      return true
+            case .attached: return true
             case .invokeDisconnectInFlight: return false
-            case .detached:      return false
+            case .detached: return false
             }
         }
 
@@ -2192,7 +2192,7 @@ struct SwiftNetworkStreamHandle: ~Copyable {
 
             var description: String {
                 switch self {
-                case .detached:           return "linkage detached"
+                case .detached: return "linkage detached"
                 case .invokeDisconnectInFlight: return "invokeDisconnect already in flight"
                 }
             }
@@ -2200,65 +2200,65 @@ struct SwiftNetworkStreamHandle: ~Copyable {
 
         func invokeConnect() -> InvokeConnectAction {
             switch self.state {
-            case .attached:      return .performConnect
+            case .attached: return .performConnect
             case .invokeDisconnectInFlight: return .handleViolation(.invokeDisconnectInFlight)
-            case .detached:      return .handleViolation(.detached)
+            case .detached: return .handleViolation(.detached)
             }
         }
 
         func invokeDisconnect() -> InvokeDisconnectAction {
             switch self.state {
-            case .attached:      return .performDisconnect
+            case .attached: return .performDisconnect
             case .invokeDisconnectInFlight: return .performDisconnect
-            case .detached:      return .ignore
+            case .detached: return .ignore
             }
         }
 
         func invokeAbortInbound() -> InvokeAbortInboundAction {
             switch self.state {
-            case .attached:      return .performAbortInbound
+            case .attached: return .performAbortInbound
             case .invokeDisconnectInFlight: return .performAbortInbound
-            case .detached:      return .ignore
+            case .detached: return .ignore
             }
         }
 
         func invokeAbortOutbound() -> InvokeAbortOutboundAction {
             switch self.state {
-            case .attached:      return .performAbortOutbound
+            case .attached: return .performAbortOutbound
             case .invokeDisconnectInFlight: return .performAbortOutbound
-            case .detached:      return .ignore
+            case .detached: return .ignore
             }
         }
 
         func invokeSendStreamData() -> InvokeSendStreamDataAction {
             switch self.state {
-            case .attached:      return .performSendStreamData
+            case .attached: return .performSendStreamData
             case .invokeDisconnectInFlight: return .handleViolation(.invokeDisconnectInFlight)
-            case .detached:      return .handleViolation(.detached)
+            case .detached: return .handleViolation(.detached)
             }
         }
 
         func invokeReceiveStreamData() -> InvokeReceiveStreamDataAction {
             switch self.state {
-            case .attached:      return .performReceiveStreamData
+            case .attached: return .performReceiveStreamData
             case .invokeDisconnectInFlight: return .handleViolation(.invokeDisconnectInFlight)
-            case .detached:      return .handleViolation(.detached)
+            case .detached: return .handleViolation(.detached)
             }
         }
 
         func invokeGetMetadata() -> InvokeGetMetadataAction {
             switch self.state {
-            case .attached:      return .performGetMetadata
+            case .attached: return .performGetMetadata
             case .invokeDisconnectInFlight: return .performGetMetadata
-            case .detached:      return .ignore
+            case .detached: return .ignore
             }
         }
 
         func handleDisconnectedEvent() -> HandleDisconnectedEventAction {
             switch self.state {
-            case .attached:      return .performCleanup
+            case .attached: return .performCleanup
             case .invokeDisconnectInFlight: return .ignore(.invokeDisconnectInFlight)
-            case .detached:      return .ignore(.alreadyDetached)
+            case .detached: return .ignore(.alreadyDetached)
             }
         }
 
