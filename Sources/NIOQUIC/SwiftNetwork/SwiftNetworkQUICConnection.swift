@@ -47,14 +47,6 @@ extension NIOCore.ByteBuffer {
 /// Holds the references required to access QUIC connections and streams
 @available(anyAppleOS 26, *)
 final class SwiftNetworkQUICConnection {
-    /// Struct that contains the results of a read for a stream.
-    struct ReadStreamResult {
-        /// The bytes that were read into the buffer.
-        var bytesRead: Int
-        /// Boolean that indicates wether the stream finished.
-        var fin: Bool
-    }
-
     struct Metrics {
         /// The number of QUIC packets received on the connection.
         var receivedPackets: Int
@@ -83,9 +75,6 @@ final class SwiftNetworkQUICConnection {
     private let role: Role
     private let swiftNetworkParameters: SwiftNetwork.Parameters
     private let eventLoop: any EventLoop
-    private let udpChannel: any Channel
-    private let connectionEventLoop: QUICChannelEventLoop
-    private let configuration: QUICConfiguration
 
     // Callback to associate extra inbound connection IDs in the multiplexer, i.e., connection IDs used as DCIDs by our peers.
     internal var associateConnectionID:
@@ -113,7 +102,6 @@ final class SwiftNetworkQUICConnection {
     private var newlyConnectedStreams: Set<QUICStreamID> = []
     private var networkContext: NetworkContext
 
-    private var streamIDIndex: UInt64 = 0
     private var streamOptions: QUICStreamProtocol.QUICStreamOptions
     private var streamChannelCreationHandler:
         (
@@ -122,14 +110,6 @@ final class SwiftNetworkQUICConnection {
                 @escaping (any Channel, QUICStreamID) -> EventLoopFuture<Void>
             ) -> Void
         )?
-    private var streamCriticalErrorHandler: ((QUICStreamID, WrappedStreamStateCriticalError) -> Void)?
-
-    /// Stores critical stream errors (RESET_STREAM, STOP_SENDING) keyed by
-    /// stream ID so they survive handler removal during connection teardown.
-    /// Close paths (`parentChannelInactive`, `handleDetachChildChannel`) replay
-    /// these errors as part of the close rather than racing with the deferred
-    /// `streamCriticalErrorHandler` delivery. The array preserves arrival order.
-    private var pendingStreamErrors: [QUICStreamID: [WrappedStreamStateCriticalError]] = [:]
 
     /// Tracks whether the connection child channel state machine is actively
     /// driving outbound writes. When zero, any output frames finalized by
@@ -200,33 +180,9 @@ final class SwiftNetworkQUICConnection {
         self.observedStreamIDs.insert(streamID)
     }
 
-    var pendingOutputBytes: Int {
-        self.finalizedOutput.count
-    }
-
-    /// Returns `true` if new streams can be created or accepted.
-    var canAcceptNewStreams: Bool {
-        self.connectionStateMachine.canAcceptNewStreams
-    }
-
-    /// Returns `true` if data can be read from or written to streams.
-    var canProcessData: Bool {
-        self.connectionStateMachine.canProcessData
-    }
-
     /// Returns `true` if the connection is in any termination state.
     var isTerminating: Bool {
         self.connectionStateMachine.isTerminating
-    }
-
-    /// Returns `true` if the connection has reached the terminal closed state.
-    var isTerminal: Bool {
-        self.connectionStateMachine.isTerminal
-    }
-
-    /// Returns `true` if the connection has completed the handshake.
-    var hasEstablishedConnection: Bool {
-        self.connectionStateMachine.hasEstablishedConnection
     }
 
     /// Determines the action a child channel should take after outbound data has been processed.
@@ -238,9 +194,6 @@ final class SwiftNetworkQUICConnection {
     }
 
     /// Accepts a new server-side connection.
-    ///
-    /// The optional `originalDestinationConnectionID` is the original destination ID that the client sent
-    /// before a stateless retry. This is only required when using the `retry` method.
     ///
     /// - Parameters:
     ///     - configuration: The configuration to use when creating the connection.
@@ -254,13 +207,11 @@ final class SwiftNetworkQUICConnection {
     init(
         configuration: QUICConfiguration,
         sourceConnectionID: QUICConnectionID,
-        originalDestinationConnectionID: QUICConnectionID?,
         authenticator: Authenticator?,
         localAddress: SocketAddress,
         remoteAddress: SocketAddress,
         logger: Logger,
-        eventLoop: any EventLoop,
-        udpChannel: any Channel
+        eventLoop: any EventLoop
     ) throws {
         guard let serverName = configuration.serverName else {
             throw QUICError.tlsConfigurationIncomplete
@@ -270,20 +221,16 @@ final class SwiftNetworkQUICConnection {
         self.localAddress = localAddress
         self.remoteAddress = remoteAddress
         self.role = Role.server
-        self.udpChannel = udpChannel
-        self.configuration = configuration
         self.finalizedOutput.reserveCapacity(100)
         self.newlyConnectedStreams.reserveCapacity(100)
 
         self.activeSCIDs = [sourceConnectionID]
 
         var swiftNetworkParameters = SwiftNetwork.Parameters()
-        let quicEventLoop = QUICChannelEventLoop(eventLoop: eventLoop)
         self.eventLoop = eventLoop
-        self.connectionEventLoop = quicEventLoop
         let networkContext = NetworkContext(
             identifier: "swift-nio-quic-context-\(self.role.description)",
-            externalScheduler: quicEventLoop
+            externalScheduler: QUICChannelEventLoop(eventLoop: eventLoop)
         )
         swiftNetworkParameters.context = networkContext
         self.networkContext = networkContext
@@ -387,14 +334,12 @@ final class SwiftNetworkQUICConnection {
         let outputHandler = QUICChannelOutputHandler(
             role: self.role,
             logger: logger,
-            remoteAddress: remoteAddress,
             context: swiftNetworkParameters.context
         )
         self.outputHandler = outputHandler
         outputHandler.setInputFramesHandler(inputFramesHandler: self.outputHandlerGetInputFrames(maximumDatagramCount:))
-        outputHandler.setFlushOutputFramesHandler(flushOutputFramesHandler: self.flushOutputFrames)
         outputHandler.setFinalizeOutputFramesHandler(
-            finalizeOutputFramesHandler: self.outputHandlerFinalizeOutputFrames(frames:role:remoteAddress:)
+            finalizeOutputFramesHandler: self.outputHandlerFinalizeOutputFrames(frames:)
         )
         do {
             try self.swiftNetworkQUICConnection.attachLowerDatagramProtocolForNewPath(
@@ -441,8 +386,7 @@ final class SwiftNetworkQUICConnection {
         localAddress: SocketAddress,
         remoteAddress: SocketAddress,
         logger: Logger,
-        eventLoop: any EventLoop,
-        udpChannel: any Channel
+        eventLoop: any EventLoop
     ) throws {
         // TODO: Verify that the serverName is always required and reflect that in the type system.
         // See also: https://github.com/apple/swift-nio-quic/issues/6
@@ -454,20 +398,16 @@ final class SwiftNetworkQUICConnection {
         self.localAddress = localAddress
         self.remoteAddress = remoteAddress
         self.role = Role.client
-        self.udpChannel = udpChannel
-        self.configuration = configuration
         self.finalizedOutput.reserveCapacity(100)
         self.newlyConnectedStreams.reserveCapacity(100)
 
         self.activeSCIDs = [sourceConnectionID]
 
         var swiftNetworkParameters = SwiftNetwork.Parameters()
-        let quicEventLoop = QUICChannelEventLoop(eventLoop: eventLoop)
         self.eventLoop = eventLoop
-        self.connectionEventLoop = quicEventLoop
         let networkContext = NetworkContext(
             identifier: "swift-nio-quic-context-\(self.role.description)",
-            externalScheduler: quicEventLoop
+            externalScheduler: QUICChannelEventLoop(eventLoop: eventLoop)
         )
         swiftNetworkParameters.context = networkContext
         self.networkContext = networkContext
@@ -579,7 +519,7 @@ final class SwiftNetworkQUICConnection {
                 localAddress: localAddress,
                 listenerProtocol: streamListenerLinkage,
                 connectionChannel: nil,
-                eventLoop: udpChannel.eventLoop,
+                eventLoop: self.eventLoop,
                 keepAliveInterval: configuration.keepAliveInterval
             )
         else {
@@ -589,14 +529,12 @@ final class SwiftNetworkQUICConnection {
         let outputHandler = QUICChannelOutputHandler(
             role: self.role,
             logger: logger,
-            remoteAddress: remoteAddress,
             context: swiftNetworkParameters.context
         )
         self.outputHandler = outputHandler
         outputHandler.setInputFramesHandler(inputFramesHandler: self.outputHandlerGetInputFrames(maximumDatagramCount:))
-        outputHandler.setFlushOutputFramesHandler(flushOutputFramesHandler: self.flushOutputFrames)
         outputHandler.setFinalizeOutputFramesHandler(
-            finalizeOutputFramesHandler: self.outputHandlerFinalizeOutputFrames(frames:role:remoteAddress:)
+            finalizeOutputFramesHandler: self.outputHandlerFinalizeOutputFrames(frames:)
         )
         do {
             try self.swiftNetworkQUICConnection.attachLowerDatagramProtocolForNewPath(
@@ -643,7 +581,7 @@ final class SwiftNetworkQUICConnection {
     ///   - channelActivationPromise: Fulfilled with the new ``Channel`` once the stream is fully set up, or failed on error.
     ///   - streamChannelInitializer: Called with the new channel and its confirmed stream ID to configure the channel pipeline.
     internal func addNewOutboundStreamInputHandler(
-        streamType: QUICStreamID.StreamType,
+        streamType: QUICStreamType,
         channelActivationPromise: EventLoopPromise<any Channel>,
         connectionChannel: any Channel,
         streamChannelInitializer: @escaping (any Channel, QUICStreamID) -> EventLoopFuture<Void>
@@ -848,29 +786,6 @@ final class SwiftNetworkQUICConnection {
         self.streamChannelCreationHandler?(streamID, channelActivationPromise, streamChannelInitializer)
     }
 
-    /// Registers a stub stream handler for the given stream ID.
-    /// This is only intended for use in tests where the network stack isn't running.
-    func registerStubStreamHandler(for streamID: QUICStreamID) {
-        guard let connectionChannel = self.channel else {
-            fatalError("Connection channel unavailable")
-        }
-
-        let path = SwiftNetwork.PathProperties(parameters: self.swiftNetworkParameters)
-        let handler = QUICChannelStreamHandler(
-            role: self.role,
-            local: self.localAddress.toEndpoint(),
-            remote: self.remoteAddress.toEndpoint(),
-            parameters: self.swiftNetworkParameters,
-            path: path,
-            streamID: streamID,
-            logger: self.logger,
-            remoteAddress: self.remoteAddress,
-            localAddress: self.localAddress,
-            connectionChannel: connectionChannel
-        )
-        self.streamInputHandlers[streamID] = handler
-    }
-
     /// Registers a stub stream handler that has been transitioned to the connected state.
     /// This is only intended for use in tests where the network stack isn't running.
     func registerConnectedStubStreamHandler(
@@ -881,13 +796,9 @@ final class SwiftNetworkQUICConnection {
             fatalError("Connection channel unavailable")
         }
 
-        let path = SwiftNetwork.PathProperties(parameters: self.swiftNetworkParameters)
         let handler = QUICChannelStreamHandler(
             role: self.role,
-            local: self.localAddress.toEndpoint(),
-            remote: self.remoteAddress.toEndpoint(),
             parameters: self.swiftNetworkParameters,
-            path: path,
             streamID: streamID,
             logger: self.logger,
             remoteAddress: self.remoteAddress,
@@ -1056,10 +967,6 @@ final class SwiftNetworkQUICConnection {
         self.streamInputHandlers[streamID]
     }
 
-    func allStreamInputHandlers() -> [QUICChannelStreamHandler] {
-        Array(streamInputHandlers.values)
-    }
-
     func closeAllStreamHandlers() -> [EventLoopFuture<Void>] {
         if streamInputHandlers.isEmpty {
             return []
@@ -1089,17 +996,11 @@ final class SwiftNetworkQUICConnection {
     ///
     /// - Parameters:
     ///     - packet: The input buffer containing the QUIC packets.
-    ///     - localAddress: The socket address from where the packets are.
-    ///     - remoteAddress: The socket address where the packets are going.
-    /// - Throws: Throws if an error happened during processing.
     /// - Returns: The number of bytes processed.
     @discardableResult
     @inlinable
-    func receivePacket(
-        _ packet: inout NIOCore.ByteBuffer,
-        localAddress: SocketAddress,
-        remoteAddress: SocketAddress
-    ) throws -> Int {
+    func receivePacket(_ packet: NIOCore.ByteBuffer) -> Int {
+        var packet = packet
         log("receivePacket called with \(packet.readableBytes) bytes")
         packet.withUnsafeMutableReadableBytesWithStorageManagement2 { buffer, owner in
             self.inputPacketQueue.add(frame: Frame(customBuffer: buffer, owner: owner))
@@ -1598,11 +1499,7 @@ extension SwiftNetworkQUICConnection {
     /// Builds the finalized output frames so they can be written in writeOutboundData.
     ///
     /// These are QUIC output frames that have already been built by the protocol stack.
-    internal func outputHandlerFinalizeOutputFrames(
-        frames: consuming FrameArray,
-        role: Role,
-        remoteAddress: SocketAddress
-    ) {
+    internal func outputHandlerFinalizeOutputFrames(frames: consuming FrameArray) {
         log("finalizeOutputFrames: \(frames.count)")
         var didFinalizeFrames = false
         frames.iterateMutableFrames { frame in

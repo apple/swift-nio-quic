@@ -17,12 +17,16 @@ import PackageDescription
 
 let isRunningInCI = Context.environment["CI"] != nil
 
-// Enable the QlogOutput in CI as some tests depend on it.
+// Enable the QlogOutput in CI as some tests depend on it; also enable a setting our
+// tests can depend on to gate whether the Qlog tests are expected to run or not.
 let swiftNetworkTraits: Set<Package.Dependency.Trait>
+let qlogSetting: [SwiftSetting]
 if isRunningInCI {
     swiftNetworkTraits = [.defaults, "QlogOutput"]
+    qlogSetting = [.define("QLOG_ENABLED")]
 } else {
     swiftNetworkTraits = [.defaults]
+    qlogSetting = []
 }
 
 // controls logs emitted, lower levels are compiled out
@@ -48,7 +52,7 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-metrics", from: "2.4.1"),
         .package(url: "https://github.com/apple/swift-certificates.git", branch: "swift-crypto-5.x"),
         .package(url: "https://github.com/apple/swift-collections.git", from: "1.4.1"),
-        .package(url: "https://github.com/apple/swift-crypto.git", exact: "5.0.0-beta.1"),
+        .package(url: "https://github.com/apple/swift-crypto.git", exact: "5.0.0-beta.2"),
         .package(url: "https://github.com/apple/swift-nio-quic-helpers.git", branch: "main"),
         .package(
             url: "https://github.com/apple/swift-network-evolution",
@@ -107,7 +111,7 @@ let package = Package(
                 .copy("privateKey.der"),
                 .copy("publicKey.der"),
             ],
-            swiftSettings: swiftSettings
+            swiftSettings: swiftSettings + qlogSetting
         ),
         .testTarget(
             name: "IntegrationTests",

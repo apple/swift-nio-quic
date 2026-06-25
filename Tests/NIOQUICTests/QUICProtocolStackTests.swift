@@ -967,6 +967,8 @@ final class QUICProtocolStackTests: XCTestCase {
     }
 
     func testServerUsingQlog() async throws {
+        try XCTSkipUnless(QUIC.isQlogEnabled, "Qlog isn't enabled, skipping")
+
         let path = FileManager.default.temporaryDirectory
         let tag = UUID().uuidString
         let title = "ServerTestQlog_\(tag)"

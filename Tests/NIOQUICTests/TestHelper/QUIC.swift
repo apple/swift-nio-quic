@@ -12,10 +12,12 @@
 //
 //===----------------------------------------------------------------------===//
 
-import NIOCore
-
-public struct _QUICStreamIDChannelOption: ChannelOption {
-    public typealias Value = QUICStreamID?
-
-    public init() {}
+enum QUIC {
+    static var isQlogEnabled: Bool {
+        #if QLOG_ENABLED
+        return true
+        #else
+        return false
+        #endif
+    }
 }

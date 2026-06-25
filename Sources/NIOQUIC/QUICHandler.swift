@@ -68,8 +68,6 @@ public final class QUICHandler {
     private var quicConnectionIDGenerator: any QUICConnectionIDGenerator
     /// Our current state.
     private var state: State = .accepting
-    /// The buffer used for outbound data.
-    private var outboundBuffer: ByteBuffer
     /// Boolean to indicate if we wrote something.
     private var didWrite = false
     /// Whether we're expecting a channelReadComplete. This is used to delay flushing the channel until the a read complete is received.
@@ -215,7 +213,6 @@ public final class QUICHandler {
         self.eventLoop = channel.eventLoop
         self.connectionMultiplexer = .init(eventLoop: self.eventLoop, logger: logger)
         self.quicConfiguration = quicConfiguration
-        self.outboundBuffer = channel.allocator.buffer(capacity: ByteBuffer.maxDatagramSize)
         self.logger = logger
         self.metrics = metrics
         self.quicConnectionMetrics = [:]
@@ -254,7 +251,6 @@ public final class QUICHandler {
         self.eventLoop = channel.eventLoop
         self.connectionMultiplexer = .init(eventLoop: self.eventLoop, logger: logger)
         self.quicConfiguration = quicConfiguration
-        self.outboundBuffer = channel.allocator.buffer(capacity: ByteBuffer.maxDatagramSize)
         self.logger = logger
         self.metrics = metrics
         self.quicConnectionMetrics = [:]
@@ -412,8 +408,7 @@ public final class QUICHandler {
                 localAddress: localAddress,
                 remoteAddress: remoteAddress,
                 logger: connectionLogger,
-                eventLoop: self.context!.eventLoop,
-                udpChannel: self.udpChannel
+                eventLoop: self.context!.eventLoop
             )
 
             // Register callback for handling new inbound connection IDs
@@ -796,14 +791,11 @@ extension QUICHandler: ChannelInboundHandler {
         let quicConnection = try SwiftNetworkQUICConnection(
             configuration: self.quicConfiguration,
             sourceConnectionID: newSourceConnectionID,
-            // We are passing nil here since we are not supporting retry/tokens.
-            originalDestinationConnectionID: nil,
             authenticator: self.authenticator,
             localAddress: localAddress,
             remoteAddress: addressedEnvelope.remoteAddress,
             logger: connectionLogger,
-            eventLoop: self.context!.eventLoop,
-            udpChannel: self.udpChannel
+            eventLoop: self.context!.eventLoop
         )
 
         // Register callback for handling new inbound connection IDs
@@ -1043,5 +1035,68 @@ public struct QUICHandlerHandle: Sendable {
 extension QUICHandler {
     public func makeHandle() -> QUICHandlerHandle {
         QUICHandlerHandle(wrapping: self, eventLoop: self.eventLoop)
+    }
+}
+
+@available(anyAppleOS 26, *)
+extension QUICHandler {
+    internal func writeDatagram(
+        _ envelope: AddressedEnvelope<ByteBuffer>,
+        promise: EventLoopPromise<Void>?
+    ) {
+        guard let context = self.context else {
+            promise?.fail(ChannelError.ioOnClosedChannel)
+            return
+        }
+
+        self.logger.trace(
+            "QUICHandler writing outbound data",
+            metadata: [
+                LoggingKeys.addressRemote: "\(envelope.remoteAddress)",
+                LoggingKeys.channelOutboundBytes: "\(envelope.data.readableBytes)",
+            ]
+        )
+        self.didWrite = true
+        context.write(QUICHandler.wrapOutboundOut(envelope), promise: promise)
+    }
+
+    internal func flush() {
+        if self.didWrite && !self.expectingChannelReadComplete {
+            self.logger.trace("QUICHandler flushing")
+            self.didWrite = false
+            self.context?.flush()
+        }
+    }
+
+    internal func read() {
+        self.logger.trace("QUICHandler read from child channel")
+        self.context?.read()
+    }
+}
+
+@available(anyAppleOS 26, *)
+extension QUICHandler {
+    struct ChildView {
+        private let handler: QUICHandler
+
+        init(_ handler: QUICHandler) {
+            handler.eventLoop.assertInEventLoop()
+            self.handler = handler
+        }
+
+        func writeDatagram(
+            _ envelope: AddressedEnvelope<ByteBuffer>,
+            promise: EventLoopPromise<Void>?
+        ) {
+            self.handler.writeDatagram(envelope, promise: promise)
+        }
+
+        func flush() {
+            self.handler.flush()
+        }
+
+        func read() {
+            self.handler.read()
+        }
     }
 }

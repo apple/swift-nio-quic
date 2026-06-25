@@ -14,6 +14,7 @@
 
 import Logging
 import NIOCore
+import NIOQUICHelpers
 @_spi(Essentials) @_spi(ProtocolProvider) import SwiftNetwork
 
 #if canImport(Darwin)
@@ -191,10 +192,7 @@ final class QUICChannelNewFlowHandler: ProtocolInstanceContainer, InboundFlowHan
             }
             let streamHandler = QUICChannelStreamHandler(
                 role: self.role,
-                local: self.local,
-                remote: self.remote,
                 parameters: self.parameters,
-                path: self.path,
                 streamID: QUICStreamID(rawValue: inputHandlerStreamID),
                 logger: self.logger,
                 remoteAddress: self.remoteAddress,
