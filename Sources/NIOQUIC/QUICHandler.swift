@@ -68,8 +68,6 @@ public final class QUICHandler {
     private var quicConnectionIDGenerator: any QUICConnectionIDGenerator
     /// Our current state.
     private var state: State = .accepting
-    /// The buffer used for outbound data.
-    private var outboundBuffer: ByteBuffer
     /// Boolean to indicate if we wrote something.
     private var didWrite = false
     /// Whether we're expecting a channelReadComplete. This is used to delay flushing the channel until the a read complete is received.
@@ -215,7 +213,6 @@ public final class QUICHandler {
         self.eventLoop = channel.eventLoop
         self.connectionMultiplexer = .init(eventLoop: self.eventLoop, logger: logger)
         self.quicConfiguration = quicConfiguration
-        self.outboundBuffer = channel.allocator.buffer(capacity: ByteBuffer.maxDatagramSize)
         self.logger = logger
         self.metrics = metrics
         self.quicConnectionMetrics = [:]
@@ -254,7 +251,6 @@ public final class QUICHandler {
         self.eventLoop = channel.eventLoop
         self.connectionMultiplexer = .init(eventLoop: self.eventLoop, logger: logger)
         self.quicConfiguration = quicConfiguration
-        self.outboundBuffer = channel.allocator.buffer(capacity: ByteBuffer.maxDatagramSize)
         self.logger = logger
         self.metrics = metrics
         self.quicConnectionMetrics = [:]
@@ -412,8 +408,7 @@ public final class QUICHandler {
                 localAddress: localAddress,
                 remoteAddress: remoteAddress,
                 logger: connectionLogger,
-                eventLoop: self.context!.eventLoop,
-                udpChannel: self.udpChannel
+                eventLoop: self.context!.eventLoop
             )
 
             // Register callback for handling new inbound connection IDs
@@ -796,14 +791,11 @@ extension QUICHandler: ChannelInboundHandler {
         let quicConnection = try SwiftNetworkQUICConnection(
             configuration: self.quicConfiguration,
             sourceConnectionID: newSourceConnectionID,
-            // We are passing nil here since we are not supporting retry/tokens.
-            originalDestinationConnectionID: nil,
             authenticator: self.authenticator,
             localAddress: localAddress,
             remoteAddress: addressedEnvelope.remoteAddress,
             logger: connectionLogger,
-            eventLoop: self.context!.eventLoop,
-            udpChannel: self.udpChannel
+            eventLoop: self.context!.eventLoop
         )
 
         // Register callback for handling new inbound connection IDs

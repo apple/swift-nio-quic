@@ -35,21 +35,3 @@ extension QUICConnectionChannelOutboundMessage: FlowControlledMessage {
         self.streamMessage.data.readableBytes
     }
 }
-
-/// An event indicating that a STOP_SENDING frame was received from the peer,
-/// routed through the multiplexer so delivery is synchronized with buffered reads.
-struct QUICStreamStopSendingReceivedEvent {
-    /// The id of the stream channel.
-    var streamID: QUICStreamID
-    /// The application error code from the STOP_SENDING frame.
-    var applicationErrorCode: QUICApplicationErrorCode
-}
-
-/// An event indicating that a RESET_STREAM frame was received from the peer,
-/// routed through the multiplexer so delivery is synchronized with buffered reads.
-struct QUICStreamResetStreamReceivedEvent {
-    /// The id of the stream channel.
-    var streamID: QUICStreamID
-    /// The application error code from the RESET_STREAM frame.
-    var applicationErrorCode: QUICApplicationErrorCode
-}

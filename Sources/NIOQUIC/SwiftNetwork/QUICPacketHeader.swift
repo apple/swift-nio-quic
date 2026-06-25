@@ -17,12 +17,7 @@ import NIOCore
 
 /// A QUIC packet's header.
 @available(anyAppleOS 26, *)
-public struct QUICPacketHeader: Hashable, Sendable {
-
-    static func form(_ firstByte: UInt8) -> PacketForm {
-        PacketForm(firstByte)
-    }
-
+struct QUICPacketHeader: Hashable, Sendable {
     enum PacketForm {
         case short
         case long
@@ -40,12 +35,12 @@ public struct QUICPacketHeader: Hashable, Sendable {
     }
 
     /// QUIC packet header version.
-    public struct Version: Hashable, Sendable {
+    struct Version: Hashable, Sendable {
         private var backing: UInt32
 
-        public static let negotiation = Version(0x0000_0000)
-        public static let v1 = Version(0x0000_0001)
-        public static let v2 = Version(0x6b33_43cf)
+        static let negotiation = Version(0x0000_0000)
+        static let v1 = Version(0x0000_0001)
+        static let v2 = Version(0x6b33_43cf)
 
         var headerVersionField: UInt32 {
             self.backing
@@ -57,7 +52,7 @@ public struct QUICPacketHeader: Hashable, Sendable {
     }
 
     /// QUIC packet type.
-    public struct PacketType: Hashable, Sendable {
+    struct PacketType: Hashable, Sendable {
         enum Base: UInt8, Hashable {
             /// Initial packet.
             case initial = 1
@@ -141,34 +136,34 @@ public struct QUICPacketHeader: Hashable, Sendable {
         }
 
         /// Initial packet.
-        public static let initial = PacketType(.initial)
+        static let initial = PacketType(.initial)
         /// Retry packet.
-        public static let retry = PacketType(.retry)
+        static let retry = PacketType(.retry)
         /// Handshake packet.
-        public static let handshake = PacketType(.handshake)
+        static let handshake = PacketType(.handshake)
         /// 0-RTT packet.
-        public static let zeroRTT = PacketType(.zeroRTT)
+        static let zeroRTT = PacketType(.zeroRTT)
         /// 1-RTT short header packet.
-        public static let short = PacketType(.short)
+        static let short = PacketType(.short)
         /// Version negotiation packet.
-        public static let versionNegotiation = PacketType(.versionNegotiation)
+        static let versionNegotiation = PacketType(.versionNegotiation)
 
-        public var rawValue: UInt8 {
+        var rawValue: UInt8 {
             self.base.rawValue
         }
     }
 
     /// The type of the packet.
-    public var type: PacketType
+    var type: PacketType
     /// The version of the packet.
-    public var version: Version?
+    var version: Version?
     /// The destination connection ID of the packet.
-    public var destinationConnectionID: QUICConnectionID
+    var destinationConnectionID: QUICConnectionID
     /// The source connection ID of the packet.
-    public var sourceConnectionID: QUICConnectionID?
+    var sourceConnectionID: QUICConnectionID?
     /// The address verification token of the packet. Only present when the type is `initial`
     /// or `retry` .
-    public var token: [UInt8]
+    var token: [UInt8]
     /// Returns if the version of the header is supported by SwiftQUIC.
     var isVersionSupported: Bool {
         version?.headerVersionField == QUICVersion.v1.rawValue
@@ -188,7 +183,7 @@ extension NIOCore.ByteBuffer {
     /// - Parameters:
     ///   - shortHeaderDCIDLength: The length of the destination connection ID. Required to parse short header packets.
     /// - Returns: The parsed `QUICPacketHeader` or `nil` if the not enough bytes were readable.
-    public func parseQUICPacketHeader(
+    func parseQUICPacketHeader(
         destinationIDLength shortHeaderDCIDLength: Int
     ) throws -> QUICPacketHeader? {
         let routingHeader: QUICPacketHeader? = try self.withUnsafeReadableBytes { buffer in
@@ -237,7 +232,7 @@ extension NIOCore.ByteBuffer {
     /// - Parameters:
     ///   - shortHeaderDCIDLength: The length of the destination connection ID. Required to parse short header packets.
     /// - Returns: The parsed `QUICPacketHeader` or `nil` if the not enough bytes were readable.
-    public func getQUICPacketHeader(
+    func getQUICPacketHeader(
         destinationIDLength shortHeaderDCIDLength: Int
     ) throws -> QUICPacketHeader? {
         let packetType: QUICPacketHeader.PacketType
