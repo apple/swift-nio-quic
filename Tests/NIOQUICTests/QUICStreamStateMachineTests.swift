@@ -1411,13 +1411,19 @@ struct SwiftNetworkStreamHandleTests {
     func invokeDetachIsIdempotent() throws(NetworkError) {
         var handle = SwiftNetworkStreamHandle()
 
-        try handle.invokeDetach(from: .init())
+        switch handle.invokeDetach() {
+        case .proceed: break
+        case .skipAlreadyDetached: Issue.record("Expected .proceed on first detach")
+        }
 
         let isAttachedAfter = handle.isAttached
         #expect(!isAttachedAfter)
 
-        // Second call should not throw or crash
-        try handle.invokeDetach(from: .init())
+        // Second call should report already detached, not crash.
+        switch handle.invokeDetach() {
+        case .proceed: Issue.record("Expected .skipAlreadyDetached on second detach")
+        case .skipAlreadyDetached: break
+        }
     }
 
     /// Stop sequencing: disconnect after detach is a normal teardown ordering and must not throw.
@@ -1426,10 +1432,15 @@ struct SwiftNetworkStreamHandleTests {
     func invokeDisconnectNoopsWhenDetached() throws(NetworkError) {
         var handle = SwiftNetworkStreamHandle()
 
-        try handle.invokeDetach(from: .init())
+        switch handle.invokeDetach() {
+        case .proceed: break
+        case .skipAlreadyDetached: Issue.record("Expected .proceed on first detach")
+        }
 
-        // Should not throw or crash
-        handle.invokeDisconnect(from: .init())
+        switch handle.invokeDisconnect() {
+        case .proceed: Issue.record("Expected .ignore when detached")
+        case .ignore: break
+        }
     }
 
     /// Error/abort during teardown must not raise (called from the close-stream paths).
@@ -1438,10 +1449,15 @@ struct SwiftNetworkStreamHandleTests {
     func invokeAbortInboundNoopsWhenDetached() throws(NetworkError) {
         var handle = SwiftNetworkStreamHandle()
 
-        try handle.invokeDetach(from: .init())
+        switch handle.invokeDetach() {
+        case .proceed: break
+        case .skipAlreadyDetached: Issue.record("Expected .proceed on first detach")
+        }
 
-        // Should not throw or crash
-        try handle.invokeAbortInbound(from: .init(), error: nil)
+        switch handle.invokeAbortInbound() {
+        case .proceed: Issue.record("Expected .ignore when detached")
+        case .ignore: break
+        }
     }
 
     /// Error/abort during teardown must not raise (called from the close-stream paths).
@@ -1450,55 +1466,76 @@ struct SwiftNetworkStreamHandleTests {
     func invokeAbortOutboundNoopsWhenDetached() throws(NetworkError) {
         var handle = SwiftNetworkStreamHandle()
 
-        try handle.invokeDetach(from: .init())
+        switch handle.invokeDetach() {
+        case .proceed: break
+        case .skipAlreadyDetached: Issue.record("Expected .proceed on first detach")
+        }
 
-        // Should not throw or crash
-        try handle.invokeAbortOutbound(from: .init(), error: nil)
+        switch handle.invokeAbortOutbound() {
+        case .proceed: Issue.record("Expected .ignore when detached")
+        case .ignore: break
+        }
     }
 
-    /// Soft-violation policy: write-after-detach surfaces as a throw the caller can recover
-    /// from (e.g. return false), not a silent no-op that drops bytes.
+    /// Soft-violation policy: write-after-detach surfaces as a violation the caller can
+    /// surface as a throw (e.g. return false), not a silent no-op that drops bytes.
     @available(anyAppleOS 26, *)
-    @Test("invokeSendStreamData throws NetworkError when detached")
+    @Test("invokeSendStreamData reports violation when detached")
     func invokeSendStreamDataThrowsWhenDetached() throws(NetworkError) {
         var handle = SwiftNetworkStreamHandle()
 
-        try handle.invokeDetach(from: .init())
+        switch handle.invokeDetach() {
+        case .proceed: break
+        case .skipAlreadyDetached: Issue.record("Expected .proceed on first detach")
+        }
 
-        do throws(NetworkError) {
-            try handle.invokeSendStreamData(from: .init(), streamData: FrameArray())
-            Issue.record("Expected throw")
-        } catch {
-            // Expected
+        switch handle.invokeSendStreamData() {
+        case .proceed:
+            Issue.record("Expected .handleViolation when detached")
+        case .handleViolation(let reason):
+            switch reason {
+            case .detached: break
+            }
         }
     }
 
-    /// Soft-violation policy: read-after-detach surfaces as a throw, not a silent nil that
+    /// Soft-violation policy: read-after-detach surfaces as a violation, not a silent nil that
     /// the caller might confuse with "no data available".
     @available(anyAppleOS 26, *)
-    @Test("invokeReceiveStreamData throws NetworkError when detached")
+    @Test("invokeReceiveStreamData reports violation when detached")
     func invokeReceiveStreamDataThrowsWhenDetached() throws(NetworkError) {
         var handle = SwiftNetworkStreamHandle()
 
-        try handle.invokeDetach(from: .init())
+        switch handle.invokeDetach() {
+        case .proceed: break
+        case .skipAlreadyDetached: Issue.record("Expected .proceed on first detach")
+        }
 
-        do throws(NetworkError) {
-            _ = try handle.invokeReceiveStreamData(from: .init(), minimumBytes: 1, maximumBytes: 100)
-            Issue.record("Expected throw")
-        } catch {
-            // Expected
+        switch handle.invokeReceiveStreamData() {
+        case .proceed:
+            Issue.record("Expected .handleViolation when detached")
+        case .handleViolation(let reason):
+            switch reason {
+            case .detached: break
+            }
         }
     }
 
-    /// Metadata is genuinely unavailable post-detach; nil is the natural API response.
+    /// Metadata is genuinely unavailable post-detach; the wrapper returns `.ignore`
+    /// so the caller can surface nil to its own consumer.
     @available(anyAppleOS 26, *)
-    @Test("invokeGetMetadata returns nil when detached")
+    @Test("invokeGetMetadata reports ignore when detached")
     func invokeGetMetadataReturnsNilWhenDetached() throws(NetworkError) {
         var handle = SwiftNetworkStreamHandle()
 
-        try handle.invokeDetach(from: .init())
+        switch handle.invokeDetach() {
+        case .proceed: break
+        case .skipAlreadyDetached: Issue.record("Expected .proceed on first detach")
+        }
 
-        let metadata: ProtocolMetadata<QUICProtocol>? = handle.invokeGetMetadata(from: .init())
-        #expect(metadata == nil)
+        switch handle.invokeGetMetadata() {
+        case .proceed: Issue.record("Expected .ignore when detached")
+        case .ignore: break
+        }
     }
 }
