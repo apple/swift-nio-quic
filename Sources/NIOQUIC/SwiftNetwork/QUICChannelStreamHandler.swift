@@ -580,9 +580,16 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
 
     func streamRead() {
         self.eventLoop.preconditionInEventLoop()
+
+        // Emit channel read complete when:
+        // - any read was fired, or
+        // - EOF is emitted
+        var emitReadComplete = false
+
         if self.bufferedReadData.readableBytes > 0 {
             // We will now satisfy a pending read request. Reset the flag.
             self.pendingRead = false
+            emitReadComplete = true
 
             let bytesRead = bufferedReadData.readableBytes
             self.log(
@@ -590,21 +597,29 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
             )
             self.pipeline.fireChannelRead(bufferedReadData)
             bufferedReadData.clear()
-            self.fireChannelReadComplete()
         }
+
         switch self.streamStateMachine.completeRead() {
         case .reportFin(let streamFullyClosed):
+            emitReadComplete = true
             self.pipeline.fireUserInboundEventTriggered(ChannelEvent.inputClosed)
             if streamFullyClosed {
                 self.log("stream is now fully closed")
                 self.closeStream(mode: .disconnectOnly, error: nil, promise: nil)
                 self.shutdownStream(direction: .all, applicationErrorCode: nil)
             }
+
         case .reportPeerReset:
+            emitReadComplete = true
             self.pipeline.fireUserInboundEventTriggered(ChannelEvent.inputClosed)
             break
+
         case .nothingToReport:
             break
+        }
+
+        if emitReadComplete {
+            self.fireChannelReadComplete()
         }
     }
 
