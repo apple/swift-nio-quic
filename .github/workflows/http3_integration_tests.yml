@@ -3,9 +3,6 @@ name: swift-nio-http3 integration tests
 permissions:
   contents: read
 
-on:
-  workflow_call:
-
 jobs:
   construct-matrix:
     name: Construct integration test matrix
