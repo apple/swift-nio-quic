@@ -297,12 +297,11 @@ struct QUICChannelStreamHandlerTests {
             // The downstream should have received this buffered data;
             #expect(recorder.channelReadCount == 1)
             #expect(recorder.totalReadBytes == testData.readableBytes)
-            // an `inputClosed` event, since we received a FIN; and a trailing
-            // `channelReadComplete` so that handlers that intercept and buffer
-            // `inputClosed` can drain it onto downstream handlers like `NIOAsyncChannel`.
+            // an `inputClosed` event, since we received a FIN; and a single
+            // trailing `channelReadComplete` that ends the read batch.
             #expect(
                 recorder.events == [
-                    .read, .channelRead(testData), .channelReadComplete, .inputClosedEvent, .channelReadComplete,
+                    .read, .channelRead(testData), .inputClosedEvent, .channelReadComplete,
                 ]
             )
             #expect(readHolder.pendingReadRequests.count == 0)

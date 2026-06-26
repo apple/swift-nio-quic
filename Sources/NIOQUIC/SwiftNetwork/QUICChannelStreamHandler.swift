@@ -610,6 +610,8 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
 
     func streamRead() {
         self.eventLoop.preconditionInEventLoop()
+        var deliveredInboundEvent = false
+
         if self.bufferedReadData.readableBytes > 0 {
             // We will now satisfy a pending read request. Reset the flag.
             self.pendingRead = false
@@ -620,25 +622,32 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
             )
             self.pipeline.fireChannelRead(bufferedReadData)
             bufferedReadData.clear()
-            self.fireChannelReadComplete()
+            deliveredInboundEvent = true
         }
+
         switch self.streamStateMachine.completeRead() {
         case .reportFin(let streamFullyClosed):
             self.pipeline.fireUserInboundEventTriggered(ChannelEvent.inputClosed)
-            // Consumers may buffer the fin. Without a `channelReadComplete`
-            // after `inputClosed`, `NIOAsyncChannel` never sees the
-            // half-closure signal and async iterators hang.
-            self.fireChannelReadComplete()
+            deliveredInboundEvent = true
+
             if streamFullyClosed {
                 self.log("stream is now fully closed")
                 self.teardown(error: nil, promise: nil)
                 self.shutdownStream(direction: .all, applicationErrorCode: nil)
             }
+
         case .reportPeerReset:
             self.pipeline.fireUserInboundEventTriggered(ChannelEvent.inputClosed)
-            self.fireChannelReadComplete()
+            deliveredInboundEvent = true
+
         case .nothingToReport:
             break
+        }
+
+        // Signal end-of-read-batch after every batch that delivered data and/or
+        // an end-of-stream event.
+        if deliveredInboundEvent {
+            self.fireChannelReadComplete()
         }
     }
 
