@@ -42,3 +42,7 @@ jobs:
   release-builds:
     name: Release builds
     uses: apple/swift-nio/.github/workflows/release_builds.yml@main
+
+  http3-integration-tests:
+    name: swift-nio-http3 integration tests
+    uses: ./.github/workflows/http3_integration_tests.yml
