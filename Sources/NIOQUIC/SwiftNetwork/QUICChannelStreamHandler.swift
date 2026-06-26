@@ -625,6 +625,10 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
         switch self.streamStateMachine.completeRead() {
         case .reportFin(let streamFullyClosed):
             self.pipeline.fireUserInboundEventTriggered(ChannelEvent.inputClosed)
+            // Consumers may buffer the fin. Without a `channelReadComplete`
+            // after `inputClosed`, `NIOAsyncChannel` never sees the
+            // half-closure signal and async iterators hang.
+            self.fireChannelReadComplete()
             if streamFullyClosed {
                 self.log("stream is now fully closed")
                 self.teardown(error: nil, promise: nil)
@@ -632,7 +636,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
             }
         case .reportPeerReset:
             self.pipeline.fireUserInboundEventTriggered(ChannelEvent.inputClosed)
-            break
+            self.fireChannelReadComplete()
         case .nothingToReport:
             break
         }
