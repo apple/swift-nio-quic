@@ -268,6 +268,26 @@ struct QUICChannelStreamHandlerTests {
     }
 
     @available(anyAppleOS 26, *)
+    @Test("FIN-only packet fires channelReadComplete with no data")
+    func finOnlyFiresChannelReadComplete() throws {
+        try Self.withServerStream { streamChannel in
+            try streamChannel.syncOptions?.setOption(.autoRead, value: false)
+
+            let recorder = RecordingHandler()
+            try streamChannel.pipeline.syncOperations.addHandler(recorder)
+
+            // FIN arrives with no data.
+            _ = try streamChannel.streamStateMachine.receiveFin(finalSize: 0)
+            streamChannel.handleInboundDataAvailableEvent(.init())
+
+            streamChannel.pipeline.read()
+
+            // No data, but inputClosed and channelReadComplete must both fire.
+            #expect(recorder.events == [.read, .inputClosedEvent, .channelReadComplete])
+        }
+    }
+
+    @available(anyAppleOS 26, *)
     @Test("Packet with FIN delivered to a pending read request")
     func finPacketDeliveredToPendingReadRequest() throws {
         try Self.withServerStream { streamChannel in
@@ -298,7 +318,7 @@ struct QUICChannelStreamHandlerTests {
             #expect(recorder.channelReadCount == 1)
             #expect(recorder.totalReadBytes == testData.readableBytes)
             // and an `inputClosed` event, since we received a FIN.
-            #expect(recorder.events == [.read, .channelRead(testData), .channelReadComplete, .inputClosedEvent])
+            #expect(recorder.events == [.read, .channelRead(testData), .inputClosedEvent, .channelReadComplete])
             #expect(readHolder.pendingReadRequests.count == 0)
         }
     }
