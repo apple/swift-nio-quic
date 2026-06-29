@@ -1,0 +1,33 @@
+name: swift-nio-http3 integration tests
+
+permissions:
+  contents: read
+
+on:
+  workflow_call:
+
+jobs:
+  construct-matrix:
+    name: Construct integration test matrix
+    runs-on: ubuntu-latest
+    outputs:
+      integration-test-matrix: '${{ steps.generate-matrix.outputs.integration-test-matrix }}'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - id: generate-matrix
+        run: |
+          echo "integration-test-matrix=$(curl -s --retry 3 https://raw.githubusercontent.com/apple/swift-nio/main/scripts/generate_matrix.sh | bash)" >> "$GITHUB_OUTPUT"
+        env:
+          MATRIX_LINUX_SETUP_COMMAND: 'git clone --depth 1 https://github.com/apple/swift-nio-http3.git ../swift-nio-http3 && swift package --package-path ../swift-nio-http3 edit swift-nio-quic --path "$workspace"'
+          MATRIX_LINUX_COMMAND: "swift test --package-path ../swift-nio-http3 --filter H3IntegrationTests"
+
+  integration-tests:
+    name: Integration tests
+    needs: construct-matrix
+    uses: apple/swift-nio/.github/workflows/swift_test_matrix.yml@main
+    with:
+      name: "swift-nio-http3 integration tests"
+      matrix_string: '${{ needs.construct-matrix.outputs.integration-test-matrix }}'
