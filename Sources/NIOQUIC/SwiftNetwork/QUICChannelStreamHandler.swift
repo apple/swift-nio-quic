@@ -369,7 +369,12 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
         self.fromExternal {
             do throws(NetworkError) {
                 self.log("abortInbound")
-                try self.swiftNetworkStreamHandle.invokeAbortInbound(from: self.reference, error: error)
+                switch self.swiftNetworkStreamHandle.invokeAbortInbound() {
+                case .proceed(let linkage):
+                    try linkage.invokeAbortInbound(self.reference, error: error)
+                case .ignore:
+                    break
+                }
             } catch {
                 self.log("Failed to abort inbound: \(error)")
                 self.closeStream(mode: .disconnectOnly, error: error, promise: nil)
@@ -381,7 +386,12 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
     internal func abortOutbound(error: NetworkError?) {
         self.fromExternal {
             do throws(NetworkError) {
-                try self.swiftNetworkStreamHandle.invokeAbortOutbound(from: self.reference, error: error)
+                switch self.swiftNetworkStreamHandle.invokeAbortOutbound() {
+                case .proceed(let linkage):
+                    try linkage.invokeAbortOutbound(self.reference, error: error)
+                case .ignore:
+                    break
+                }
             } catch {
                 self.log("Failed to abort outbound: \(error)")
                 self.closeStream(mode: .disconnectOnly, error: error, promise: nil)
@@ -459,7 +469,12 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
     func start(fromNewFlowHandler: Bool = false) {
         log("start")
         self.eventLoop.preconditionInEventLoop()
-        self.swiftNetworkStreamHandle.invokeConnect(from: self.reference)
+        switch self.swiftNetworkStreamHandle.invokeConnect() {
+        case .proceed(let linkage):
+            linkage.invokeConnect(self.reference)
+        case .handleViolation(let reason):
+            preconditionFailure("invokeConnect on SwiftNetworkStreamHandle: \(reason)")
+        }
         // If started from NewFlowHandler then presumably there is application data waiting in the read queue
         // Do an optimistic read here when the flow is started and then all future data that comes in will get the handleInboundDataAvailableEvent event.
         // The handleInboundDataAvailableEvent signals that its time to read data on the stream.
@@ -483,25 +498,44 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
         case .ignoreAlreadyClosed:
             break
         }
-        self.swiftNetworkStreamHandle.invokeDisconnect(from: reference)
+
+        switch self.swiftNetworkStreamHandle.invokeDisconnect() {
+        case .proceed(let linkage):
+            linkage.invokeDisconnect(self.reference, error: nil)
+        case .ignore:
+            break
+        }
         if detachFromLowerProtocol {
-            do throws(NetworkError) {
-                try self.swiftNetworkStreamHandle.invokeDetach(from: reference)
-            } catch {
-                self.log("Failed to detach lower protocol: \(error)")
+            switch self.swiftNetworkStreamHandle.invokeDetach() {
+            case .proceed(let linkage):
+                do throws(NetworkError) {
+                    try linkage.invokeDetach(self.reference)
+                } catch {
+                    self.log("Failed to detach lower protocol: \(error)")
+                }
+            case .skipAlreadyDetached:
+                break
             }
         }
     }
 
-    // Called when the stream handler receives a disconnected event
+    /// Called when the stream handler receives a disconnected event.
+    ///
+    /// Runs the close cascade synchronously
     internal func handleDisconnectedEvent(_ from: ProtocolInstanceReference, error: NetworkError?) {
-        log("handleDisconnectedEvent error: \(String(describing: error))")
-        // Defer to the next event-loop tick: SwiftNetwork can deliver this synchronously
-        // from inside our own `invokeDisconnect` call, and `closeStream(.detachAndClose)`
-        // mutates `swiftNetworkStreamHandle` (via `invokeDetach`) — running it inline would
-        // overlap that mutation with the outer borrow.
-        self.eventLoop.execute {
-            self.closeStream(mode: .detachAndClose, error: error, promise: nil)
+        self.log("handleDisconnectedEvent error: \(String(describing: error))")
+        switch self.swiftNetworkStreamHandle.invokeDetach() {
+        case .proceed(let linkage):
+            do throws(NetworkError) {
+                try linkage.invokeDetach(self.reference)
+            } catch {
+                self.log("Failed to detach lower protocol: \(error)")
+            }
+        case .skipAlreadyDetached:
+            break
+        }
+        if self.isActive {
+            self._close(error: error, promise: nil)
         }
     }
 
@@ -517,10 +551,15 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
         case .disconnectOnly:  // Calls stop and detach only, could result in disconnect event as well
             stop(detachFromLowerProtocol: true)
         case .detachAndClose:  // Called on disconnect event callback
-            do throws(NetworkError) {
-                try self.swiftNetworkStreamHandle.invokeDetach(from: reference)
-            } catch {
-                self.log("Failed to detach lower protocol: \(error)")
+            switch self.swiftNetworkStreamHandle.invokeDetach() {
+            case .proceed(let linkage):
+                do throws(NetworkError) {
+                    try linkage.invokeDetach(self.reference)
+                } catch {
+                    self.log("Failed to detach lower protocol: \(error)")
+                }
+            case .skipAlreadyDetached:
+                break
             }
             if self.isActive {
                 self._close(error: error, promise: promise)
@@ -697,7 +736,12 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
     // Get metadata about the stream from the internal QUIC stack
     private final func getMetadata<P: NetworkProtocol>() -> ProtocolMetadata<P>? {
         self.fromExternal {
-            self.swiftNetworkStreamHandle.invokeGetMetadata(from: self.reference)
+            switch self.swiftNetworkStreamHandle.invokeGetMetadata() {
+            case .proceed(let linkage):
+                return linkage.invokeGetMetadata(self.reference) as ProtocolMetadata<P>?
+            case .ignore:
+                return nil
+            }
         }
     }
 
@@ -756,10 +800,13 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
             }
             log("write \(frameArray.count) frames, \(totalBytes) bytes, fin: \(fin)")
 
-            try self.swiftNetworkStreamHandle.invokeSendStreamData(
-                from: self.reference,
-                streamData: frameArray
-            )
+            switch self.swiftNetworkStreamHandle.invokeSendStreamData() {
+            case .proceed(let linkage):
+                try linkage.invokeSendStreamData(self.reference, streamData: frameArray)
+            case .handleViolation(let reason):
+                frameArray.finalizeAllFramesAsFailed()
+                throw SwiftNetworkStreamHandle.violationError(operation: "invokeSendStreamData", reason: reason)
+            }
             return true
         } catch {
             self.logger.error("\(self.logPrefix) writeBuffersToStream failed: \(error)")
@@ -769,18 +816,24 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
 
     internal func sendFIN() throws {
         self.eventLoop.preconditionInEventLoop()
-        // Check state machine if a FIN should be sent.
+
         switch try self.streamStateMachine.sendFin() {
         case .sendFin:
             self.log("sending connection complete")
             var finFrame = Frame(copyBuffer: [])
             finFrame.connectionComplete = true
-            try self.swiftNetworkStreamHandle.invokeSendStreamData(
-                from: self.reference,
-                streamData: FrameArray(frame: finFrame)
-            )
+            var finFrameArray = FrameArray(frame: finFrame)
+            switch self.swiftNetworkStreamHandle.invokeSendStreamData() {
+            case .proceed(let linkage):
+                try linkage.invokeSendStreamData(self.reference, streamData: finFrameArray)
+            case .handleViolation(let reason):
+                finFrameArray.finalizeAllFramesAsFailed()
+                throw SwiftNetworkStreamHandle.violationError(operation: "invokeSendStreamData", reason: reason)
+            }
+
         case .ignore(.alreadyFinished):
             self.log("sendFIN ignored: send side already finished")
+
         case .ignore(.streamReset):
             self.log("sendFIN ignored: send side already reset")
         }
@@ -800,11 +853,16 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
 
         var frameArray: FrameArray?
         do throws(NetworkError) {
-            frameArray = try self.swiftNetworkStreamHandle.invokeReceiveStreamData(
-                from: self.reference,
-                minimumBytes: 1,
-                maximumBytes: Int.max
-            )
+            switch self.swiftNetworkStreamHandle.invokeReceiveStreamData() {
+            case .proceed(let linkage):
+                frameArray = try linkage.invokeReceiveStreamData(
+                    self.reference,
+                    minimumBytes: 1,
+                    maximumBytes: Int.max
+                )
+            case .handleViolation(let reason):
+                throw SwiftNetworkStreamHandle.violationError(operation: "invokeReceiveStreamData", reason: reason)
+            }
         } catch {
             self.log("Failed to read with error: \(error)")
             frameArray = nil
