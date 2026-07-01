@@ -631,6 +631,21 @@ struct QUICStreamStateMachine: ~Copyable {
 
     // MARK: - Compound transitions
 
+    enum ConsumeReceiveTerminatorAction: ~Copyable {
+        /// The receive side has reached its FIN.
+        case reportFin(streamFullyClosed: Bool)
+        /// The receive side was reset by the peer.
+        case reportPeerReset(applicationErrorCode: QUICApplicationErrorCode)
+        /// No terminator was captured, or one has already been consumed.
+        case nothingToReport
+    }
+
+    /// Advance the receive sub-SM past any captured terminator (FIN or
+    /// peer RESET) and report what was consumed.
+    mutating func consumeReceiveTerminator() -> ConsumeReceiveTerminatorAction {
+        self.state.consumeReceiveTerminator()
+    }
+
     enum CompleteReadAction: ~Copyable {
         /// Read side still open — nothing more to report.
         case nothingToReport
@@ -647,26 +662,14 @@ struct QUICStreamStateMachine: ~Copyable {
             // Stream was closed (e.g. connection teardown) — signal end-of-stream.
             return .reportFin(streamFullyClosed: true)
         }
-        if self.hasReceivedFin {
-            // The receive SM has the FIN (state is .dataRecvd); calling
-            // applicationRead transitions it to .dataRead (terminal) and
-            // returns .deliverEndOfStream.
-            do {
-                switch try self.applicationRead() {
-                case .deliverEndOfStream:
-                    return .reportFin(streamFullyClosed: self.isFullyClosed)
-                case .deliverData:
-                    return .nothingToReport
-                case .ignore:
-                    return .nothingToReport
-                case .deliverResetError:
-                    return .reportPeerReset
-                }
-            } catch {
-                return .nothingToReport
-            }
+        switch self.consumeReceiveTerminator() {
+        case .reportFin(let streamFullyClosed):
+            return .reportFin(streamFullyClosed: streamFullyClosed)
+        case .reportPeerReset:
+            return .reportPeerReset
+        case .nothingToReport:
+            return .nothingToReport
         }
-        return .nothingToReport
     }
 
     enum ShutdownStreamAction: ~Copyable {
@@ -1100,6 +1103,41 @@ extension QUICStreamStateMachine.State {
         case .closed(let closed):
             self = .closed(closed)
             throw .notConnected
+        }
+    }
+
+    /// Consuming a received terminator. Non-terminal or non-connected
+    /// states return `.nothingToReport`.
+    mutating func consumeReceiveTerminator()
+        -> QUICStreamStateMachine.ConsumeReceiveTerminatorAction
+    {
+        switch consume self {
+        case .connected(var connected):
+            let readAction = connected.streamState.withReceiveState { $0.applicationRead() }
+            let isFullyClosed = connected.streamState.isFullyClosed
+            self = .connected(connected)
+            switch readAction {
+            case .deliverEndOfStream:
+                return .reportFin(streamFullyClosed: isFullyClosed)
+            case .deliverResetError(let code):
+                return .reportPeerReset(applicationErrorCode: code)
+            case .deliverData:
+                return .nothingToReport
+            case .ignore:
+                return .nothingToReport
+            case nil:
+                return .nothingToReport
+            }
+
+        case .pendingID(let pending):
+            // FIN captured on the pending record is not consumable until
+            // `streamConnected` replays it into the receive sub-SM.
+            self = .pendingID(pending)
+            return .nothingToReport
+
+        case .closed(let closed):
+            self = .closed(closed)
+            return .nothingToReport
         }
     }
 
