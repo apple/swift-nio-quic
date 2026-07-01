@@ -34,10 +34,10 @@ struct AuthenticationCallbackTest {
 
         // Key usage bit not set for digitial signatures
         #expect(throws: QUICError.certificateNotSuitableForAuthentication) {
-            _ = try Authenticator(privateKey: rootKey, certificates: [rootCert])
+            _ = try Authenticator(certificates: [rootCert], privateKey: rootKey)
         }
         #expect(throws: QUICError.certificateNotSuitableForAuthentication) {
-            _ = try Authenticator(privateKey: intermediateKey, certificates: [intermediateCert])
+            _ = try Authenticator(certificates: [intermediateCert], privateKey: intermediateKey)
         }
 
         // extended key usage: server auth
@@ -48,7 +48,7 @@ struct AuthenticationCallbackTest {
             extendedKeyUsages: [.serverAuth]
         )
         #expect(throws: Never.self) {
-            _ = try Authenticator(privateKey: leafKey, certificates: [leafCert])
+            _ = try Authenticator(certificates: [leafCert], privateKey: leafKey)
         }
 
         // extended key usage: client auth
@@ -59,7 +59,7 @@ struct AuthenticationCallbackTest {
             extendedKeyUsages: [.clientAuth]
         )
         #expect(throws: QUICError.certificateNotSuitableForAuthentication) {
-            _ = try Authenticator(privateKey: leafKeyClientAuth, certificates: [leafCertClientAuth])
+            _ = try Authenticator(certificates: [leafCertClientAuth], privateKey: leafKeyClientAuth)
         }
 
         // extended key usage: client auth + any
@@ -70,7 +70,7 @@ struct AuthenticationCallbackTest {
             extendedKeyUsages: [.clientAuth, .any]
         )
         #expect(throws: Never.self) {
-            _ = try Authenticator(privateKey: leafKeyClientAuthAny, certificates: [leafCertClientAuthAny])
+            _ = try Authenticator(certificates: [leafCertClientAuthAny], privateKey: leafKeyClientAuthAny)
         }
     }
 
@@ -244,16 +244,15 @@ struct AuthenticationCallbackTest {
 
         // Key usage bit not set for digitial signatures
         #expect(throws: QUICError.certificateNotSuitableForAuthentication) {
-            _ = try Authenticator(privateKey: key, certificates: [cert3])
+            _ = try Authenticator(certificates: [cert3], privateKey: key)
         }
         #expect(throws: QUICError.certificateNotSuitableForAuthentication) {
-            _ = try Authenticator(privateKey: key, certificates: [cert2, cert3])
+            _ = try Authenticator(certificates: [cert2, cert3], privateKey: key)
         }
 
         // Cert intended for server authentication
         #expect(throws: Never.self) {
-            _ = try Authenticator(privateKey: key, certificates: [cert1, cert2, cert3])
+            _ = try Authenticator(certificates: [cert1, cert2, cert3], privateKey: key)
         }
     }
-
 }
