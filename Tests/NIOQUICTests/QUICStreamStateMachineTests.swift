@@ -366,7 +366,7 @@ struct QUICStreamReceiveStateMachineTests {
         let canRead = sm.canRead
         let isTerminal = sm.isTerminal
         let hasReceivedFin = sm.hasReceivedFin
-        let wasReset = sm.wasReset
+        let wasReset = sm.hasReceivedReset
         let resetErrorCode = sm.resetErrorCode
         let canProduceData = sm.canProduceData
         #expect(canRead)
@@ -388,7 +388,7 @@ struct QUICStreamReceiveStateMachineTests {
             Issue.record("Expected .ignore(.alreadyFullyReceived)")
             return
         }
-        let wasReset = sm.wasReset
+        let wasReset = sm.hasReceivedReset
         #expect(!wasReset)
     }
 
@@ -441,7 +441,7 @@ struct QUICStreamReceiveStateMachineTests {
             return
         }
         let isTerminal = sm.isTerminal
-        let wasReset = sm.wasReset
+        let wasReset = sm.hasReceivedReset
         #expect(isTerminal)
         #expect(!wasReset)
     }
@@ -464,7 +464,7 @@ struct QUICStreamReceiveStateMachineTests {
         }
         #expect(deliveredCode == QUICApplicationErrorCode(77))
         let isTerminal = sm.isTerminal
-        let wasReset = sm.wasReset
+        let wasReset = sm.hasReceivedReset
         let resetErrorCode = sm.resetErrorCode
         #expect(isTerminal)
         #expect(wasReset)
@@ -490,7 +490,7 @@ struct QUICStreamReceiveStateMachineTests {
         #expect(code == QUICApplicationErrorCode(42))
 
         let canRead = sm.canRead
-        let wasReset = sm.wasReset
+        let wasReset = sm.hasReceivedReset
         let canProduceData = sm.canProduceData
         #expect(!canRead)
         #expect(wasReset)

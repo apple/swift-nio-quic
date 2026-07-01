@@ -303,11 +303,11 @@ struct QUICStreamStateMachine: ~Copyable {
         case .connected(let connected):
             switch connected.streamState {
             case .bidirectional(let streamState):
-                return streamState.receiveState.isTerminal || streamState.receiveState.wasReset
+                return streamState.receiveState.isTerminal || streamState.receiveState.hasReceivedReset
             case .sendOnly:
                 return true
             case .receiveOnly(let streamState):
-                return streamState.receiveState.isTerminal || streamState.receiveState.wasReset
+                return streamState.receiveState.isTerminal || streamState.receiveState.hasReceivedReset
             }
 
         case .pendingID:
@@ -1814,8 +1814,8 @@ struct QUICStreamReceiveStateMachine: ~Copyable {
         }
     }
 
-    /// Returns `true` if the stream was reset by peer.
-    var wasReset: Bool {
+    /// Returns `true` if the peer has reset the receive side.
+    var hasReceivedReset: Bool {
         switch self.state {
         case .resetRecvd:
             return true
