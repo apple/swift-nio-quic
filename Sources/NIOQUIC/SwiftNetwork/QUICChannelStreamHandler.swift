@@ -617,47 +617,51 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
         }
     }
 
-    func streamRead() {
-        self.eventLoop.preconditionInEventLoop()
-
-        // Emit channel read complete when:
-        // - any read was fired, or
-        // - EOF is emitted
-        var emitReadComplete = false
-
-        if self.bufferedReadData.readableBytes > 0 {
-            // We will now satisfy a pending read request. Reset the flag.
-            self.pendingRead = false
-            emitReadComplete = true
-
-            let bytesRead = bufferedReadData.readableBytes
-            self.log(
-                "Read \(bytesRead) bytes from stream"
-            )
-            self.pipeline.fireChannelRead(bufferedReadData)
-            bufferedReadData.clear()
+    /// Returns `true` if data was actually delivered
+    private func flushBufferedReadData() -> Bool {
+        guard self.bufferedReadData.readableBytes > 0 else {
+            return false
         }
+        // We will now satisfy a pending read request. Reset the flag.
+        self.pendingRead = false
+        let bytesRead = self.bufferedReadData.readableBytes
+        self.log("Read \(bytesRead) bytes from stream")
+        self.pipeline.fireChannelRead(self.bufferedReadData)
+        self.bufferedReadData.clear()
+        return true
+    }
 
+    /// Returns `true` if an end-of-stream event was surfaced
+    private func surfaceReadCompletion() -> Bool {
         switch self.streamStateMachine.completeRead() {
         case .reportFin(let streamFullyClosed):
-            emitReadComplete = true
             self.pipeline.fireUserInboundEventTriggered(ChannelEvent.inputClosed)
             if streamFullyClosed {
                 self.log("stream is now fully closed")
                 self.closeStream(mode: .disconnectOnly, error: nil, promise: nil)
                 self.shutdownStream(direction: .all, applicationErrorCode: nil)
             }
+            return true
 
         case .reportPeerReset:
-            emitReadComplete = true
             self.pipeline.fireUserInboundEventTriggered(ChannelEvent.inputClosed)
-            break
+            return true
 
         case .nothingToReport:
-            break
+            return false
         }
+    }
 
-        if emitReadComplete {
+    func streamRead() {
+        self.eventLoop.preconditionInEventLoop()
+
+        // Emit channel read complete when:
+        // - any read was fired, or
+        // - EOF is emitted
+        let flushed = self.flushBufferedReadData()
+        let surfaced = self.surfaceReadCompletion()
+
+        if flushed || surfaced {
             self.fireChannelReadComplete()
         }
     }
