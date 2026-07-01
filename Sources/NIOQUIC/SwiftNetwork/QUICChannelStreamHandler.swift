@@ -266,29 +266,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
                 UInt64(applicationErrorCode)
             )!
             do {
-                switch try self.streamStateMachine.receiveResetStream(
-                    applicationErrorCode: errorCode,
-                    finalSize: 0
-                ) {
-                case .closeStream(_):
-                    self.closeStream(
-                        mode: .closeAndDisconnect,
-                        error: NIOQUICHelpers.QUICStreamResetError(code: errorCode),
-                        promise: nil
-                    )
-                case .doNotCloseStream(_):
-                    self.closeStream(
-                        mode: .closeAndDisconnect,
-                        error: NIOQUICHelpers.QUICStreamResetError(code: errorCode),
-                        promise: nil
-                    )
-
-                case .ignore(.alreadyFullyReceived):
-                    self.log("receiveResetStream: all data already received, ignoring")
-
-                case .ignore(.alreadyReset):
-                    self.log("receiveResetStream: stream already reset, ignoring")
-                }
+                try self.handleReceivedResetStream(applicationErrorCode: errorCode)
             } catch {
                 self.logger.warning("\(self.logPrefix) handleInboundAbortedEvent errored: \(error)")
                 switch error {
@@ -300,6 +278,36 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
             }
         } else {
             self.log("handleInboundAbortedEvent called with error: \(String(describing: error))")
+        }
+    }
+
+    // Extracted to avoid compiler crash in `-O` builds on Swift 6.3
+    @inline(never)
+    private func handleReceivedResetStream(
+        applicationErrorCode errorCode: NIOQUICHelpers.QUICApplicationErrorCode
+    ) throws(QUICStreamStateMachine.InvalidTransition) {
+        switch try self.streamStateMachine.receiveResetStream(
+            applicationErrorCode: errorCode,
+            finalSize: 0
+        ) {
+        case .closeStream(_):
+            self.closeStream(
+                mode: .closeAndDisconnect,
+                error: NIOQUICHelpers.QUICStreamResetError(code: errorCode),
+                promise: nil
+            )
+        case .doNotCloseStream(_):
+            self.closeStream(
+                mode: .closeAndDisconnect,
+                error: NIOQUICHelpers.QUICStreamResetError(code: errorCode),
+                promise: nil
+            )
+
+        case .ignore(.alreadyFullyReceived):
+            self.log("receiveResetStream: all data already received, ignoring")
+
+        case .ignore(.alreadyReset):
+            self.log("receiveResetStream: stream already reset, ignoring")
         }
     }
 
