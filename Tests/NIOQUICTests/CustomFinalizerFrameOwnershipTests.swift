@@ -11,10 +11,9 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 //===----------------------------------------------------------------------===//
-
-@_spi(CustomByteBufferAllocator) import NIOCore
 import Testing
 
+@_spi(CustomByteBufferAllocator) import NIOCore
 @_spi(ProtocolProvider) @testable import NIOQUIC
 @_spi(ProtocolProvider) @testable import SwiftNetwork
 

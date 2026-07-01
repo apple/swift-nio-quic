@@ -451,15 +451,30 @@ extension QUICConnectionChannelHandler {
         }
 
         self.setAutoReadOnStreamChannel(context: context, streamChannel: streamHandler) {
-            streamChannelInitializer(streamHandler, streamID).whenComplete { result in
-                switch result {
-                case .success:
-                    channelActivationPromise.succeed(streamHandler)
-                    // Trigger the first read.
-                    streamHandler.tryToAutoRead()
-                case .failure(let error):
-                    channelActivationPromise.fail(error)
+            switch streamHandler.pipelineStateMachine.startInitializer(
+                channelActive: streamHandler.isStreamChannelActive
+            ) {
+            case .runInitializer:
+                streamChannelInitializer(streamHandler, streamID).whenComplete { result in
+                    switch result {
+                    case .success:
+                        switch streamHandler.pipelineStateMachine.markInitializerComplete() {
+                        case .surfaceInitializedStream:
+                            streamHandler.surfaceDeferredResetAfterInit()
+                            // Trigger the first read.
+                            streamHandler.tryToAutoRead()
+                        case .ignoreAlreadyComplete:
+                            break
+                        }
+                        channelActivationPromise.succeed(streamHandler)
+
+                    case .failure(let error):
+                        channelActivationPromise.fail(error)
+                    }
                 }
+
+            case .ignore:
+                channelActivationPromise.fail(ChannelError.alreadyClosed)
             }
         }
     }

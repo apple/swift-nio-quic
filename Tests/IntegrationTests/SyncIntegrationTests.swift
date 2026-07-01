@@ -1533,25 +1533,14 @@ final class SyncIntegrationTests: XCTestCase {
 
         // Half-closure: the peer's RESET_STREAM only closes our receive side, so
         // closeFuture won't fire. Wait for the reset stream error to surface, then close.
-        // TODO: re-enable once the follow-up PR surfaces peer RESET_STREAMs that
-        // land during the pipeline-init window. Currently under CI's timing the
-        // RESET arrives while the SM is still `.initializing`, so it stays
-        // stashed and no `QUICStreamResetError` reaches this handler — which
-        // means `anyErrorSeen` fires via its handlerRemoved fallback and
-        // throws, and the code-value assertions below can't be evaluated.
-        _ = try? await errorCatcher.anyErrorSeen.get()
+        try await errorCatcher.anyErrorSeen.get()
 
         // inspect the thrown errors. It's loop-bound so we need to jump onto the right loop first
         let thrownErrors = try await clientConnectionChannel.eventLoop.submit { errorCatcher.thrownErrors.value }.get()
-        _ = thrownErrors
-        // XCTAssertEqual(thrownErrors.count, 1)
-        // XCTAssertEqual((thrownErrors.first as? QUICStreamResetError)?.code.rawValue, 10)
+        XCTAssertEqual(thrownErrors.count, 1)
+        XCTAssertEqual((thrownErrors.first as? QUICStreamResetError)?.code.rawValue, 10)
 
-        // TODO: as above — the request stream may already have been torn
-        // down by the time we get here since the deferred RESET path
-        // doesn't yet surface as `errorCaught`. Tolerate the
-        // already-closed case so this test still runs pre-follow-up.
-        _ = try? await requestStreamChannel.flatMap { $0.close() }.get()
+        try await requestStreamChannel.flatMap { $0.close() }.get()
         try await serverChannel.close()
         try await clientConnectionChannel.close()
     }
@@ -1619,10 +1608,7 @@ final class SyncIntegrationTests: XCTestCase {
         try await requestStreamChannel.flatMap { $0.writeAndFlush(ByteBuffer(string: "Hello")) }.get()
 
         // Wait for the RESET_STREAM error to surface on our pipeline.
-        // TODO: re-enable strict await once the follow-up PR surfaces peer
-        // RESET_STREAMs that land during the pipeline-init window; see the
-        // matching TODO in testResetStream.
-        _ = try? await errorCatcher.anyErrorSeen.get()
+        try await errorCatcher.anyErrorSeen.get()
 
         // Close immediately to trigger the race condition (before natural read propagation)
         try await clientConnectionChannel.close().get()
@@ -1633,17 +1619,12 @@ final class SyncIntegrationTests: XCTestCase {
         // Check if error was caught
         let thrownErrors = try await clientConnectionChannel.eventLoop.submit { errorCatcher.thrownErrors.value }.get()
 
-        // TODO: re-enable once the follow-up PR surfaces peer RESET_STREAMs that
-        // land during the pipeline-init window. Currently under CI's timing the
-        // RESET arrives while the SM is still `.initializing`, so it stays
-        // stashed and no `QUICStreamResetError` reaches this handler.
-        _ = thrownErrors
-        // XCTAssertGreaterThanOrEqual(
-        //     thrownErrors.count,
-        //     1,
-        //     "RESET_STREAM error should have been caught before stream cleanup"
-        // )
-        // XCTAssertEqual((thrownErrors.first as? QUICStreamResetError)?.code.rawValue, 10)
+        XCTAssertGreaterThanOrEqual(
+            thrownErrors.count,
+            1,
+            "RESET_STREAM error should have been caught before stream cleanup"
+        )
+        XCTAssertEqual((thrownErrors.first as? QUICStreamResetError)?.code.rawValue, 10)
 
         try await serverChannel.close()
     }
