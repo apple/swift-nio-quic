@@ -296,24 +296,31 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
             applicationErrorCode: errorCode,
             finalSize: 0
         ) {
-        case .closeStream(_):
+        case .closeStream(let code):
             self.closeStream(
                 mode: .closeAndDisconnect,
-                error: NIOQUICHelpers.QUICStreamResetError(code: errorCode),
-                promise: nil
-            )
-        case .doNotCloseStream(_):
-            self.closeStream(
-                mode: .closeAndDisconnect,
-                error: NIOQUICHelpers.QUICStreamResetError(code: errorCode),
+                error: NIOQUICHelpers.QUICStreamResetError(code: code),
                 promise: nil
             )
 
-        case .ignore(.alreadyFullyReceived):
-            self.log("receiveResetStream: all data already received, ignoring")
+        case .surfaceResetToInbound(let code):
+            if self.pipelineStateMachine.isInitialized {
+                self.log("surfaceResetToInbound: applicationErrorCode=\(code)")
+                // yields buffered data and then surfaces the reset
+                self.streamRead()
+            } else {
+                // SM has captured the reset; the post-init `streamRead()`
+                // will surface it via `completeRead()`.
+                self.log("surfaceResetToInbound: pipeline not yet initialized, will surface on next read")
+            }
 
-        case .ignore(.alreadyReset):
-            self.log("receiveResetStream: stream already reset, ignoring")
+        case .doNothing(let reason):
+            switch reason {
+            case .alreadyFullyReceived:
+                self.log("receiveResetStream: already fully received")
+            case .alreadyReset:
+                self.log("receiveResetStream: already reset")
+            }
         }
     }
 
@@ -657,8 +664,10 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
             }
             return true
 
-        case .reportPeerReset:
-            self.pipeline.fireUserInboundEventTriggered(ChannelEvent.inputClosed)
+        case .reportPeerReset(let code):
+            self.pipeline.fireErrorCaught(
+                NIOQUICHelpers.QUICStreamResetError(code: code)
+            )
             return true
 
         case .nothingToReport:
