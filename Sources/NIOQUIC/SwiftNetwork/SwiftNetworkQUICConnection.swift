@@ -68,8 +68,8 @@ final class SwiftNetworkQUICConnection {
     }
 
     private var swiftNetworkQUICConnection: SwiftNetwork.QUICConnection
-    private let localAddress: SocketAddress
-    private let remoteAddress: SocketAddress
+    let localAddress: SocketAddress
+    let remoteAddress: SocketAddress
     private let outputHandler: QUICChannelOutputHandler
     private let logger: Logger
     private let role: Role
