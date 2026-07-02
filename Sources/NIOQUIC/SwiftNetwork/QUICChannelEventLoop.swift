@@ -37,10 +37,24 @@ final class QUICChannelEventLoop: NetworkContext.Scheduler, CustomStringConverti
         self.eventLoop = eventLoop
     }
 
+    private struct UnsafeTransfer<Wrapped>: @unchecked Sendable {
+        var wrappedValue: Wrapped
+        init(_ wrappedValue: Wrapped) {
+            self.wrappedValue = wrappedValue
+        }
+    }
+
     func runImmediate(_ task: @escaping (() -> Void)) {
-        // Swift Network expects this to run asynchronously, i.e., the task should be scheduled
-        // even when called from the same event loop.
-        self.eventLoop.assumeIsolated().execute(task)
+        if self.eventLoop.inEventLoop {
+            self.eventLoop.assumeIsolated().execute(task)
+        } else {
+            // Remove once this has landed: https://github.com/apple/swift-network-evolution/pull/36
+            let transfer = UnsafeTransfer(task)
+            self.eventLoop.execute {
+                let value = transfer.wrappedValue
+                value()
+            }
+        }
     }
 
     func schedule(
