@@ -29,11 +29,6 @@ if isRunningInCI {
     qlogSetting = []
 }
 
-// controls logs emitted, lower levels are compiled out
-// `[.init(stringLiteral: "MaxLogLevelNone")]` gives best performance
-// `[]` gives all log output
-let maxLogLevel: Set<Package.Dependency.Trait> = [.init(stringLiteral: "MaxLogLevelDebug")]
-
 let swiftSettings: [SwiftSetting] =
     [
         .enableUpcomingFeature("ExistentialAny"),
@@ -48,7 +43,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-nio", from: "2.92.0"),
-        .package(url: "https://github.com/apple/swift-log", from: "1.12.1", traits: maxLogLevel),
+        .package(url: "https://github.com/apple/swift-log", from: "1.12.1"),
         .package(url: "https://github.com/apple/swift-metrics", from: "2.4.1"),
         .package(url: "https://github.com/apple/swift-certificates.git", branch: "swift-crypto-5.x"),
         .package(url: "https://github.com/apple/swift-collections.git", from: "1.4.1"),
