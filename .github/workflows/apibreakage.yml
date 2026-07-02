@@ -1,4 +1,4 @@
-name: APIBreakage
+name: api breakage checks
 
 permissions:
   contents: read
