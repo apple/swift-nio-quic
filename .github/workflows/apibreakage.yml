@@ -4,7 +4,8 @@ permissions:
   contents: read
 
 on:
-  workflow_call:
+  pull_request:
+    types: [opened, reopened, synchronize]
 
 jobs:
   api-breakage-check:
