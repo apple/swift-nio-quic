@@ -46,7 +46,7 @@ let package = Package(
 
 ### Building and testing
 
-SwiftNIO QUIC currently depends on beta release of swift-crypto. Set the
+SwiftNIO QUIC currently depends on a beta release of swift-crypto. Set the
 environment variable `SWIFT_CERTIFICATES_ALLOW_SWIFT_CRYPTO_BETA` to allow
 swift-certificates (in the dependency tree) to adopt swift-crypto beta
 releases as well.
