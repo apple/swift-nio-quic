@@ -60,3 +60,7 @@ jobs:
   http3-integration-tests:
     name: swift-nio-http3 integration tests
     uses: ./.github/workflows/http3_integration_tests.yml
+
+  api-breakage-checks:
+    name: api breakage checks
+    uses: ./.github/workflows/apibreakage.yml
