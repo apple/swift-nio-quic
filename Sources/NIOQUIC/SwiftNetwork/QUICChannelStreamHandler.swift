@@ -75,8 +75,8 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
     private let role: Role
     private let keepAliveInterval: Duration?
     private let logger: Logger
+    internal var reference: ProtocolInstanceReference = ProtocolInstanceReference()
 
-    internal var reference: ProtocolInstanceReference { ProtocolInstanceReference(custom: self) }
     internal var eventManager = ProtocolEventManager()
     internal var streamStateMachine: QUICStreamStateMachine
     internal var pipelineStateMachine: QUICStreamPipelineStateMachine
@@ -143,6 +143,9 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
         self._isWritable = Atomic(true)
         self._closePromise = connectionChannel.eventLoop.makePromise(of: Void.self)
         self._pipeline = ChannelPipeline(channel: self)
+
+        // This creates a retain cycle, it's broken in close '_close(error:promise:)'
+        self.reference = ProtocolInstanceReference(custom: self)
     }
 
     internal init?(
@@ -180,6 +183,9 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
         self._isActive = Atomic(false)
         self._isWritable = Atomic(true)
         self._closePromise = eventLoop.makePromise(of: Void.self)
+
+        // This creates a retain cycle, it's broken in close '_close(error:promise:)'
+        self.reference = ProtocolInstanceReference(custom: self)
 
         let linkage: OutboundStreamLinkage
         do throws(NetworkError) {
@@ -1225,6 +1231,8 @@ extension QUICChannelStreamHandler: Channel, ChannelCore {
             if let disconnect = self.disconnectedEventHandler {
                 disconnect(nil)
             }
+            // Break the retain cycle between the ref and self.
+            self.reference = ProtocolInstanceReference()
             self.clearHandlers()
         }
     }
