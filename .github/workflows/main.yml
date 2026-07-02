@@ -43,7 +43,7 @@ jobs:
     # Workaround https://github.com/nektos/act/issues/1875
     uses: apple/swift-nio/.github/workflows/static_sdk.yml@main
     with:
-      linux_env_vars: '{\"SWIFT_CERTIFICATES_ALLOW_SWIFT_CRYPTO_BETA\":\"1\"}'
+      env_vars: '{\"SWIFT_CERTIFICATES_ALLOW_SWIFT_CRYPTO_BETA\":\"1\"}'
 
   release-builds:
     name: Release builds
