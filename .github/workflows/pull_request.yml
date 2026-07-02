@@ -14,7 +14,6 @@ jobs:
     with:
       license_header_check_project_name: "SwiftNIO"
       docs_check_container_image: "swift:6.3"
-      api_breakage_check_container_image: "swift:6.3"
       format_check_container_image: "swift:6.3"
       linux_pre_build_command: "export SWIFT_CERTIFICATES_ALLOW_SWIFT_CRYPTO_BETA=1"
 
