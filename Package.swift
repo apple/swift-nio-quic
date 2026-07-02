@@ -48,13 +48,13 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-certificates.git", from: "1.19.3"),
         .package(url: "https://github.com/apple/swift-collections.git", from: "1.4.1"),
         .package(url: "https://github.com/apple/swift-crypto.git", exact: "5.0.0-beta.2"),
-        .package(url: "https://github.com/apple/swift-nio-quic-helpers.git", branch: "main"),
+        .package(url: "https://github.com/apple/swift-nio-quic-helpers.git", .upToNextMinor(from: "0.1.0")),
         .package(
             url: "https://github.com/apple/swift-network-evolution",
-            revision: "48f8547777d058e87fdadce12889771b582bd430",
+            .upToNextMinor(from: "0.1.0"),
             traits: swiftNetworkTraits
         ),
-        .package(url: "https://github.com/apple/swift-tls", branch: "main"),
+        .package(url: "https://github.com/apple/swift-tls", .upToNextMinor(from: "0.1.0")),
     ],
     targets: [
         .executableTarget(
