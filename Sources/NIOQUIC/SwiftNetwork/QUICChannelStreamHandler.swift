@@ -1218,6 +1218,7 @@ extension QUICChannelStreamHandler: Channel, ChannelCore {
 
             self.pipeline.fireChannelInactive()
             self.pipeline.fireChannelUnregistered()
+            self.removeHandlers(pipeline: self.pipeline)
             self._closePromise.succeed(())
             promise?.succeed()
             // Fire disconnect if there is no error present
