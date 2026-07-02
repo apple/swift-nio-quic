@@ -40,14 +40,14 @@ public final class Authenticator: Sendable {
         let certificates = try loadCertificates(fromPEMFile: certificateChainFile)
         let privateKey = try loadPrivateKey(fromPEMFile: privateKeyFilePath)
 
-        try self.init(privateKey: privateKey, certificates: certificates)
+        try self.init(certificates: certificates, privateKey: privateKey)
     }
 
     /// Create a new authenticator that sends the certificates to a client to authenticate, providing a
     /// signature with the private key.
     ///
     /// - Throws: If there is not at least one certificate, the leaf certificate does not allow server authentication, or the leaf is not suitable to verify digital signatures.
-    public init(privateKey: Certificate.PrivateKey, certificates: [Certificate]) throws {
+    public init(certificates: [Certificate], privateKey: Certificate.PrivateKey) throws {
         guard let leaf = certificates.first else {
             // Must at least have a leaf certificiate.
             throw QUICError.certificatesMissing

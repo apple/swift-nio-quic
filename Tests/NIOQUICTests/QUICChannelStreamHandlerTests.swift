@@ -14,6 +14,7 @@
 
 import Foundation
 import Logging
+import NIOConcurrencyHelpers
 import NIOCore
 import NIOEmbedded
 import NIOQUICHelpers
@@ -320,6 +321,113 @@ struct QUICChannelStreamHandlerTests {
             // and an `inputClosed` event, since we received a FIN.
             #expect(recorder.events == [.read, .channelRead(testData), .inputClosedEvent, .channelReadComplete])
             #expect(readHolder.pendingReadRequests.count == 0)
+        }
+    }
+
+    /// `handleDisconnectedEvent` can fire on an already-detached stream (e.g. connection-level close);
+    /// we shouldn't leak the close promise.
+    @available(anyAppleOS 26, *)
+    @Test("handleDisconnectedEvent still resolves closeFuture when linkage is already detached")
+    func handleDisconnectedEventResolvesCloseFutureWhenLinkageAlreadyDetached() throws {
+        try Self.withServerStream { streamChannel in
+            streamChannel._isActive.store(true, ordering: .sequentiallyConsistent)
+
+            let closeFutureFulfilled = NIOLockedValueBox(false)
+            streamChannel.closeFuture.whenComplete { _ in
+                closeFutureFulfilled.withLockedValue { $0 = true }
+            }
+
+            // Detach the linkage simulating prior teardown
+            switch streamChannel.swiftNetworkStreamHandle.invokeDetach() {
+            case .proceed:
+                break
+            case .skipAlreadyDetached:
+                Issue.record("Pre-condition: handle should have been attached")
+            }
+
+            // Detached linkage + active channel, close future must not have resolved.
+            let isAttachedBefore = streamChannel.swiftNetworkStreamHandle.isAttached
+            #expect(!isAttachedBefore)
+            let isActiveBefore = streamChannel.isActive
+            #expect(isActiveBefore)
+
+            // Fire `handleDisconnectedEvent`, actually perform the full close
+            streamChannel.handleDisconnectedEvent(.init(), error: nil)
+
+            // `_close` defers its body to the next event-loop tick; flush.
+            (streamChannel.eventLoop as! EmbeddedEventLoop).run()
+
+            let isActiveAfter = streamChannel.isActive
+            #expect(!isActiveAfter)
+            let fulfilled = closeFutureFulfilled.withLockedValue { $0 }
+            #expect(
+                fulfilled,
+                "closeFuture must resolve when handleDisconnectedEvent runs on an active channel"
+            )
+        }
+    }
+
+    /// `handleDisconnectedEvent` must flip `_isActive` synchronously; deferring
+    /// races the multiplexer's `removeHandlers` and drops `fireChannelInactive`.
+    @available(anyAppleOS 26, *)
+    @Test("handleDisconnectedEvent flips _isActive synchronously")
+    func handleDisconnectedEventFlipsIsActiveSynchronously() throws {
+        try Self.withServerStream { streamChannel in
+            // Set up the normal case: linkage attached, channel active.
+            streamChannel._isActive.store(true, ordering: .sequentiallyConsistent)
+            let isAttachedBefore = streamChannel.swiftNetworkStreamHandle.isAttached
+            #expect(isAttachedBefore)
+            let isActiveBefore = streamChannel.isActive
+            #expect(isActiveBefore)
+
+            // Fire `handleDisconnectedEvent`. After it returns —
+            // *without* having drained the event loop — `_isActive` must
+            // already be `false`. If the cascade were deferred via
+            // `eventLoop.execute` (the pre-fix shape), `_isActive` would
+            // still be `true` here.
+            streamChannel.handleDisconnectedEvent(.init(), error: nil)
+
+            let isActiveAfterImmediately = streamChannel.isActive
+            #expect(
+                !isActiveAfterImmediately,
+                "handleDisconnectedEvent must flip _isActive synchronously to resolve _closePromise on the same tick as ChildChannelMultiplexer.removeHandlers"
+            )
+
+            // Drain the deferred pipeline body.
+            (streamChannel.eventLoop as! EmbeddedEventLoop).run()
+        }
+    }
+
+    /// `invoke*` wrappers must release their borrow on `swiftNetworkStreamHandle` before the linkage call;
+    /// SwiftNetwork's synchronous drain otherwise re-enters `invokeDetach` on a live read borrow and traps.
+    @available(anyAppleOS 26, *)
+    @Test("invoke* wrappers release the borrow on swiftNetworkStreamHandle before returning")
+    func invokeWrappersReleaseBorrowBeforeReturning() throws {
+        try Self.withServerStream { streamChannel in
+            // Extract the linkage from the non-mutating send-data wrapper.
+            let linkage: OutboundStreamLinkage
+            switch streamChannel.swiftNetworkStreamHandle.invokeSendStreamData() {
+            case .proceed(let extracted):
+                linkage = extracted
+            case .handleViolation:
+                Issue.record("Pre-condition: handle should have been attached")
+                return
+            }
+
+            // The borrow taken by `invokeSendStreamData()` is released by
+            // the time it returns. Take a *modify* access on the same
+            // property right here — under the pre-fix shape this would
+            // overlap the still-live outer read borrow and trap.
+            switch streamChannel.swiftNetworkStreamHandle.invokeDetach() {
+            case .proceed:
+                break
+            case .skipAlreadyDetached:
+                Issue.record("Pre-condition: handle should have been attached")
+            }
+
+            // `linkage` is still usable independently of the handle — it's
+            // a value-type copy, not a borrow.
+            _ = linkage
         }
     }
 }

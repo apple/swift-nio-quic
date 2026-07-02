@@ -2304,95 +2304,133 @@ struct SwiftNetworkStreamHandle: ~Copyable {
     }
 
     // MARK: - Wrapper methods
+    //
+    // Every wrapper here returns an action that, on the success path, carries
+    // a *value snapshot* of `self.linkage` (`OutboundStreamLinkage` is a
+    // `struct` wrapping a struct `ProtocolInstanceReference`). Callers extract
+    // the linkage from the action, which releases the borrow on
+    // `self.swiftNetworkStreamHandle`, and then perform the SwiftNetwork side
+    // effect on the local value. This is load-bearing: SwiftNetwork's
+    // `handleCallFromUpperProtocol` drains queued peer events in a `defer`
+    // after `body()`, so a peer disconnect can synchronously re-enter
+    // `handleDisconnectedEvent` from inside an outer `invoke*` call. If the
+    // outer call held a `read` access on `self.swiftNetworkStreamHandle` for
+    // the duration of its linkage call, the inner `invokeDetach` (a `modify`)
+    // would overlap and trap on Swift exclusivity. Releasing the borrow before
+    // the side effect makes the re-entry safe at the language level.
 
-    func invokeConnect(from: ProtocolInstanceReference) {
+    enum InvokeConnectAction: ~Copyable {
+        case proceed(OutboundStreamLinkage)
+        case handleViolation(StateMachine.ViolationReason)
+    }
+
+    func invokeConnect() -> InvokeConnectAction {
         switch self.stateMachine.invokeConnect() {
         case .performConnect:
-            self.linkage.invokeConnect(from)
+            return .proceed(self.linkage)
         case .handleViolation(let reason):
-            preconditionFailure("invokeConnect on SwiftNetworkStreamHandle: \(reason)")
+            return .handleViolation(reason)
         }
     }
 
-    func invokeDisconnect(from: ProtocolInstanceReference, error: NetworkError? = nil) {
+    enum InvokeDisconnectAction: ~Copyable {
+        case proceed(OutboundStreamLinkage)
+        case ignore
+    }
+
+    func invokeDisconnect() -> InvokeDisconnectAction {
         switch self.stateMachine.invokeDisconnect() {
         case .performDisconnect:
-            self.linkage.invokeDisconnect(from, error: error)
+            return .proceed(self.linkage)
         case .ignore:
-            return
+            return .ignore
         }
     }
 
-    func invokeAbortInbound(
-        from: ProtocolInstanceReference,
-        error: NetworkError?
-    ) throws(NetworkError) {
+    enum InvokeAbortInboundAction: ~Copyable {
+        case proceed(OutboundStreamLinkage)
+        case ignore
+    }
+
+    func invokeAbortInbound() -> InvokeAbortInboundAction {
         switch self.stateMachine.invokeAbortInbound() {
         case .performAbortInbound:
-            try self.linkage.invokeAbortInbound(from, error: error)
+            return .proceed(self.linkage)
         case .ignore:
-            return
+            return .ignore
         }
     }
 
-    func invokeAbortOutbound(
-        from: ProtocolInstanceReference,
-        error: NetworkError?
-    ) throws(NetworkError) {
+    enum InvokeAbortOutboundAction: ~Copyable {
+        case proceed(OutboundStreamLinkage)
+        case ignore
+    }
+
+    func invokeAbortOutbound() -> InvokeAbortOutboundAction {
         switch self.stateMachine.invokeAbortOutbound() {
         case .performAbortOutbound:
-            try self.linkage.invokeAbortOutbound(from, error: error)
+            return .proceed(self.linkage)
         case .ignore:
-            return
+            return .ignore
         }
     }
 
-    func invokeSendStreamData(
-        from: ProtocolInstanceReference,
-        streamData: consuming FrameArray
-    ) throws(NetworkError) {
+    enum InvokeSendStreamDataAction: ~Copyable {
+        case proceed(OutboundStreamLinkage)
+        case handleViolation(StateMachine.ViolationReason)
+    }
+
+    func invokeSendStreamData() -> InvokeSendStreamDataAction {
         switch self.stateMachine.invokeSendStreamData() {
         case .performSendStreamData:
-            try self.linkage.invokeSendStreamData(from, streamData: streamData)
+            return .proceed(self.linkage)
         case .handleViolation(let reason):
-            throw Self.violationError(operation: "invokeSendStreamData", reason: reason)
+            return .handleViolation(reason)
         }
     }
 
-    func invokeReceiveStreamData(
-        from: ProtocolInstanceReference,
-        minimumBytes: Int,
-        maximumBytes: Int
-    ) throws(NetworkError) -> FrameArray? {
+    enum InvokeReceiveStreamDataAction: ~Copyable {
+        case proceed(OutboundStreamLinkage)
+        case handleViolation(StateMachine.ViolationReason)
+    }
+
+    func invokeReceiveStreamData() -> InvokeReceiveStreamDataAction {
         switch self.stateMachine.invokeReceiveStreamData() {
         case .performReceiveStreamData:
-            return try self.linkage.invokeReceiveStreamData(
-                from,
-                minimumBytes: minimumBytes,
-                maximumBytes: maximumBytes
-            )
+            return .proceed(self.linkage)
         case .handleViolation(let reason):
-            throw Self.violationError(operation: "invokeReceiveStreamData", reason: reason)
+            return .handleViolation(reason)
         }
     }
 
-    func invokeGetMetadata<P: NetworkProtocol>(
-        from: ProtocolInstanceReference
-    ) -> ProtocolMetadata<P>? {
+    enum InvokeGetMetadataAction: ~Copyable {
+        case proceed(OutboundStreamLinkage)
+        case ignore
+    }
+
+    func invokeGetMetadata() -> InvokeGetMetadataAction {
         switch self.stateMachine.invokeGetMetadata() {
         case .performGetMetadata:
-            return self.linkage.invokeGetMetadata(from)
+            return .proceed(self.linkage)
         case .ignore:
-            return nil
+            return .ignore
         }
     }
 
-    mutating func invokeDetach(from: ProtocolInstanceReference) throws(NetworkError) {
+    enum InvokeDetachAction: ~Copyable {
+        case proceed(OutboundStreamLinkage)
+        case skipAlreadyDetached
+    }
+
+    /// Mutating: transitions the SM to `.detached` before returning. The
+    /// modify borrow ends with the return; the caller performs `invokeDetach`
+    /// on the returned linkage value without holding any borrow on the handle.
+    mutating func invokeDetach() -> InvokeDetachAction {
         switch self.stateMachine.invokeDetach() {
         case .performDetach:
-            try self.linkage.invokeDetach(from)
+            return .proceed(self.linkage)
         case .skipAlreadyDetached:
-            return
+            return .skipAlreadyDetached
         }
     }
 
@@ -2400,7 +2438,7 @@ struct SwiftNetworkStreamHandle: ~Copyable {
     /// (`invokeSendStreamData`, `invokeReceiveStreamData`). The reason is
     /// included in the description so callers and logs see exactly what
     /// went wrong.
-    private static func violationError(
+    static func violationError(
         operation: String,
         reason: StateMachine.ViolationReason
     ) -> NetworkError {

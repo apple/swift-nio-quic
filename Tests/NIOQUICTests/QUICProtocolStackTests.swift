@@ -182,6 +182,63 @@ final class QUICProtocolStackTests: XCTestCase {
         }
     }
 
+    func testClosingStreamRemovesPipelineHandlers() async throws {
+        let loggers = self.getChannelLoggers()
+        let (serverChannel, serverMultiplexer) = try await self.buildServerChannel(logger: loggers.serverLogger)
+        let (_, clientMultiplexer) = try await self.buildClientChannel(logger: loggers.clientLogger)
+
+        let clientConnection = try await clientMultiplexer.createNewConnection(
+            serverName: serverChannel.localAddress!.ipAddress!,
+            remoteAddress: serverChannel.localAddress!,
+            inboundStreamInitializer: { channel in
+                channel.eventLoop.makeCompletedFuture { fatalError() }
+            }
+        )
+
+        let recorder = HandlerRemovalRecorder()
+
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask {
+                for await connection in serverMultiplexer.inboundConnections {
+                    for await stream in connection.inboundStreams {
+                        try await stream.executeThenClose { inbound, outbound in
+                            for try await buffer in inbound {
+                                try await outbound.write(buffer)
+                            }
+                            outbound.finish()
+                        }
+                    }
+                }
+            }
+
+            let stream = try await clientConnection.createBidirectionalStream { streamInitializer in
+                streamInitializer.channel.eventLoop.makeCompletedFuture {
+                    try streamInitializer.channel.pipeline.syncOperations.addHandler(recorder)
+                    return try NIOAsyncChannel(
+                        wrappingChannelSynchronously: streamInitializer.channel,
+                        configuration: .init(
+                            isOutboundHalfClosureEnabled: true,
+                            inboundType: ByteBuffer.self,
+                            outboundType: ByteBuffer.self
+                        )
+                    )
+                }
+            }
+
+            try await stream.executeThenClose { inbound, outbound in
+                try await outbound.write(.init(string: "ping"))
+                outbound.finish()
+                for try await buffer in inbound {
+                    XCTAssertEqual(buffer, .init(string: "ping"))
+                }
+            }
+
+            group.cancelAll()
+        }
+
+        XCTAssertTrue(recorder.removed)
+    }
+
     func testSingleDataTransferOverTwoUnidirectionalStreams() async throws {
 
         let loggers = getChannelLoggers()
@@ -1391,5 +1448,22 @@ final class QUICProtocolStackTests: XCTestCase {
 
         try await clientChannel.close().get()
         try await serverChannel.close().get()
+    }
+}
+
+/// Records when it is removed from its `ChannelPipeline`.
+@available(anyAppleOS 26, *)
+private final class HandlerRemovalRecorder: ChannelInboundHandler, Sendable {
+    typealias InboundIn = ByteBuffer
+
+    private let _removed = Mutex(false)
+
+    /// Whether the handler has been removed from its pipeline.
+    var removed: Bool {
+        self._removed.withLock { $0 }
+    }
+
+    func handlerRemoved(context: ChannelHandlerContext) {
+        self._removed.withLock { $0 = true }
     }
 }

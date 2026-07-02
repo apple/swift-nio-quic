@@ -29,11 +29,6 @@ if isRunningInCI {
     qlogSetting = []
 }
 
-// controls logs emitted, lower levels are compiled out
-// `[.init(stringLiteral: "MaxLogLevelNone")]` gives best performance
-// `[]` gives all log output
-let maxLogLevel: Set<Package.Dependency.Trait> = [.init(stringLiteral: "MaxLogLevelDebug")]
-
 let swiftSettings: [SwiftSetting] =
     [
         .enableUpcomingFeature("ExistentialAny"),
@@ -48,7 +43,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-nio", from: "2.92.0"),
-        .package(url: "https://github.com/apple/swift-log", from: "1.12.1", traits: maxLogLevel),
+        .package(url: "https://github.com/apple/swift-log", from: "1.12.1"),
         .package(url: "https://github.com/apple/swift-metrics", from: "2.4.1"),
         .package(url: "https://github.com/apple/swift-certificates.git", branch: "swift-crypto-5.x"),
         .package(url: "https://github.com/apple/swift-collections.git", from: "1.4.1"),
@@ -56,7 +51,7 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-nio-quic-helpers.git", branch: "main"),
         .package(
             url: "https://github.com/apple/swift-network-evolution",
-            revision: "ca1af826afc6408a2a68eb795db978c16e5ced89",
+            revision: "48f8547777d058e87fdadce12889771b582bd430",
             traits: swiftNetworkTraits
         ),
         .package(url: "https://github.com/apple/swift-tls", branch: "main"),
