@@ -22,7 +22,8 @@ jobs:
           echo "integration-test-matrix=$(curl -s --retry 3 https://raw.githubusercontent.com/apple/swift-nio/main/scripts/generate_matrix.sh | bash)" >> "$GITHUB_OUTPUT"
         env:
           MATRIX_LINUX_SETUP_COMMAND: 'git clone --depth 1 https://github.com/apple/swift-nio-http3.git ../swift-nio-http3 && swift package --package-path ../swift-nio-http3 edit swift-nio-quic --path "$workspace"'
-          MATRIX_LINUX_COMMAND: "SWIFT_CERTIFICATES_ALLOW_SWIFT_CRYPTO_BETA=1 swift test --package-path ../swift-nio-http3 --filter H3IntegrationTests"
+          MATRIX_LINUX_COMMAND: "swift test --package-path ../swift-nio-http3 --filter H3IntegrationTests"
+          MATRIX_LINUX_ENV_VARS_JSON: '{"SWIFT_CERTIFICATES_ALLOW_SWIFT_CRYPTO_BETA": "1"}'
 
   integration-tests:
     name: Integration tests
