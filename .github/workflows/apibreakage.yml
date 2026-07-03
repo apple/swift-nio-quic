@@ -1,0 +1,35 @@
+name: api breakage checks
+
+permissions:
+  contents: read
+
+on:
+  workflow_call:
+
+jobs:
+  api-breakage-check:
+    name: API breakage check
+    runs-on: ubuntu-latest
+    container:
+      image: swift:6.3
+    timeout-minutes: 40
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0  # Fetching tags requires fetch-depth: 0 (https://github.com/actions/checkout/issues/1471)
+      - name: Mark the workspace as safe
+        # https://github.com/actions/checkout/issues/766
+        run: git config --global --add safe.directory ${GITHUB_WORKSPACE}
+      - name: Run API breakage check
+        shell: bash
+        # While depending on swift-crypto beta releases an environment variable is required
+        # to allow swift-certificates to accept the beta versions.
+        env:
+          SWIFT_CERTIFICATES_ALLOW_SWIFT_CRYPTO_BETA: 1
+        run: |
+          git fetch ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY} ${GITHUB_BASE_REF}:pull-base-ref
+          BASELINE_REF='pull-base-ref'
+          echo "Using baseline: $BASELINE_REF"
+          swift package diagnose-api-breaking-changes "$BASELINE_REF"
