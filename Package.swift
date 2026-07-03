@@ -25,7 +25,7 @@ if isRunningInCI {
     swiftNetworkTraits = [.defaults, "QlogOutput"]
     qlogSetting = [.define("QLOG_ENABLED")]
 } else {
-    swiftNetworkTraits = [.defaults]
+    swiftNetworkTraits = []
     qlogSetting = []
 }
 
