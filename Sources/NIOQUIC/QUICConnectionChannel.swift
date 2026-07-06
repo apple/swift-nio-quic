@@ -32,7 +32,7 @@ final class QUICConnectionChannel: @unchecked Sendable {
     /// Completed when the channel is closed. Provides `closeFuture` for the `Channel` API.
     private let closePromise: EventLoopPromise<Void>
 
-    /// The underlying SwiftNetowork-backed QUIC connection.
+    /// The underlying SwiftNetwork-backed QUIC connection.
     private let connection: SwiftNetworkQUICConnection
 
     /// A view into the QUIC handler in the UDP channel, for outbound operations.
