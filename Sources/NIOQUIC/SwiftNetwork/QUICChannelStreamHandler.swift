@@ -671,11 +671,11 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
 
         // Emit channel read complete when:
         // - any read was fired, or
-        // - EOF is emitted
+        // - FIN or peer RESET is emitted
         let flushed = self.flushBufferedReadData()
-        let surfaced = self.surfaceReadCompletion()
+        let endOfStream = self.surfaceReadCompletion()
 
-        if flushed || surfaced {
+        if flushed || endOfStream {
             self.fireChannelReadComplete()
         }
     }

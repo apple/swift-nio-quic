@@ -631,19 +631,19 @@ struct QUICStreamStateMachine: ~Copyable {
 
     // MARK: - Compound transitions
 
-    enum ConsumeReceiveTerminatorAction: ~Copyable {
+    enum ConsumeFinOrResetAction: ~Copyable {
         /// The receive side has reached its FIN.
         case reportFin(streamFullyClosed: Bool)
         /// The receive side was reset by the peer.
         case reportPeerReset(applicationErrorCode: QUICApplicationErrorCode)
-        /// No terminator was captured, or one has already been consumed.
+        /// No FIN or RESET was captured, or one has already been consumed.
         case nothingToReport
     }
 
-    /// Advance the receive sub-SM past any captured terminator (FIN or
-    /// peer RESET) and report what was consumed.
-    mutating func consumeReceiveTerminator() -> ConsumeReceiveTerminatorAction {
-        self.state.consumeReceiveTerminator()
+    /// Advance the receive sub-SM past any captured FIN or peer RESET,
+    /// and report what was consumed.
+    mutating func consumeFinOrReset() -> ConsumeFinOrResetAction {
+        self.state.consumeFinOrReset()
     }
 
     enum CompleteReadAction: ~Copyable {
@@ -662,7 +662,7 @@ struct QUICStreamStateMachine: ~Copyable {
             // Stream was closed (e.g. connection teardown) — signal end-of-stream.
             return .reportFin(streamFullyClosed: true)
         }
-        switch self.consumeReceiveTerminator() {
+        switch self.consumeFinOrReset() {
         case .reportFin(let streamFullyClosed):
             return .reportFin(streamFullyClosed: streamFullyClosed)
         case .reportPeerReset:
@@ -1106,10 +1106,10 @@ extension QUICStreamStateMachine.State {
         }
     }
 
-    /// Consuming a received terminator. Non-terminal or non-connected
-    /// states return `.nothingToReport`.
-    mutating func consumeReceiveTerminator()
-        -> QUICStreamStateMachine.ConsumeReceiveTerminatorAction
+    /// Consume any captured FIN or peer RESET on the receive side.
+    /// Non-terminal or non-connected states return `.nothingToReport`.
+    mutating func consumeFinOrReset()
+        -> QUICStreamStateMachine.ConsumeFinOrResetAction
     {
         switch consume self {
         case .connected(var connected):
