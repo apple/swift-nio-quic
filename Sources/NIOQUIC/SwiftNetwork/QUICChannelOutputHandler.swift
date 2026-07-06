@@ -68,6 +68,11 @@ final class QUICChannelOutputHandler: ProtocolInstanceContainer, OutboundDatagra
         self.finalizeOutputFramesHandler = finalizeOutputFramesHandler
     }
 
+    func clearHandlers() {
+        self.inputFramesHandler = nil
+        self.finalizeOutputFramesHandler = nil
+    }
+
     /// Local logging function to debug the datapath
     ///
     /// This layer adds the context and fetches the message only if the debug flags are enabled.

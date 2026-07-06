@@ -877,6 +877,8 @@ final class SwiftNetworkQUICConnection {
             connectionNewFlowHandler.teardown()
         }
         self.connectionNewFlowHandler = nil
+        // Break cycle with outputHandler, which holds closures that capture self, i.e., the connection.
+        self.outputHandler.clearHandlers()
     }
 
     /// Action returned by `close()` indicating what happened.
