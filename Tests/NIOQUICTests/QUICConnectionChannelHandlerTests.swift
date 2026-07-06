@@ -65,11 +65,27 @@ final class QUICConnectionChannelHandlerTests: XCTestCase {
     override func tearDown() {
         super.tearDown()
 
-        XCTAssertNoThrow(try self.channel.close().wait())
+        if self.channel.isActive {
+            XCTAssertNoThrow(try self.channel.close().wait())
+        }
         self.eventLoop = nil
         self.channel = nil
         self.serverHandler = nil
         self.quicConnection = nil
+    }
+
+    func testClosingConnectionAllowsDeinit() throws {
+        weak let weakConnection = self.quicConnection
+
+        _ = self.quicConnection.close(sendApplicationClose: false, errorCode: 0, reason: "test")
+        self.quicConnection = nil
+        self.serverHandler = nil
+        try self.channel.close().wait()
+        // EmbeddedChannel.close0 defers pipeline.removeHandlers() to the event loop's task
+        // queue; run() flushes it so the pipeline actually releases its handlers.
+        self.eventLoop.run()
+
+        XCTAssertNil(weakConnection, "SwiftNetworkQUICConnection should deinit once closed and released")
     }
 
     func testChannelReadComplete_whenNoWrite() throws {
