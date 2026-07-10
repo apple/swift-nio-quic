@@ -303,8 +303,8 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
                 promise: nil
             )
 
-        case .surfaceResetToInbound(let code):
-            self.surfaceReceiveResetToInbound(applicationErrorCode: code)
+        case .surfaceReset(let code):
+            self.surfaceReceivedReset(applicationErrorCode: code)
 
         case .doNothing(let reason):
             switch reason {
@@ -320,17 +320,17 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
     // small enough to avoid the same `CopyPropagation` `-O` crash on
     // Swift 6.3.
     @inline(never)
-    private func surfaceReceiveResetToInbound(
+    private func surfaceReceivedReset(
         applicationErrorCode code: NIOQUICHelpers.QUICApplicationErrorCode
     ) {
         if self.pipelineStateMachine.isInitialized {
-            self.log("surfaceResetToInbound: applicationErrorCode=\(code)")
+            self.log("surfaceReset: applicationErrorCode=\(code)")
             // yields buffered data and then surfaces the reset
             self.streamRead()
         } else {
             // SM has captured the reset; the post-init `streamRead()`
             // will surface it via `completeRead()`.
-            self.log("surfaceResetToInbound: pipeline not yet initialized, will surface on next read")
+            self.log("surfaceReset: pipeline not yet initialized, will surface on next read")
         }
     }
 

@@ -932,8 +932,8 @@ struct QUICStreamStateMachineTests {
         _ = sm.streamConnected(direction: .bidirectional)
 
         let action = try sm.receiveResetStream(applicationErrorCode: QUICApplicationErrorCode(123), finalSize: 0)
-        guard case .surfaceResetToInbound(let code) = action else {
-            Issue.record("Expected .surfaceResetToInbound")
+        guard case .surfaceReset(let code) = action else {
+            Issue.record("Expected .surfaceReset")
             return
         }
         #expect(code.rawValue == 123)
@@ -975,8 +975,8 @@ struct QUICStreamStateMachineTests {
         _ = try sm.receiveData()
         let action = try sm.receiveResetStream(applicationErrorCode: QUICApplicationErrorCode(77), finalSize: 0)
 
-        guard case .surfaceResetToInbound(_) = action else {
-            Issue.record("Expected .surfaceResetToInbound")
+        guard case .surfaceReset(_) = action else {
+            Issue.record("Expected .surfaceReset")
             return
         }
 
@@ -1051,8 +1051,8 @@ struct QUICStreamStateMachineTests {
         _ = sm.streamConnected(direction: .bidirectional)
 
         let first = try sm.receiveResetStream(applicationErrorCode: QUICApplicationErrorCode(42), finalSize: 0)
-        guard case .surfaceResetToInbound(let firstCode) = first else {
-            Issue.record("Expected .surfaceResetToInbound")
+        guard case .surfaceReset(let firstCode) = first else {
+            Issue.record("Expected .surfaceReset")
             return
         }
         #expect(firstCode.rawValue == 42)
@@ -1205,8 +1205,8 @@ struct QUICStreamStateMachineTests {
         _ = sm.streamConnected(direction: .bidirectional)
 
         let action = try sm.receiveResetStream(applicationErrorCode: QUICApplicationErrorCode(42), finalSize: 0)
-        guard case .surfaceResetToInbound(let code) = action else {
-            Issue.record("Expected .surfaceResetToInbound")
+        guard case .surfaceReset(let code) = action else {
+            Issue.record("Expected .surfaceReset")
             return
         }
         #expect(code.rawValue == 42)
@@ -1232,8 +1232,8 @@ struct QUICStreamStateMachineTests {
 
         // Second: RESET_STREAM — should also produce an error (not deduplicated)
         let resetAction = try sm.receiveResetStream(applicationErrorCode: QUICApplicationErrorCode(20), finalSize: 0)
-        guard case .surfaceResetToInbound(let resetCode) = resetAction else {
-            Issue.record("Expected .surfaceResetToInbound")
+        guard case .surfaceReset(let resetCode) = resetAction else {
+            Issue.record("Expected .surfaceReset")
             return
         }
         #expect(resetCode.rawValue == 20)

@@ -572,7 +572,7 @@ struct QUICStreamStateMachine: ~Copyable {
         /// tear down the channel with this error code.
         case closeStream(applicationErrorCode: QUICApplicationErrorCode)
         /// Surface the reset to the inbound pipeline.
-        case surfaceResetToInbound(applicationErrorCode: QUICApplicationErrorCode)
+        case surfaceReset(applicationErrorCode: QUICApplicationErrorCode)
         /// Caller should take no action.
         case doNothing(DoNothingReason)
 
@@ -597,7 +597,7 @@ struct QUICStreamStateMachine: ~Copyable {
         case .closeStream:
             return .closeStream(applicationErrorCode: applicationErrorCode)
         case .doNotCloseStream:
-            return .surfaceResetToInbound(applicationErrorCode: applicationErrorCode)
+            return .surfaceReset(applicationErrorCode: applicationErrorCode)
         case .ignore(.alreadyFullyReceived):
             return .doNothing(.alreadyFullyReceived)
         case .ignore(.alreadyReset):
