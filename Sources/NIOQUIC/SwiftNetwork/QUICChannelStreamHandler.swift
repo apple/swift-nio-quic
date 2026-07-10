@@ -299,7 +299,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
         case .closeStream(let code):
             self.closeStream(
                 mode: .closeAndDisconnect,
-                error: NIOQUICHelpers.QUICStreamResetError(code: code),
+                error: QUICStreamResetError(code: code),
                 promise: nil
             )
 
@@ -676,7 +676,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
 
         case .reportPeerReset(let code):
             self.pipeline.fireErrorCaught(
-                NIOQUICHelpers.QUICStreamResetError(code: code)
+                QUICStreamResetError(code: code)
             )
             return true
 

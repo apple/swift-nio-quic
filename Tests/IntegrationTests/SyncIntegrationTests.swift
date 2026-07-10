@@ -1545,7 +1545,7 @@ final class SyncIntegrationTests: XCTestCase {
         let thrownErrors = try await clientConnectionChannel.eventLoop.submit { errorCatcher.thrownErrors.value }.get()
         _ = thrownErrors
         // XCTAssertEqual(thrownErrors.count, 1)
-        // XCTAssertEqual((thrownErrors.first as? NIOQUICHelpers.QUICStreamResetError)?.code.rawValue, 10)
+        // XCTAssertEqual((thrownErrors.first as? QUICStreamResetError)?.code.rawValue, 10)
 
         // TODO: as above — the request stream may already have been torn
         // down by the time we get here since the deferred RESET path
@@ -1643,7 +1643,7 @@ final class SyncIntegrationTests: XCTestCase {
         //     1,
         //     "RESET_STREAM error should have been caught before stream cleanup"
         // )
-        // XCTAssertEqual((thrownErrors.first as? NIOQUICHelpers.QUICStreamResetError)?.code.rawValue, 10)
+        // XCTAssertEqual((thrownErrors.first as? QUICStreamResetError)?.code.rawValue, 10)
 
         try await serverChannel.close()
     }

@@ -25,7 +25,7 @@ import Darwin
 
 enum WrappedStreamStateCriticalError {
     case stopSending(NIOQUICHelpers.QUICStopSendingError)
-    case resetStream(NIOQUICHelpers.QUICStreamResetError)
+    case resetStream(QUICStreamResetError)
 }
 
 extension WrappedStreamStateCriticalError {
@@ -255,27 +255,6 @@ struct QUICStreamStateMachine: ~Copyable {
                 return true
             case .localReset, .peerReset, .error:
                 return false
-            }
-        }
-    }
-
-    /// Returns `true` if the peer has reset the receive side. Distinct from
-    /// `hasReceivedFin`: a reset terminates the read side without delivering
-    /// FIN, and the framework still needs to surface that to the application.
-    var hasReceivedReset: Bool {
-        switch self.state {
-        case .connected(let connected):
-            switch connected.streamState {
-            case .bidirectional(let streamState): return streamState.receiveState.hasReceivedReset
-            case .sendOnly: return false
-            case .receiveOnly(let streamState): return streamState.receiveState.hasReceivedReset
-            }
-        case .pendingID:
-            return false
-        case .closed(let closed):
-            switch closed.reason {
-            case .peerReset: return true
-            case .clean, .localReset, .error: return false
             }
         }
     }
@@ -571,15 +550,12 @@ struct QUICStreamStateMachine: ~Copyable {
         /// The receive side is the only remaining live direction —
         /// tear down the channel with this error code.
         case closeStream(applicationErrorCode: QUICApplicationErrorCode)
-        /// Surface the reset to the inbound pipeline.
         case surfaceReset(applicationErrorCode: QUICApplicationErrorCode)
-        /// Caller should take no action.
         case doNothing(DoNothingReason)
 
         enum DoNothingReason: ~Copyable {
             /// Reset is moot — the receive side already saw FIN and all data.
             case alreadyFullyReceived
-            /// A reset was already recorded — this duplicate adds nothing.
             case alreadyReset
         }
     }
@@ -667,12 +643,8 @@ struct QUICStreamStateMachine: ~Copyable {
     }
 
     enum CompleteReadAction: ~Copyable {
-        /// Read side still open — nothing more to report.
         case nothingToReport
-        /// FIN received and read side closed — report fin to caller.
         case reportFin(streamFullyClosed: Bool)
-        /// Peer reset the receive side — surface as an error carrying
-        /// `applicationErrorCode` to the inbound pipeline.
         case reportPeerReset(applicationErrorCode: QUICApplicationErrorCode)
     }
 
