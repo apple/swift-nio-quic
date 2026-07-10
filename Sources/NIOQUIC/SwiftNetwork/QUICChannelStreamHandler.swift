@@ -252,10 +252,13 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
     ///
     /// - Parameters:
     ///     - logMessage: The logMessage that is fetched by an autoclosure.  For performance reasons we could gate this behind a flag.
-    func log(_ logMessage: @autoclosure () -> String) {
+    func log(
+        _ logMessage: @autoclosure () -> String,
+        metadata: @autoclosure () -> Logger.Metadata? = nil
+    ) {
         #if DEBUG
         let message = logMessage()
-        self.logger.trace("\(self.logPrefix) \(message)")
+        self.logger.trace("\(self.logPrefix) \(message)", metadata: metadata())
         #endif
     }
 
@@ -265,7 +268,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
         error: SwiftNetwork.NetworkError?
     ) {
         if let error, let applicationErrorCode = error.quicApplicationError, applicationErrorCode >= 0 {
-            self.log("Received reset stream error: \(applicationErrorCode)")
+            self.log("Received reset stream error", metadata: ["applicationErrorCode": "\(applicationErrorCode)"])
             // applicationErrorCode comes from the wire as a QUIC variable-length
             // integer (< 2^62), so the force-unwrap is safe.
             let errorCode = NIOQUICHelpers.QUICApplicationErrorCode(
@@ -321,10 +324,10 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
     // Swift 6.3.
     @inline(never)
     private func surfaceReceivedReset(
-        applicationErrorCode code: NIOQUICHelpers.QUICApplicationErrorCode
+        applicationErrorCode code: QUICApplicationErrorCode
     ) {
         if self.pipelineStateMachine.isInitialized {
-            self.log("surfaceReset: applicationErrorCode=\(code)")
+            self.log("surfaceReset", metadata: ["applicationErrorCode": "\(code)"])
             // yields buffered data and then surfaces the reset
             self.streamRead()
         } else {
