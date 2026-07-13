@@ -253,9 +253,9 @@ final class SwiftNetworkQUICConnection {
 
         // '!' is okay: the `options(...)` call above throws if this isn't set.
         let perProtocolOptions = quicOptions.perProtocolOptions!
+        perProtocolOptions.quicConnectionOptions.disableAutomaticNewConnectionIDs = true
         self.streamOptions = perProtocolOptions
 
-        perProtocolOptions.quicConnectionOptions.disableAutomaticNewConnectionIDs = true
         sourceConnectionID.withUnsafeBufferPointer { bufferPointer in
             perProtocolOptions.quicConnectionOptions.sourceConnectionID = Array(bufferPointer)
         }
@@ -386,14 +386,13 @@ final class SwiftNetworkQUICConnection {
 
         // '!' is okay: the `options(...)` call above throws if this isn't set.
         let perProtocolOptions = quicOptions.perProtocolOptions!
+        perProtocolOptions.quicConnectionOptions.disableAutomaticNewConnectionIDs = true
         self.streamOptions = perProtocolOptions
 
         sourceConnectionID.withUnsafeBufferPointer { bufferPointer in
             quicOptions.connectionOptions.sourceConnectionID = Array(bufferPointer)
         }
 
-        perProtocolOptions.quicConnectionOptions.idleTimeout = NetworkDuration(duration: configuration.maxIdleTimeout)
-        perProtocolOptions.quicConnectionOptions.disableAutomaticNewConnectionIDs = true
 
         let swiftNetworkQUICConnection = SwiftNetwork.QUICConnection(
             context: swiftNetworkParameters.context
