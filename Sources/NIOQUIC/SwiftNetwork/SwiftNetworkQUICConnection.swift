@@ -393,7 +393,6 @@ final class SwiftNetworkQUICConnection {
             quicOptions.connectionOptions.sourceConnectionID = Array(bufferPointer)
         }
 
-
         let swiftNetworkQUICConnection = SwiftNetwork.QUICConnection(
             context: swiftNetworkParameters.context
         )
