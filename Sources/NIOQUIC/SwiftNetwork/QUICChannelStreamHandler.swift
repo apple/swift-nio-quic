@@ -307,7 +307,20 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
             )
 
         case .surfaceReset(let code):
+            #if compiler(<6.4)
             self.surfaceReceivedReset(applicationErrorCode: code)
+            #else
+
+            if self.pipelineStateMachine.isInitialized {
+                self.log("surfaceReset", metadata: ["applicationErrorCode": "\(code)"])
+                // yields buffered data and then surfaces the reset
+                self.streamRead()
+            } else {
+                // SM has captured the reset; the post-init `streamRead()`
+                // will surface it via `completeRead()`.
+                self.log("surfaceReset: pipeline not yet initialized, will surface on next read")
+            }
+            #endif
 
         case .doNothing(let reason):
             switch reason {
@@ -319,6 +332,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
         }
     }
 
+    #if compiler(<6.4)
     // Extracted from `handleReceivedResetStream` to keep that method's SIL
     // small enough to avoid the same `CopyPropagation` `-O` crash on
     // Swift 6.3.
@@ -336,6 +350,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
             self.log("surfaceReset: pipeline not yet initialized, will surface on next read")
         }
     }
+    #endif
 
     // Event that signals that STOP_SENDING was received
     internal func handleOutboundAbortedEvent(

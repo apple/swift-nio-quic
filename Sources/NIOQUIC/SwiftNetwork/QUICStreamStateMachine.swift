@@ -690,8 +690,10 @@ struct QUICStreamStateMachine: ~Copyable {
 
     /// Shuts down the stream in the specified direction. Encapsulates cleanup
     /// eligibility, direction checks, and the underlying SM transitions.
+    #if compiler(<6.4)
     // TODO: Workaround compiler crash while evaluating request ExecuteSILPipelineRequest
     @_optimize(none)
+    #endif
     mutating func shutdownStream(
         direction: StreamShutdownDirection,
         applicationErrorCode: QUICApplicationErrorCode?
