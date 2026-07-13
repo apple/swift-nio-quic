@@ -17,12 +17,12 @@ import NIOConcurrencyHelpers
 /// This event informs of new source connection IDs associated with the connection.
 /// It only captures connection IDs created after the initial IDs during connection establishment.
 @available(anyAppleOS 26, *)
-public struct QUICSCIDAssociatedEvent: Sendable {
+struct QUICSCIDAssociatedEvent: Sendable {
 
     /// The newly associated source connection ID.
-    public var scid: QUICConnectionID
+    var scid: QUICConnectionID
 
-    public init(scid: QUICConnectionID) {
+    init(scid: QUICConnectionID) {
         self.scid = scid
     }
 
@@ -30,12 +30,12 @@ public struct QUICSCIDAssociatedEvent: Sendable {
 
 /// This event informs of retired source connection IDs in this connection.
 @available(anyAppleOS 26, *)
-public struct QUICSCIDRetiredEvent: Sendable {
+struct QUICSCIDRetiredEvent: Sendable {
 
     /// The retired source connection ID.
-    public var scid: QUICConnectionID
+    var scid: QUICConnectionID
 
-    public init(scid: QUICConnectionID) {
+    init(scid: QUICConnectionID) {
         self.scid = scid
     }
 
@@ -46,12 +46,12 @@ public struct QUICSCIDRetiredEvent: Sendable {
 ///
 /// This event will be handled by the stream state machine.
 @available(anyAppleOS 26, *)
-public struct QUICRequestAssociateSCIDEvent: Sendable {
+struct QUICRequestAssociateSCIDEvent: Sendable {
 
     /// The source connection ID to associate.
-    public var scid: QUICConnectionID
+    var scid: QUICConnectionID
 
-    public init(scid: QUICConnectionID) {
+    init(scid: QUICConnectionID) {
         self.scid = scid
     }
 }
@@ -61,12 +61,12 @@ public struct QUICRequestAssociateSCIDEvent: Sendable {
 ///
 /// This event will be handled by the stream state machine.
 @available(anyAppleOS 26, *)
-public struct QUICRequestRetireDCIDEvent: Sendable {
+struct QUICRequestRetireDCIDEvent: Sendable {
 
     /// The destination connection ID to retire.
-    public var dcid: QUICConnectionID
+    var dcid: QUICConnectionID
 
-    public init(dcid: QUICConnectionID) {
+    init(dcid: QUICConnectionID) {
         self.dcid = dcid
     }
 }
