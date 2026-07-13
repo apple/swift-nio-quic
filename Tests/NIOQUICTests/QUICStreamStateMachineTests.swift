@@ -932,14 +932,11 @@ struct QUICStreamStateMachineTests {
         _ = sm.streamConnected(direction: .bidirectional)
 
         let action = try sm.receiveResetStream(applicationErrorCode: QUICApplicationErrorCode(123), finalSize: 0)
-        guard case .doNotCloseStream(let error) = action else {
-            Issue.record("Expected .doNotCloseStream")
+        guard case .surfaceReset(let code) = action else {
+            Issue.record("Expected .surfaceReset")
             return
         }
-        guard case .resetStream = error else {
-            Issue.record("Expected .resetStream")
-            return
-        }
+        #expect(code.rawValue == 123)
 
         guard case .doNotBuffer(.streamReset) = try sm.receiveData() else {
             Issue.record("Expected .doNotBuffer(.streamReset)")
@@ -978,8 +975,8 @@ struct QUICStreamStateMachineTests {
         _ = try sm.receiveData()
         let action = try sm.receiveResetStream(applicationErrorCode: QUICApplicationErrorCode(77), finalSize: 0)
 
-        guard case .doNotCloseStream(_) = action else {
-            Issue.record("Expected .doNotCloseStream")
+        guard case .surfaceReset(_) = action else {
+            Issue.record("Expected .surfaceReset")
             return
         }
 
@@ -1036,8 +1033,8 @@ struct QUICStreamStateMachineTests {
         _ = try sm.receiveFin(finalSize: 1024)
 
         let action = try sm.receiveResetStream(applicationErrorCode: QUICApplicationErrorCode(55), finalSize: 1024)
-        guard case .ignore(.alreadyFullyReceived) = action else {
-            Issue.record("Expected .ignore(.alreadyFullyReceived)")
+        guard case .doNothing(.alreadyFullyReceived) = action else {
+            Issue.record("Expected .doNothing(.alreadyFullyReceived)")
             return
         }
 
@@ -1054,18 +1051,15 @@ struct QUICStreamStateMachineTests {
         _ = sm.streamConnected(direction: .bidirectional)
 
         let first = try sm.receiveResetStream(applicationErrorCode: QUICApplicationErrorCode(42), finalSize: 0)
-        guard case .doNotCloseStream(let firstError) = first else {
-            Issue.record("Expected .doNotCloseStream")
+        guard case .surfaceReset(let firstCode) = first else {
+            Issue.record("Expected .surfaceReset")
             return
         }
-        guard case .resetStream = firstError else {
-            Issue.record("Expected .resetStream for first error")
-            return
-        }
+        #expect(firstCode.rawValue == 42)
 
         let second = try sm.receiveResetStream(applicationErrorCode: QUICApplicationErrorCode(99), finalSize: 0)
-        guard case .ignore(.alreadyReset) = second else {
-            Issue.record("Expected .ignore(.alreadyReset)")
+        guard case .doNothing(.alreadyReset) = second else {
+            Issue.record("Expected .doNothing(.alreadyReset)")
             return
         }
 
@@ -1211,15 +1205,11 @@ struct QUICStreamStateMachineTests {
         _ = sm.streamConnected(direction: .bidirectional)
 
         let action = try sm.receiveResetStream(applicationErrorCode: QUICApplicationErrorCode(42), finalSize: 0)
-        guard case .doNotCloseStream(let error) = action else {
-            Issue.record("Expected .doNotCloseStream")
+        guard case .surfaceReset(let code) = action else {
+            Issue.record("Expected .surfaceReset")
             return
         }
-        guard case .resetStream(let resetError) = error else {
-            Issue.record("Expected .resetStream")
-            return
-        }
-        #expect(resetError.code.rawValue == 42)
+        #expect(code.rawValue == 42)
     }
 
     @available(anyAppleOS 26, *)
@@ -1242,15 +1232,11 @@ struct QUICStreamStateMachineTests {
 
         // Second: RESET_STREAM — should also produce an error (not deduplicated)
         let resetAction = try sm.receiveResetStream(applicationErrorCode: QUICApplicationErrorCode(20), finalSize: 0)
-        guard case .doNotCloseStream(let resetError) = resetAction else {
-            Issue.record("Expected .doNotCloseStream")
+        guard case .surfaceReset(let resetCode) = resetAction else {
+            Issue.record("Expected .surfaceReset")
             return
         }
-        guard case .resetStream(let streamResetError) = resetError else {
-            Issue.record("Expected .resetStream")
-            return
-        }
-        #expect(streamResetError.code.rawValue == 20)
+        #expect(resetCode.rawValue == 20)
     }
 }
 

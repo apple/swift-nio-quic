@@ -25,7 +25,7 @@ import Darwin
 
 enum WrappedStreamStateCriticalError {
     case stopSending(NIOQUICHelpers.QUICStopSendingError)
-    case resetStream(NIOQUICHelpers.QUICStreamResetError)
+    case resetStream(QUICStreamResetError)
 }
 
 extension WrappedStreamStateCriticalError {
@@ -547,15 +547,17 @@ struct QUICStreamStateMachine: ~Copyable {
     }
 
     enum ReceiveResetStreamAction: ~Copyable {
-        /// Close the stream — both sides terminal.
-        case closeStream(WrappedStreamStateCriticalError)
-        /// Stream remains open (other side still active).
-        case doNotCloseStream(WrappedStreamStateCriticalError)
-        enum IgnoreReason: ~Copyable {
+        /// The receive side is the only remaining live direction —
+        /// tear down the channel with this error code.
+        case closeStream(applicationErrorCode: QUICApplicationErrorCode)
+        case surfaceReset(applicationErrorCode: QUICApplicationErrorCode)
+        case doNothing(DoNothingReason)
+
+        enum DoNothingReason: ~Copyable {
+            /// Reset is moot — the receive side already saw FIN and all data.
             case alreadyFullyReceived
             case alreadyReset
         }
-        case ignore(IgnoreReason)
     }
 
     /// Transition when receiving RESET_STREAM from the peer.
@@ -569,19 +571,13 @@ struct QUICStreamStateMachine: ~Copyable {
         )
         switch innerAction {
         case .closeStream:
-            let error: WrappedStreamStateCriticalError = .resetStream(
-                NIOQUICHelpers.QUICStreamResetError(code: applicationErrorCode)
-            )
-            return .closeStream(error)
+            return .closeStream(applicationErrorCode: applicationErrorCode)
         case .doNotCloseStream:
-            let error: WrappedStreamStateCriticalError = .resetStream(
-                NIOQUICHelpers.QUICStreamResetError(code: applicationErrorCode)
-            )
-            return .doNotCloseStream(error)
+            return .surfaceReset(applicationErrorCode: applicationErrorCode)
         case .ignore(.alreadyFullyReceived):
-            return .ignore(.alreadyFullyReceived)
+            return .doNothing(.alreadyFullyReceived)
         case .ignore(.alreadyReset):
-            return .ignore(.alreadyReset)
+            return .doNothing(.alreadyReset)
         }
     }
 
@@ -647,12 +643,9 @@ struct QUICStreamStateMachine: ~Copyable {
     }
 
     enum CompleteReadAction: ~Copyable {
-        /// Read side still open — nothing more to report.
         case nothingToReport
-        /// FIN received and read side closed — report fin to caller.
         case reportFin(streamFullyClosed: Bool)
-        /// Peer reset the stream — error already delivered to channel.
-        case reportPeerReset
+        case reportPeerReset(applicationErrorCode: QUICApplicationErrorCode)
     }
 
     /// Called after draining read data. Checks whether the receive side has
@@ -665,8 +658,8 @@ struct QUICStreamStateMachine: ~Copyable {
         switch self.consumeFinOrReset() {
         case .reportFin(let streamFullyClosed):
             return .reportFin(streamFullyClosed: streamFullyClosed)
-        case .reportPeerReset:
-            return .reportPeerReset
+        case .reportPeerReset(let code):
+            return .reportPeerReset(applicationErrorCode: code)
         case .nothingToReport:
             return .nothingToReport
         }
@@ -697,8 +690,10 @@ struct QUICStreamStateMachine: ~Copyable {
 
     /// Shuts down the stream in the specified direction. Encapsulates cleanup
     /// eligibility, direction checks, and the underlying SM transitions.
+    #if compiler(<6.4)
     // TODO: Workaround compiler crash while evaluating request ExecuteSILPipelineRequest
     @_optimize(none)
+    #endif
     mutating func shutdownStream(
         direction: StreamShutdownDirection,
         applicationErrorCode: QUICApplicationErrorCode?

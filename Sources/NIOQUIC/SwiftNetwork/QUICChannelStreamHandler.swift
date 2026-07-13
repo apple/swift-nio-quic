@@ -252,10 +252,13 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
     ///
     /// - Parameters:
     ///     - logMessage: The logMessage that is fetched by an autoclosure.  For performance reasons we could gate this behind a flag.
-    func log(_ logMessage: @autoclosure () -> String) {
+    func log(
+        _ logMessage: @autoclosure () -> String,
+        metadata: @autoclosure () -> Logger.Metadata? = nil
+    ) {
         #if DEBUG
         let message = logMessage()
-        self.logger.trace("\(self.logPrefix) \(message)")
+        self.logger.trace("\(self.logPrefix) \(message)", metadata: metadata())
         #endif
     }
 
@@ -265,7 +268,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
         error: SwiftNetwork.NetworkError?
     ) {
         if let error, let applicationErrorCode = error.quicApplicationError, applicationErrorCode >= 0 {
-            self.log("Received reset stream error: \(applicationErrorCode)")
+            self.log("Received reset stream error", metadata: ["applicationErrorCode": "\(applicationErrorCode)"])
             // applicationErrorCode comes from the wire as a QUIC variable-length
             // integer (< 2^62), so the force-unwrap is safe.
             let errorCode = NIOQUICHelpers.QUICApplicationErrorCode(
@@ -296,26 +299,58 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
             applicationErrorCode: errorCode,
             finalSize: 0
         ) {
-        case .closeStream(_):
+        case .closeStream(let code):
             self.closeStream(
                 mode: .closeAndDisconnect,
-                error: NIOQUICHelpers.QUICStreamResetError(code: errorCode),
-                promise: nil
-            )
-        case .doNotCloseStream(_):
-            self.closeStream(
-                mode: .closeAndDisconnect,
-                error: NIOQUICHelpers.QUICStreamResetError(code: errorCode),
+                error: QUICStreamResetError(code: code),
                 promise: nil
             )
 
-        case .ignore(.alreadyFullyReceived):
-            self.log("receiveResetStream: all data already received, ignoring")
+        case .surfaceReset(let code):
+            #if compiler(<6.4)
+            self.surfaceReceivedReset(applicationErrorCode: code)
+            #else
 
-        case .ignore(.alreadyReset):
-            self.log("receiveResetStream: stream already reset, ignoring")
+            if self.pipelineStateMachine.isInitialized {
+                self.log("surfaceReset", metadata: ["applicationErrorCode": "\(code)"])
+                // yields buffered data and then surfaces the reset
+                self.streamRead()
+            } else {
+                // SM has captured the reset; the post-init `streamRead()`
+                // will surface it via `completeRead()`.
+                self.log("surfaceReset: pipeline not yet initialized, will surface on next read")
+            }
+            #endif
+
+        case .doNothing(let reason):
+            switch reason {
+            case .alreadyFullyReceived:
+                self.log("receiveResetStream: already fully received")
+            case .alreadyReset:
+                self.log("receiveResetStream: already reset")
+            }
         }
     }
+
+    #if compiler(<6.4)
+    // Extracted from `handleReceivedResetStream` to keep that method's SIL
+    // small enough to avoid the same `CopyPropagation` `-O` crash on
+    // Swift 6.3.
+    @inline(never)
+    private func surfaceReceivedReset(
+        applicationErrorCode code: QUICApplicationErrorCode
+    ) {
+        if self.pipelineStateMachine.isInitialized {
+            self.log("surfaceReset", metadata: ["applicationErrorCode": "\(code)"])
+            // yields buffered data and then surfaces the reset
+            self.streamRead()
+        } else {
+            // SM has captured the reset; the post-init `streamRead()`
+            // will surface it via `completeRead()`.
+            self.log("surfaceReset: pipeline not yet initialized, will surface on next read")
+        }
+    }
+    #endif
 
     // Event that signals that STOP_SENDING was received
     internal func handleOutboundAbortedEvent(
@@ -657,8 +692,10 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
             }
             return true
 
-        case .reportPeerReset:
-            self.pipeline.fireUserInboundEventTriggered(ChannelEvent.inputClosed)
+        case .reportPeerReset(let code):
+            self.pipeline.fireErrorCaught(
+                QUICStreamResetError(code: code)
+            )
             return true
 
         case .nothingToReport:
