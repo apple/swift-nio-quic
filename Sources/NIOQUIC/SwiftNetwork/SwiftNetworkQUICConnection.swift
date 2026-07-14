@@ -235,76 +235,36 @@ final class SwiftNetworkQUICConnection {
         swiftNetworkParameters.context = networkContext
         self.networkContext = networkContext
         swiftNetworkParameters.isServer = true
-        let quicOptions = QUICStreamProtocol.options()
-        guard let perProtocolOptions = quicOptions.perProtocolOptions else {
-            throw QUICError.invalidConfiguration
-        }
-        sourceConnectionID.withUnsafeBufferPointer { bufferPointer in
-            perProtocolOptions.quicConnectionOptions.sourceConnectionID = Array(bufferPointer)
-        }
-        perProtocolOptions.quicConnectionOptions.disableAutomaticNewConnectionIDs = true
-        quicOptions.connectionOptions.initialMaxData = UInt64(configuration.initialMaxData)
-        quicOptions.connectionOptions.initialMaxStreamDataBidirectionalLocal = UInt64(
-            configuration.initialMaxStreamDataBidiLocal
-        )
-        quicOptions.connectionOptions.initialMaxStreamDataBidirectionalRemote = UInt64(
-            configuration.initialMaxStreamDataBidiRemote
-        )
-        quicOptions.connectionOptions.initialMaxStreamDataUnidirectional = UInt64(configuration.initialMaxStreamDataUni)
-        quicOptions.connectionOptions.initialMaxStreamsBidirectional = UInt64(configuration.initialMaxStreamsBidi)
-        quicOptions.connectionOptions.maximumConcurrentBidirectionalStreams = configuration.initialMaxStreamsBidi
-        quicOptions.connectionOptions.initialMaxStreamsUnidirectional = UInt64(configuration.initialMaxStreamsUni)
-        quicOptions.connectionOptions.maximumConcurrentUnidirectionalStreams = configuration.initialMaxStreamsUni
-        quicOptions.connectionOptions.retry = configuration.sendRetry
-        perProtocolOptions.quicConnectionOptions.idleTimeout = NetworkDuration(duration: configuration.maxIdleTimeout)
-        if let qLogConfiguration = configuration.qLogConfiguration {
-            logger.info("Enabling QLog: \(qLogConfiguration)")
-            perProtocolOptions.quicConnectionOptions.qlogConfiguration = QLogConfiguration(
-                logTitle: qLogConfiguration.topic.isEmpty ? nil : qLogConfiguration.topic,
-                logDescription: qLogConfiguration.description.isEmpty ? nil : qLogConfiguration.description,
-                logPath: qLogConfiguration.path
-            )
-        }
-        self.streamOptions = perProtocolOptions
-        let swiftNetworkQUICConnection = SwiftNetwork.QUICConnection(
-            context: swiftNetworkParameters.context
-        )
-        quicOptions.setProtocolInstance(swiftNetworkQUICConnection.reference)
 
-        self.swiftNetworkParameters = swiftNetworkParameters
-        self.swiftNetworkQUICConnection = swiftNetworkQUICConnection
-        var tlsOptions = SwiftTLSProtocol.Options()
-
-        tlsOptions.applicationProtocols = configuration.applicationProtocols
-        tlsOptions.serverName = serverName
-
-        guard let authConfiguration = configuration.authenticationConfiguration else {
+        guard let authConfig = configuration.authenticationConfiguration else {
             // Either keys for rawPublicKeyAuthenticaiton or certificates are required.
             throw QUICError.tlsConfigurationIncomplete
         }
 
-        switch authConfiguration {
-        case .x509Certificates:
-            guard let authenticator else {
-                throw QUICError.tlsConfigurationIncomplete
-            }
-            tlsOptions.tlsOptions.asyncAuthenticator = .init(
-                supportedCertificateTypes: [.x509],
-                getCertificateChain: authenticator.produceCertificates(info:),
-                signTranscriptHash: authenticator.provideSignature(info:)
-            )
+        let quicOptions = try QUICStreamProtocol.options(from: configuration)
+        // 'retry' is a server-only option.
+        quicOptions.connectionOptions.retry = configuration.sendRetry
+        quicOptions.tlsOptions = try .serverOptions(
+            from: configuration,
+            authConfig: authConfig,
+            authenticator: authenticator,
+            serverName: serverName
+        )
 
-        case .rawPublicKeys(let publicKeyFilePath, let privateKeyFilePath):
-            let publicKey = try P256.Signing.PublicKey.fromDERFile(publicKeyFilePath)
-            tlsOptions.trustedRawPublicKeyCertificates = [Array(publicKey.derRepresentation)]
+        // '!' is okay: the `options(...)` call above throws if this isn't set.
+        let perProtocolOptions = quicOptions.perProtocolOptions!
+        perProtocolOptions.quicConnectionOptions.disableAutomaticNewConnectionIDs = true
+        self.streamOptions = perProtocolOptions
 
-            let privateKey = try P256.Signing.PrivateKey.fromDERFile(privateKeyFilePath)
-            tlsOptions.rawPrivateKey = Array(privateKey.rawRepresentation)
+        sourceConnectionID.withUnsafeBufferPointer { bufferPointer in
+            perProtocolOptions.quicConnectionOptions.sourceConnectionID = Array(bufferPointer)
         }
 
-        tlsOptions.tlsOptions.keyExchangeGroup = configuration.keyExchangeGroup.swiftTLSKeyExchangeGroup
+        let swiftNetworkQUICConnection = SwiftNetwork.QUICConnection(context: swiftNetworkParameters.context)
+        quicOptions.setProtocolInstance(swiftNetworkQUICConnection.reference)
 
-        quicOptions.tlsOptions = tlsOptions
+        self.swiftNetworkParameters = swiftNetworkParameters
+        self.swiftNetworkQUICConnection = swiftNetworkQUICConnection
 
         self.connectionQLogID = Self.nextServerConnectionQLogID()
         quicOptions.setLogID(prefix: "L", parent: "1", protocolLogIDNumber: self.connectionQLogID)
@@ -414,70 +374,31 @@ final class SwiftNetworkQUICConnection {
         swiftNetworkParameters.isServer = false
 
         let swiftNetworkPath = SwiftNetwork.PathProperties(parameters: swiftNetworkParameters)
-        let quicOptions = QUICStreamProtocol.options()
-        guard let perProtocolOptions = quicOptions.perProtocolOptions else {
-            throw QUICError.invalidConfiguration
-        }
+
+        let quicOptions = try QUICStreamProtocol.options(from: configuration)
+        quicOptions.tlsOptions = try .clientOptions(
+            from: configuration,
+            asyncVerifier: asyncVerifier,
+            serverName: serverName
+        )
+        // 'forceVersionNegotiation' is client-only.
+        quicOptions.connectionOptions.forceVersionNegotiation = configuration.forceVersionNegotiation
+
+        // '!' is okay: the `options(...)` call above throws if this isn't set.
+        let perProtocolOptions = quicOptions.perProtocolOptions!
+        perProtocolOptions.quicConnectionOptions.disableAutomaticNewConnectionIDs = true
+        self.streamOptions = perProtocolOptions
+
         sourceConnectionID.withUnsafeBufferPointer { bufferPointer in
             quicOptions.connectionOptions.sourceConnectionID = Array(bufferPointer)
         }
-        quicOptions.connectionOptions.initialMaxData = UInt64(configuration.initialMaxData)
-        quicOptions.connectionOptions.initialMaxStreamDataBidirectionalLocal = UInt64(
-            configuration.initialMaxStreamDataBidiLocal
-        )
-        quicOptions.connectionOptions.initialMaxStreamDataBidirectionalRemote = UInt64(
-            configuration.initialMaxStreamDataBidiRemote
-        )
-        quicOptions.connectionOptions.initialMaxStreamDataUnidirectional = UInt64(configuration.initialMaxStreamDataUni)
-        quicOptions.connectionOptions.initialMaxStreamsBidirectional = UInt64(configuration.initialMaxStreamsBidi)
-        quicOptions.connectionOptions.maximumConcurrentBidirectionalStreams = configuration.initialMaxStreamsBidi
-        quicOptions.connectionOptions.initialMaxStreamsUnidirectional = UInt64(configuration.initialMaxStreamsUni)
-        quicOptions.connectionOptions.maximumConcurrentUnidirectionalStreams = configuration.initialMaxStreamsUni
-        quicOptions.connectionOptions.forceVersionNegotiation = configuration.forceVersionNegotiation
-        perProtocolOptions.quicConnectionOptions.idleTimeout = NetworkDuration(duration: configuration.maxIdleTimeout)
-        perProtocolOptions.quicConnectionOptions.disableAutomaticNewConnectionIDs = true
-        if let qLogConfiguration = configuration.qLogConfiguration {
-            logger.info("Enabling QLog: \(qLogConfiguration)")
-            perProtocolOptions.quicConnectionOptions.qlogConfiguration = QLogConfiguration(
-                logTitle: qLogConfiguration.topic.isEmpty ? nil : qLogConfiguration.topic,
-                logDescription: qLogConfiguration.description.isEmpty ? nil : qLogConfiguration.description,
-                logPath: qLogConfiguration.path
-            )
-        }
-        self.streamOptions = perProtocolOptions
+
         let swiftNetworkQUICConnection = SwiftNetwork.QUICConnection(
             context: swiftNetworkParameters.context
         )
         self.swiftNetworkParameters = swiftNetworkParameters
         self.swiftNetworkQUICConnection = swiftNetworkQUICConnection
         quicOptions.setProtocolInstance(self.swiftNetworkQUICConnection.reference)
-
-        var tlsOptions = SwiftTLSProtocol.Options()
-        tlsOptions.applicationProtocols = configuration.applicationProtocols
-
-        tlsOptions.serverName = serverName
-
-        if let verificationConfiguration = configuration.verificationConfiguration {
-            switch verificationConfiguration {
-            case .rawPublicKeys(let publicKeyFilePath):
-                let publicKey = try P256.Signing.PublicKey.fromDERFile(publicKeyFilePath)
-                tlsOptions.trustedRawPublicKeyCertificates = [Array(publicKey.derRepresentation)]
-
-            case .x509Certificates:
-                if let asyncVerifier {
-                    tlsOptions.tlsOptions.asyncVerifier = .init(
-                        availableCertificateTypes: [.x509],
-                        verificationCallback: asyncVerifier.makeCallback(hostname: serverName)
-                    )
-                } else {
-                    throw QUICError.tlsConfigurationIncomplete
-                }
-            }
-        }
-
-        tlsOptions.tlsOptions.keyExchangeGroup = configuration.keyExchangeGroup.swiftTLSKeyExchangeGroup
-
-        quicOptions.tlsOptions = tlsOptions
 
         // TODO: is this (C,1) significant?
         self.connectionQLogID = Self.nextClientConnectionQLogID()
