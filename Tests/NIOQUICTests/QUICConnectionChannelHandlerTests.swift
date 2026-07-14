@@ -33,7 +33,7 @@ final class QUICConnectionChannelHandlerTests: XCTestCase {
         self.channel = EmbeddedChannel(loop: self.eventLoop)
         let logger = Logger(label: "test")
         var randomNumberGenerator: any RandomNumberGenerator = SystemRandomNumberGenerator()
-        let quicConnection = try! SwiftNetworkQUICConnection(
+        let quicConnection = try! SwiftNetworkQUICConnection.server(
             configuration: .server(
                 serverName: "quic-test.local",
                 authenticationConfiguration: .rawPublicKeys(

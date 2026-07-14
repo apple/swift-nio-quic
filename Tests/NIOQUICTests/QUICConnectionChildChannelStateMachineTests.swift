@@ -36,7 +36,7 @@ final class QUICConnectionChildChannelStateMachineTests: XCTestCase {
         let localAddress = try! SocketAddress(ipAddress: "127.0.0.1", port: 4321)
         let remoteAddress = try! SocketAddress(ipAddress: "127.0.0.1", port: 1234)
         let logger = Logger(label: "QUICConnectionChildChannelStateMachineTests")
-        self.swiftNetworkQUICConnection = try! SwiftNetworkQUICConnection(
+        self.swiftNetworkQUICConnection = try! SwiftNetworkQUICConnection.server(
             configuration: .server(
                 serverName: "quic-test.local",
                 authenticationConfiguration: .rawPublicKeys(

@@ -193,18 +193,56 @@ final class SwiftNetworkQUICConnection {
         self.connectionStateMachine.outboundDataProcessed(isChannelInitializing: isChannelInitializing)
     }
 
+    /// Creates a new client-side connection.
+    ///
+    /// - Parameters:
+    ///     - configuration: The configuration to use when creating the connection.
+    ///     - sourceConnectionID: The client's source connection ID.
+    ///     - serverName: The server name of the peer used to verify the peer's certificate.
+    ///     - asyncVerifier: Verifies the server identity when using X509-based auth.
+    ///     - localAddress: The socket address we are sending from.
+    ///     - remoteAddress: The socket address of the peer.
+    ///     - eventLoop:  EventLoop to schedule events on inside of SwiftQUIC
+    ///     - logger: Logger to log events
+    static func client(
+        configuration: QUICConfiguration,
+        sourceConnectionID: QUICConnectionID,
+        serverName: String?,
+        asyncVerifier: AsyncVerifier?,
+        localAddress: SocketAddress,
+        remoteAddress: SocketAddress,
+        eventLoop: any EventLoop,
+        logger: Logger
+    ) throws -> SwiftNetworkQUICConnection {
+        // TODO: Verify that the serverName is always required and reflect that in the type system.
+        // See also: https://github.com/apple/swift-nio-quic/issues/6
+        guard let serverName = serverName else {
+            throw QUICError.tlsConfigurationIncomplete
+        }
+
+        return try SwiftNetworkQUICConnection(
+            configuration: configuration,
+            sourceConnectionID: sourceConnectionID,
+            serverName: serverName,
+            localAddress: localAddress,
+            remoteAddress: remoteAddress,
+            eventLoop: eventLoop,
+            mode: .client(asyncVerifier),
+            logger: logger
+        )
+    }
+
     /// Accepts a new server-side connection.
     ///
     /// - Parameters:
     ///     - configuration: The configuration to use when creating the connection.
     ///     - sourceConnectionID: The server's source connection ID.
-    ///     - originalDestinationConnectionID: The original destination ID.
     ///     - authenticator: Authenticates the server when using X509 certificates.
     ///     - localAddress: The remote socket address of the peer
     ///     - remoteAddress: The socket address of the peer.
     ///     - logger: Logger to log events
     ///     - eventLoop:  EventLoop to schedule events on inside of SwiftQUIC
-    init(
+    static func server(
         configuration: QUICConfiguration,
         sourceConnectionID: QUICConnectionID,
         authenticator: Authenticator?,
@@ -212,15 +250,48 @@ final class SwiftNetworkQUICConnection {
         remoteAddress: SocketAddress,
         logger: Logger,
         eventLoop: any EventLoop
-    ) throws {
+    ) throws -> SwiftNetworkQUICConnection {
         guard let serverName = configuration.serverName else {
             throw QUICError.tlsConfigurationIncomplete
+        }
+
+        return try SwiftNetworkQUICConnection(
+            configuration: configuration,
+            sourceConnectionID: sourceConnectionID,
+            serverName: serverName,
+            localAddress: localAddress,
+            remoteAddress: remoteAddress,
+            eventLoop: eventLoop,
+            mode: .server(authenticator),
+            logger: logger
+        )
+    }
+
+    private enum Mode {
+        case client(AsyncVerifier?)
+        case server(Authenticator?)
+    }
+
+    private init(
+        configuration: QUICConfiguration,
+        sourceConnectionID: QUICConnectionID,
+        serverName: String,
+        localAddress: SocketAddress,
+        remoteAddress: SocketAddress,
+        eventLoop: any EventLoop,
+        mode: Mode,
+        logger: Logger
+    ) throws {
+        switch mode {
+        case .client:
+            self.role = .client
+        case .server:
+            self.role = .server
         }
 
         self.logger = logger
         self.localAddress = localAddress
         self.remoteAddress = remoteAddress
-        self.role = Role.server
         self.finalizedOutput.reserveCapacity(100)
         self.newlyConnectedStreams.reserveCapacity(100)
 
@@ -234,42 +305,51 @@ final class SwiftNetworkQUICConnection {
         )
         swiftNetworkParameters.context = networkContext
         self.networkContext = networkContext
-        swiftNetworkParameters.isServer = true
-
-        guard let authConfig = configuration.authenticationConfiguration else {
-            // Either keys for rawPublicKeyAuthenticaiton or certificates are required.
-            throw QUICError.tlsConfigurationIncomplete
-        }
+        swiftNetworkParameters.isServer = self.role == .server
 
         let quicOptions = try QUICStreamProtocol.options(from: configuration)
-        // 'retry' is a server-only option.
-        quicOptions.connectionOptions.retry = configuration.sendRetry
-        quicOptions.tlsOptions = try .serverOptions(
-            from: configuration,
-            authConfig: authConfig,
-            authenticator: authenticator,
-            serverName: serverName
-        )
+        switch mode {
+        case .client(let asyncVerifier):
+            // 'forceVersionNegotiation' is client-only.
+            quicOptions.connectionOptions.forceVersionNegotiation = configuration.forceVersionNegotiation
+            quicOptions.tlsOptions = try .clientOptions(
+                from: configuration,
+                asyncVerifier: asyncVerifier,
+                serverName: serverName
+            )
+
+        case .server(let authenticator):
+            guard let authConfig = configuration.authenticationConfiguration else {
+                // Either keys for rawPublicKeyAuthenticaiton or certificates are required.
+                throw QUICError.tlsConfigurationIncomplete
+            }
+            // 'retry' is a server-only option.
+            quicOptions.connectionOptions.retry = configuration.sendRetry
+            quicOptions.tlsOptions = try .serverOptions(
+                from: configuration,
+                authConfig: authConfig,
+                authenticator: authenticator,
+                serverName: serverName
+            )
+        }
 
         // '!' is okay: the `options(...)` call above throws if this isn't set.
         let perProtocolOptions = quicOptions.perProtocolOptions!
         perProtocolOptions.quicConnectionOptions.disableAutomaticNewConnectionIDs = true
-        self.streamOptions = perProtocolOptions
-
         sourceConnectionID.withUnsafeBufferPointer { bufferPointer in
             perProtocolOptions.quicConnectionOptions.sourceConnectionID = Array(bufferPointer)
         }
+        self.streamOptions = perProtocolOptions
 
         let swiftNetworkQUICConnection = SwiftNetwork.QUICConnection(context: swiftNetworkParameters.context)
-        quicOptions.setProtocolInstance(swiftNetworkQUICConnection.reference)
-
         self.swiftNetworkParameters = swiftNetworkParameters
         self.swiftNetworkQUICConnection = swiftNetworkQUICConnection
 
-        self.connectionQLogID = Self.nextServerConnectionQLogID()
-        quicOptions.setLogID(prefix: "L", parent: "1", protocolLogIDNumber: self.connectionQLogID)
+        self.connectionQLogID = Self.nextClientConnectionQLogID()
+        let prefix = role == .server ? "L" : "C"
+        quicOptions.setLogID(prefix: prefix, parent: "1", protocolLogIDNumber: self.connectionQLogID)
+        quicOptions.setProtocolInstance(swiftNetworkQUICConnection.reference)
 
-        quicOptions.setProtocolInstance(self.swiftNetworkQUICConnection.reference)
         swiftNetworkParameters.defaultStack.prepend(applicationProtocol: quicOptions)
         let swiftNetworkPath = SwiftNetwork.PathProperties(parameters: swiftNetworkParameters)
 
@@ -287,149 +367,19 @@ final class SwiftNetworkQUICConnection {
             localAddress: localAddress,
             role: self.role,
             streamListenerProtocol: listenerLinkage,
-            keepAliveInterval: configuration.keepAliveInterval
+            // Keep-alive is driven by the connection flow handler on the server, but by the
+            // initial client stream on the client (set up below).
+            keepAliveInterval: self.role == .server ? configuration.keepAliveInterval : nil
         )
         self.connectionNewFlowHandler = newFlowHandler
 
-        let outputHandler = QUICChannelOutputHandler(
-            role: self.role,
-            logger: logger,
-            context: swiftNetworkParameters.context
-        )
-        self.outputHandler = outputHandler
-        outputHandler.setInputFramesHandler(inputFramesHandler: self.outputHandlerGetInputFrames(maximumDatagramCount:))
-        outputHandler.setFinalizeOutputFramesHandler(
-            finalizeOutputFramesHandler: self.outputHandlerFinalizeOutputFrames(frames:)
-        )
-        do {
-            try self.swiftNetworkQUICConnection.attachLowerDatagramProtocolForNewPath(
-                outputHandler.reference,
-                remote: remoteEndpoint,
-                local: localEndpoint,
-                parameters: swiftNetworkParameters,
-                path: swiftNetworkPath
-            )
-        } catch {
-            fatalError("Could not attach output handler to SwiftNetwork QUIC connection instance")
-        }
-        guard let newFlowHandler else {
-            self.logger.error("Failed to unwrap new flow handler, returning")
-            return
-        }
-
-        // This disconnected handler is called at the connection level (when flow: .allFlows),
-        // not for individual streams. Connection-level events include: connection close, draining state, and connection errors.
-        newFlowHandler.start(NewFlowView(self))
-        self.logger.trace("Finished starting a new server side connection")
-
-        if let keyLogPath = configuration.keyLogPath {
-            self.setKeylogPath(keyLogPath)
-        }
-    }
-
-    /// Creates a new client-side connection.
-    ///
-    /// - Parameters:
-    ///     - configuration: The configuration to use when creating the connection.
-    ///     - sourceConnectionID: The server's source connection ID.
-    ///     - serverName: The server name of the peer used to verify the peer's certificate.
-    ///     - asyncVerifier: Verifies the server identity when using X509-based auth.
-    ///     - localAddress: The socket address we are sending from.
-    ///     - remoteAddress: The socket address of the peer.
-    ///     - logger: Logger to log events
-    ///     - eventLoop:  EventLoop to schedule events on inside of SwiftQUIC
-    init(
-        configuration: QUICConfiguration,
-        sourceConnectionID: QUICConnectionID,
-        serverName: String?,
-        asyncVerifier: AsyncVerifier?,
-        localAddress: SocketAddress,
-        remoteAddress: SocketAddress,
-        logger: Logger,
-        eventLoop: any EventLoop
-    ) throws {
-        // TODO: Verify that the serverName is always required and reflect that in the type system.
-        // See also: https://github.com/apple/swift-nio-quic/issues/6
-        guard let serverName = serverName else {
-            throw QUICError.tlsConfigurationIncomplete
-        }
-
-        self.logger = logger
-        self.localAddress = localAddress
-        self.remoteAddress = remoteAddress
-        self.role = Role.client
-        self.finalizedOutput.reserveCapacity(100)
-        self.newlyConnectedStreams.reserveCapacity(100)
-
-        self.activeSCIDs = [sourceConnectionID]
-
-        var swiftNetworkParameters = SwiftNetwork.Parameters()
-        self.eventLoop = eventLoop
-        let networkContext = NetworkContext(
-            identifier: "swift-nio-quic-context-\(self.role.description)",
-            externalScheduler: QUICChannelEventLoop(eventLoop: eventLoop)
-        )
-        swiftNetworkParameters.context = networkContext
-        self.networkContext = networkContext
-        swiftNetworkParameters.isServer = false
-
-        let swiftNetworkPath = SwiftNetwork.PathProperties(parameters: swiftNetworkParameters)
-
-        let quicOptions = try QUICStreamProtocol.options(from: configuration)
-        quicOptions.tlsOptions = try .clientOptions(
-            from: configuration,
-            asyncVerifier: asyncVerifier,
-            serverName: serverName
-        )
-        // 'forceVersionNegotiation' is client-only.
-        quicOptions.connectionOptions.forceVersionNegotiation = configuration.forceVersionNegotiation
-
-        // '!' is okay: the `options(...)` call above throws if this isn't set.
-        let perProtocolOptions = quicOptions.perProtocolOptions!
-        perProtocolOptions.quicConnectionOptions.disableAutomaticNewConnectionIDs = true
-        self.streamOptions = perProtocolOptions
-
-        sourceConnectionID.withUnsafeBufferPointer { bufferPointer in
-            quicOptions.connectionOptions.sourceConnectionID = Array(bufferPointer)
-        }
-
-        let swiftNetworkQUICConnection = SwiftNetwork.QUICConnection(
-            context: swiftNetworkParameters.context
-        )
-        self.swiftNetworkParameters = swiftNetworkParameters
-        self.swiftNetworkQUICConnection = swiftNetworkQUICConnection
-        quicOptions.setProtocolInstance(self.swiftNetworkQUICConnection.reference)
-
-        // TODO: is this (C,1) significant?
-        self.connectionQLogID = Self.nextClientConnectionQLogID()
-        quicOptions.setLogID(prefix: "C", parent: "1", protocolLogIDNumber: self.connectionQLogID)
-
-        quicOptions.setProtocolInstance(swiftNetworkQUICConnection.reference)
-        swiftNetworkParameters.defaultStack.prepend(applicationProtocol: quicOptions)
-
-        let localEndpoint = localAddress.toEndpoint()
-        let remoteEndpoint = remoteAddress.toEndpoint()
-        // New flow handler for inbound unidirectional streams
-        let newFlowStreamListenerLinkage = StreamListenerLinkage(reference: self.swiftNetworkQUICConnection.reference)
-        let newFlowHandler = QUICChannelNewFlowHandler(
-            local: localEndpoint,
-            remote: remoteEndpoint,
-            parameters: swiftNetworkParameters,
-            path: swiftNetworkPath,
-            logger: logger,
-            remoteAddress: remoteAddress,
-            localAddress: localAddress,
-            role: self.role,
-            streamListenerProtocol: newFlowStreamListenerLinkage
-        )
-        self.connectionNewFlowHandler = newFlowHandler
-        let streamListenerLinkage = StreamListenerLinkage(reference: self.swiftNetworkQUICConnection.reference)
-
-        // Set up an initial stream on the connection as client initiated stream id 0
-        let streamID = QUICStreamID(rawValue: 0)
-        guard
+        // Clients set up an initial bidirectional stream (stream ID 0).
+        switch mode {
+        case .client:
+            let streamID = QUICStreamID(rawValue: 0)
+            let streamListenerLinkage = StreamListenerLinkage(reference: self.swiftNetworkQUICConnection.reference)
             let streamHandler = QUICChannelStreamHandler(
-                role: Role.client,
+                role: .client,
                 local: localEndpoint,
                 remote: remoteEndpoint,
                 parameters: swiftNetworkParameters,
@@ -443,36 +393,66 @@ final class SwiftNetworkQUICConnection {
                 eventLoop: self.eventLoop,
                 keepAliveInterval: configuration.keepAliveInterval
             )
-        else {
-            fatalError("Could not create a new stream handler")
+
+            if let streamHandler {
+                self.pendingInitialClientStream = streamHandler
+            } else {
+                fatalError("Could not create a new stream handler")
+            }
+
+        case .server:
+            ()
         }
-        self.pendingInitialClientStream = streamHandler
-        let outputHandler = QUICChannelOutputHandler(
+
+        self.outputHandler = QUICChannelOutputHandler(
             role: self.role,
             logger: logger,
             context: swiftNetworkParameters.context
         )
-        self.outputHandler = outputHandler
-        outputHandler.setInputFramesHandler(inputFramesHandler: self.outputHandlerGetInputFrames(maximumDatagramCount:))
-        outputHandler.setFinalizeOutputFramesHandler(
-            finalizeOutputFramesHandler: self.outputHandlerFinalizeOutputFrames(frames:)
+
+        self.start(
+            localEndpoint: localEndpoint,
+            remoteEndpoint: remoteEndpoint,
+            path: swiftNetworkPath,
+            keyLogPath: configuration.keyLogPath
         )
+    }
+
+    private func start(
+        localEndpoint: Endpoint,
+        remoteEndpoint: Endpoint,
+        path: SwiftNetwork.PathProperties,
+        keyLogPath: String?
+    ) {
+        self.outputHandler.setInputFramesHandler {
+            self.outputHandlerGetInputFrames(maximumDatagramCount: $0)
+        }
+
+        self.outputHandler.setFinalizeOutputFramesHandler {
+            self.outputHandlerFinalizeOutputFrames(frames: $0)
+        }
+
         do {
             try self.swiftNetworkQUICConnection.attachLowerDatagramProtocolForNewPath(
-                outputHandler.reference,
+                self.outputHandler.reference,
                 remote: remoteEndpoint,
                 local: localEndpoint,
-                parameters: swiftNetworkParameters,
-                path: swiftNetworkPath
+                parameters: self.swiftNetworkParameters,
+                path: path
             )
         } catch {
             fatalError("Could not attach output handler to SwiftNetwork QUIC connection instance")
         }
-        streamHandler.setDisconnectedEventHandler { error in
-            self.streamHandlerHandleDisconnected(streamID: streamID, error: error)
+
+        // Start the initial client stream (if any) before the connection flow handler.
+        if let streamHandler = self.pendingInitialClientStream, let streamID = streamHandler.streamID {
+            streamHandler.setDisconnectedEventHandler { error in
+                self.streamHandlerHandleDisconnected(streamID: streamID, error: error)
+            }
+            streamHandler.start()
         }
-        streamHandler.start()
-        guard let newFlowHandler else {
+
+        guard let newFlowHandler = self.connectionNewFlowHandler else {
             self.logger.error("Failed to unwrap new flow handler, returning")
             return
         }
@@ -480,8 +460,14 @@ final class SwiftNetworkQUICConnection {
         // This disconnected handler is called at the connection level (when flow: .allFlows),
         // not for individual streams. Connection-level events include: connection close, draining state, and connection errors.
         newFlowHandler.start(NewFlowView(self))
-        log("Finished starting a new client side connection with existing client stream: \(streamID)")
-        if let keyLogPath = configuration.keyLogPath {
+        switch self.role {
+        case .client:
+            self.log("Finished starting a new client side connection with existing client stream: 0")
+        case .server:
+            self.log("Finished starting a new server side connection")
+        }
+
+        if let keyLogPath {
             self.setKeylogPath(keyLogPath)
         }
     }
