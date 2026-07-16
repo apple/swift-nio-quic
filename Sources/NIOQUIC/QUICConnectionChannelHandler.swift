@@ -186,8 +186,8 @@ final class QUICConnectionChannelHandler {
 @available(anyAppleOS 26, *)
 extension QUICConnectionChannelHandler: ChannelInboundHandler, ChannelOutboundHandler {
     typealias InboundIn = QUICConnectionChannelInboundMessage
-    typealias InboundOut = any Channel
-    typealias OutboundIn = Any
+    typealias InboundOut = Never
+    typealias OutboundIn = Never
     typealias OutboundOut = QUICConnectionChannelOutboundMessage
 
     func handlerAdded(context: ChannelHandlerContext) {
@@ -246,9 +246,9 @@ extension QUICConnectionChannelHandler: ChannelInboundHandler, ChannelOutboundHa
                 case .multiplexer(let continuation):
                     stream.initialize(multiplexerContinuation: continuation, streamID: readableStreamMessage.streamID)
                 case .closure(let initializer):
-                    stream.initialize(context, initializer)
+                    stream.initialize(initializer)
                 case .none:
-                    stream.initialize(context)
+                    stream.initialize()
                 }
             }
 

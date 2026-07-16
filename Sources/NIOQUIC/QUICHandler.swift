@@ -272,18 +272,18 @@ public final class QUICHandler {
     ///   - serverName: The server to connect to.
     ///   - remoteAddress: The address to connect to.
     ///   - connectionInitializer: How to initialize the connection. This closure will be called with a channel and a stream creator.
-    ///   - inboundStreamInitializer: How to initialize any inbound streams on the new connection. This closure will be called with the stream channel.
-    ///     The returned channel is a QUIC connection channel. You can create streams on that channel by using the provided stream creator.
-    ///     You will receive inbound stream channels as inbound reads on the connection channel.
-    ///     You will likely want to use this closure to add a handler with an InboundIn = any Channel. Then in channelRead, you can initialize the stream channels.
-    /// - Returns: The initialized connection channel.
+    ///   - inboundStreamInitializer: How to initialize any inbound streams on the new connection. This closure is
+    ///     called with each new inbound stream channel; it is the only place inbound streams are surfaced. Add your per-stream handlers here.
+    /// - Returns: The initialized connection channel. Open outbound streams on it with the provided stream creator.
     public func createOutboundConnection(
         serverName: String,
         remoteAddress: SocketAddress,
         connectionInitializer: @escaping @Sendable (any Channel, QUICStreamCreator) -> EventLoopFuture<Void>,
         inboundStreamInitializer: @escaping @Sendable (any Channel) -> EventLoopFuture<Void>
-    ) -> EventLoopFuture<any Channel> {
+    ) -> EventLoopFuture<(any Channel, QUICStreamCreator)> {
         let channelPromise = self.eventLoop.makePromise(of: (any Channel).self)
+        let creatorPromise = self.eventLoop.makePromise(of: QUICStreamCreator.self)
+        channelPromise.futureResult.cascadeFailure(to: creatorPromise)
 
         do {
             let role = self.quicConfiguration.role
@@ -318,14 +318,15 @@ public final class QUICHandler {
 
                     return (channel, connectionChannelHandler.makeStreamCreator(role: .client))
                 }.flatMap { channel, streamCreator in
-                    connectionInitializer(channel, streamCreator)
+                    creatorPromise.succeed(streamCreator)
+                    return connectionInitializer(channel, streamCreator)
                 }
             }
         } catch {
             channelPromise.fail(error)
         }
 
-        return channelPromise.futureResult
+        return channelPromise.futureResult.and(creatorPromise.futureResult)
     }
 
     /// Shuts the server down gracefully.

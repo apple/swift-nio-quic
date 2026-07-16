@@ -479,10 +479,8 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
             }
     }
 
-    /// Run the closure-style initializer; on success deliver the ready stream
-    /// up `context` and trigger the first read.
+    /// Run the closure-style initializer; on success trigger the first read.
     internal func initialize(
-        _ context: ChannelHandlerContext,
         _ initializer: @escaping @Sendable (any Channel) -> EventLoopFuture<Void>
     ) {
         initializer(self).assumeIsolated().whenComplete { result in
@@ -490,7 +488,6 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
             case .success:
                 switch self.pipelineStateMachine.markInitializerComplete() {
                 case .surfaceInitializedStream:
-                    context.fireChannelRead(QUICConnectionChannelHandler.wrapInboundOut(self))
                     self.tryToAutoRead()
                 case .ignoreAlreadyComplete:
                     break
@@ -502,12 +499,10 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
         }
     }
 
-    /// No initializer to run; synchronously deliver the stream up `context`
-    /// and trigger the first read.
-    internal func initialize(_ context: ChannelHandlerContext) {
+    /// No initializer to run; just trigger the first read.
+    internal func initialize() {
         switch self.pipelineStateMachine.markInitializerComplete() {
         case .surfaceInitializedStream:
-            context.fireChannelRead(QUICConnectionChannelHandler.wrapInboundOut(self))
             self.tryToAutoRead()
         case .ignoreAlreadyComplete:
             break

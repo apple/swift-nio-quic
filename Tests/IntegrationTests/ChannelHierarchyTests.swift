@@ -83,28 +83,24 @@ final class ChannelHierarchyTests: XCTestCase {
 
         // Open an outbound connection so we can hook the connection initializer
         // and add ConnectionMarker before any stream is created.
-        let connectionChannel = try await clientChannel.pipeline.handler(type: QUICHandler.self).flatMap {
-            quicHandler in
-            quicHandler.createOutboundConnection(
-                serverName: "\(host):\(serverPort)",
-                remoteAddress: try! .init(ipAddress: host, port: serverPort),
-                connectionInitializer: { connectionChannel, _ in
-                    connectionChannel.eventLoop.makeCompletedFuture {
-                        try connectionChannel.pipeline.syncOperations.addHandler(ConnectionMarker())
+        let (connectionChannel, streamCreator) = try await clientChannel.pipeline.handler(type: QUICHandler.self)
+            .flatMap {
+                quicHandler in
+                quicHandler.createOutboundConnection(
+                    serverName: "\(host):\(serverPort)",
+                    remoteAddress: try! .init(ipAddress: host, port: serverPort),
+                    connectionInitializer: { connectionChannel, _ in
+                        connectionChannel.eventLoop.makeCompletedFuture {
+                            try connectionChannel.pipeline.syncOperations.addHandler(ConnectionMarker())
+                        }
+                    },
+                    inboundStreamInitializer: { streamChannel in
+                        streamChannel.eventLoop.makeSucceededVoidFuture()
                     }
-                },
-                inboundStreamInitializer: { streamChannel in
-                    streamChannel.eventLoop.makeSucceededVoidFuture()
-                }
-            )
-        }.get()
+                )
+            }.get()
 
         // Open an outbound stream and verify hierarchy in its initializer.
-        let streamCreator = try await connectionChannel.eventLoop.submit {
-            try connectionChannel.pipeline.syncOperations.handler(type: QUICConnectionChannelHandler.self)
-                .makeStreamCreator(role: .client)
-        }.get()
-
         let streamChannel = try await streamCreator.createBidirectionalStream { parameters in
             parameters.channel.eventLoop.makeCompletedFuture {
                 Self.assertHierarchy(forStream: parameters.channel, promise: clientVerified)
