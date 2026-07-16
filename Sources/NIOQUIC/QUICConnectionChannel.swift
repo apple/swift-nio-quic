@@ -60,6 +60,15 @@ final class QUICConnectionChannel: @unchecked Sendable {
 
     // **IMPORTANT:** see note at the top of this class about these fields.
 
+    /// The underlying SwiftNetwork-backed QUIC connection.
+    private let _connection: Connection
+
+    /// A registrar for connection IDs.
+    private let _registrar: ConnectionIDRegistrar
+
+    /// A view into the QUIC handler in the UDP channel, for outbound operations.
+    private let _transport: Transport
+
     /// Whether auto-read is enabled on this channel.
     private var _autoRead: Bool
 
@@ -76,6 +85,9 @@ final class QUICConnectionChannel: @unchecked Sendable {
 
     init(
         udpChannel: any Channel,
+        connection: Connection,
+        registrar: ConnectionIDRegistrar,
+        transport: Transport,
         isServer: Bool
     ) {
         self.parent = udpChannel
@@ -84,13 +96,15 @@ final class QUICConnectionChannel: @unchecked Sendable {
         self.allocator = udpChannel.allocator
         self.closePromise = udpChannel.eventLoop.makePromise()
 
-        // force unwraps will be removed in a later PR (a not-yet-introduced provides them)
-        self._localAddress = udpChannel.localAddress!
-        self._remoteAddress = udpChannel.remoteAddress!
+        self._localAddress = connection.localAddress
+        self._remoteAddress = connection.remoteAddress
         self._isWritable = Atomic(true)
         self._isActive = Atomic(false)
         self.isServer = isServer
 
+        self._connection = connection
+        self._registrar = registrar
+        self._transport = transport
         self._autoRead = true
 
         self._pipeline = ChannelPipeline(channel: self)

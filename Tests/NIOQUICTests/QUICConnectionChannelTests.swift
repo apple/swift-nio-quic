@@ -20,12 +20,21 @@ import Testing
 
 struct QUICConnectionChannelTests {
     @available(anyAppleOS 26, *)
-    private func makeChannel(isSever: Bool = true) throws -> QUICConnectionChannel {
+    private func makeChannel(
+        localAddress: SocketAddress = try! SocketAddress(ipAddress: "127.0.0.1", port: 8080),
+        remoteAddress: SocketAddress = try! SocketAddress(ipAddress: "127.0.0.1", port: 8081),
+        isSever: Bool = true
+    ) throws -> QUICConnectionChannel {
         let parent = EmbeddedChannel()
-        try parent.localAddress = SocketAddress(ipAddress: "127.0.0.1", port: 8080)
-        try parent.remoteAddress = SocketAddress(ipAddress: "127.0.0.1", port: 8081)
+        let connection = NoOpConnection(localAddress: localAddress, remoteAddress: remoteAddress)
 
-        return QUICConnectionChannel(udpChannel: parent, isServer: isSever)
+        return QUICConnectionChannel(
+            udpChannel: parent,
+            connection: .test(connection),
+            registrar: .test(NoOpRegistrar()),
+            transport: .test(NoOpTransport()),
+            isServer: isSever
+        )
     }
 
     @available(anyAppleOS 26, *)
@@ -80,5 +89,76 @@ struct QUICConnectionChannelTests {
         #expect(throws: ChannelError.self) {
             try channel.syncOptions!.setOption(.backlog, value: 43)
         }
+    }
+
+    @available(anyAppleOS 26, *)
+    @Test
+    func address() throws {
+        let local = try SocketAddress(ipAddress: "127.0.0.1", port: 1234)
+        let remote = try SocketAddress(ipAddress: "127.0.0.1", port: 5678)
+
+        let channel = try self.makeChannel(localAddress: local, remoteAddress: remote)
+        #expect(channel.localAddress == local)
+        #expect(channel.remoteAddress == remote)
+    }
+}
+
+struct NoOpTransport: QUICTransport {
+    func writeDatagram(_ envelope: AddressedEnvelope<ByteBuffer>, promise: EventLoopPromise<Void>?) {
+        promise?.succeed()
+    }
+
+    func flush() {
+    }
+
+    func read() {
+    }
+}
+
+@available(anyAppleOS 26, *)
+struct NoOpRegistrar: QUICConnectionIDRegistrar {
+    func associate(_ newID: QUICConnectionID, with existingID: QUICConnectionID) -> Bool {
+        true
+    }
+
+    func retire(_ connectionID: QUICConnectionID) -> Bool {
+        true
+    }
+
+    func generateID() -> QUICConnectionID {
+        .zero
+    }
+}
+
+@available(anyAppleOS 26, *)
+struct NoOpConnection: QUICConnectionProtocol {
+    let localAddress: SocketAddress
+    let remoteAddress: SocketAddress
+
+    init(localAddress: SocketAddress, remoteAddress: SocketAddress) {
+        self.localAddress = localAddress
+        self.remoteAddress = remoteAddress
+    }
+
+    func receivePacket(_ packet: ByteBuffer) -> Int {
+        0
+    }
+
+    func receivePacketsComplete() {
+    }
+
+    func nextPacketToSend() -> ByteBuffer? {
+        nil
+    }
+
+    func close(isApplicationClose: Bool, errorCode: Int64, reason: String) -> Bool {
+        true
+    }
+
+    func closeAllStreams() -> [EventLoopFuture<Void>] {
+        []
+    }
+
+    func quiesceStreams() {
     }
 }
