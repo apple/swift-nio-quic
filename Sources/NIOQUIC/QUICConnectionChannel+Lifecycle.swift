@@ -220,10 +220,14 @@ extension QUICConnectionChannel {
             }
         }
 
-        /// Record that an inbound stream initializer finished. Decrements the gate; the
-        /// caller then runs `reconcileLifecycle()`, which fires any now-unblocked deferred
-        /// `channelInactive` via ``reconcile()``.
+        /// Record that an inbound stream initializer finished.
+        ///
+        /// Decrements the in-flight initializer count; this is used to hold up channel inactive
+        /// on the connection channel while streams are being initialized. At the end of the
+        /// outbound packet draining loop the channel should call ``reconcile()`` which may then
+        /// lead to the connection becoming inactive.
         mutating func streamInitializerFinished() {
+            assert(self.inFlightInitializers > 0)
             self.inFlightInitializers &-= 1
         }
 
@@ -236,10 +240,10 @@ extension QUICConnectionChannel {
             case fireInactive(error: (any Error)?)
         }
 
-        /// Reconcile the current lifecycle by applying a pending state.
+        /// Reconcile the current lifecycle by applying a pending state change.
         ///
-        /// The channel should call this in a loop until it returns `nil` when it has drained
-        /// its connection.
+        /// When the channel has finished consuming outbound data from the connection it should
+        /// call this in a loop and apply side effects until this returns `nil`.
         mutating func reconcile() -> Action? {
             switch self.state {
             case .initialized:
