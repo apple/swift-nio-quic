@@ -30,7 +30,6 @@ enum StreamClosureState {
     case closeAndDisconnect  // Calls close and stop to detach everything
     case closeOnly  // Calls close only
     case disconnectOnly  // Calls stop and detach only, could result in disconnect event as well
-    case detachAndClose  // Called on disconnect event callback
 }
 
 /// `QUICChannelStreamHandler` is the bridge between SwiftNetwork and our code on the application-side;
@@ -486,7 +485,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
 
         switch initializer {
         case .multiplexer(let continuation):
-            let future = continuation.initialize(channel: self, streamID: streamID)
+            let future = continuation.initialize(channel: self)
                 .hop(to: self.eventLoop)
             future.assumeIsolated().whenComplete { result in
                 switch result {
@@ -669,20 +668,6 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
             _close(error: error, promise: promise)
         case .disconnectOnly:  // Calls stop and detach only, could result in disconnect event as well
             stop(detachFromLowerProtocol: true)
-        case .detachAndClose:  // Called on disconnect event callback
-            switch self.swiftNetworkStreamHandle.invokeDetach() {
-            case .proceed(let linkage):
-                do throws(NetworkError) {
-                    try linkage.invokeDetach(self.reference)
-                } catch {
-                    self.log("Failed to detach lower protocol: \(error)")
-                }
-            case .skipAlreadyDetached:
-                break
-            }
-            if self.isActive {
-                self._close(error: error, promise: promise)
-            }
         }
     }
 
@@ -872,11 +857,6 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
 
     var isStreamChannelActive: Bool {
         self.isActive
-    }
-
-    // Write data to the QUIC stream, optionally setting the FIN flag.
-    internal func writeDataToStream(_ byteBuffer: inout ByteBuffer, fin: Bool = false) -> Bool {
-        self.writeBuffersToStream(CollectionOfOne(byteBuffer), fin: fin)
     }
 
     /// Write multiple buffers to the QUIC stream as a single `FrameArray`, optionally setting FIN.

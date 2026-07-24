@@ -390,7 +390,7 @@ struct QUICChannelStreamHandlerTests {
             let isActiveAfterImmediately = streamChannel.isActive
             #expect(
                 !isActiveAfterImmediately,
-                "handleDisconnectedEvent must flip _isActive synchronously to resolve _closePromise on the same tick as ChildChannelMultiplexer.removeHandlers"
+                "handleDisconnectedEvent must flip _isActive synchronously to resolve _closePromise on the same tick as the stream handler is detached"
             )
 
             // Drain the deferred pipeline body.

@@ -134,7 +134,6 @@ func makeMockClientAndServerPair(
                 applicationProtocols: ["http/0.9"]
             ),
             logger: Logger(label: "Testing Server"),
-            metrics: nil,
             inboundStreamChannelInitializer: { streamChannel in
                 streamChannel.eventLoop.makeCompletedFuture {
                     try NIOAsyncChannel(
@@ -166,7 +165,6 @@ func makeMockClientAndServerPair(
             channel: clientChannel,
             quicConfiguration: clientConfiguration,
             logger: Logger(label: "Testing Client"),
-            metrics: nil,
             inboundStreamChannelInitializer: { channel in
                 channel.eventLoop.makeCompletedFuture { fatalError() }
             }
@@ -278,7 +276,6 @@ private func setUpClientConnectionMultiplexer(
                     channel: channel,
                     quicConfiguration: clientConfiguration,
                     logger: logger,
-                    metrics: nil,
                     inboundStreamChannelInitializer: { channel in
                         channel.eventLoop.makeCompletedFuture { fatalError() }
                     },
@@ -330,7 +327,6 @@ private func setUpServerChannelAndConnectionMultiplexer(
                     channel: channel,
                     quicConfiguration: quicConfiguration,
                     logger: logger,
-                    metrics: nil,
                     inboundStreamChannelInitializer: { streamChannel in
                         streamChannel.eventLoop.makeCompletedFuture {
                             let asyncChannel = try NIOAsyncChannel(

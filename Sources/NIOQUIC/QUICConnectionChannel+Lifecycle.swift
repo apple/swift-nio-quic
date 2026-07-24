@@ -23,7 +23,7 @@ extension QUICConnectionChannel {
     /// - ``inFlightInitializers``: the number of stream initializers in flight, used
     ///   to (potentially) hold up channel inactive.
     struct Lifecycle {
-        enum State: Equatable {
+        enum State {
             case idle
             case initializing
             case initialized

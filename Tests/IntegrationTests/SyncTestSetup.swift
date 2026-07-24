@@ -130,7 +130,6 @@ private func createQUICChannel(
                 asyncVerifier: nil,
                 authenticator: nil,
                 logger: logger,
-                metrics: nil,
                 inboundConnectionInitializer: inboundConnectionInitializer,
                 inboundStreamInitializer: inboundStreamInitializer,
                 noMoreConnections: noMoreConnections

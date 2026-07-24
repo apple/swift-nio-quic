@@ -52,7 +52,6 @@ final class QUICProtocolStackTests: XCTestCase {
                             forceVersionNegotiation: forceVersionNegotiation
                         ),
                         logger: logger,
-                        metrics: nil,
                         inboundStreamChannelInitializer: { streamChannel in
                             channel.eventLoop.makeCompletedFuture { fatalError() }
                         }
@@ -95,7 +94,6 @@ final class QUICProtocolStackTests: XCTestCase {
                             qLogConfiguration: qlogConfiguration
                         ),
                         logger: logger,
-                        metrics: nil,
                         inboundStreamChannelInitializer: { streamChannel in
                             streamChannel.eventLoop.makeCompletedFuture {
                                 let asyncChannel = try NIOAsyncChannel(

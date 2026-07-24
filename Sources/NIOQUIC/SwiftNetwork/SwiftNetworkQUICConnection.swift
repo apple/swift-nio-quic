@@ -47,26 +47,6 @@ extension NIOCore.ByteBuffer {
 /// Holds the references required to access QUIC connections and streams
 @available(anyAppleOS 26, *)
 final class SwiftNetworkQUICConnection {
-    struct Metrics {
-        /// The number of QUIC packets received on the connection.
-        var receivedPackets: Int
-
-        /// The number of QUIC packets sent on the connection.
-        var sentPackets: Int
-
-        /// The number of QUIC packets lost on the connection.
-        var lostPackets: Int
-
-        /// The estimated round-trip time of the connection.
-        var roundTripTimeInNanoseconds: Int
-
-        /// The size of the connection’s congestion window in bytes.
-        var congestionWindowInBytes: Int
-
-        /// The most recent data delivery rate estimate in bytes/s.
-        var deliveryRateInBytesPerSecond: Int
-    }
-
     private var swiftNetworkQUICConnection: SwiftNetwork.QUICConnection
     let localAddress: SocketAddress
     let remoteAddress: SocketAddress
@@ -125,11 +105,6 @@ final class SwiftNetworkQUICConnection {
     }
 
     /// Track IDs for qlog files to ensure connections write individual logs.
-    private static let _serverConnectionQLogIDCounter = Atomic<Int>(1)
-    private static func nextServerConnectionQLogID() -> Int {
-        Self._serverConnectionQLogIDCounter.wrappingAdd(1, ordering: .relaxed).oldValue
-    }
-
     private static let _clientConnectionQLogIDCounter = Atomic<Int>(1)
     private static func nextClientConnectionQLogID() -> Int {
         Self._clientConnectionQLogIDCounter.wrappingAdd(1, ordering: .relaxed).oldValue
@@ -421,8 +396,8 @@ final class SwiftNetworkQUICConnection {
 
         // Start the initial client stream (if any) before the connection flow handler.
         if let streamHandler = self.pendingInitialClientStream, let streamID = streamHandler.streamID {
-            streamHandler.setDisconnectedEventHandler { error in
-                self.streamHandlerHandleDisconnected(streamID: streamID, error: error)
+            streamHandler.setDisconnectedEventHandler { _ in
+                self.streamHandlerHandleDisconnected(streamID: streamID)
             }
             streamHandler.start()
         }
@@ -652,8 +627,8 @@ final class SwiftNetworkQUICConnection {
         log("stream with temporary ID \(temporaryID) connected as stream \(streamID)")
         self.streamInputHandlers[streamID] = streamHandler
 
-        streamHandler.setDisconnectedEventHandler { error in
-            self.streamHandlerHandleDisconnected(streamID: streamID, error: error)
+        streamHandler.setDisconnectedEventHandler { _ in
+            self.streamHandlerHandleDisconnected(streamID: streamID)
         }
 
         // Do NOT append to newlyConnectedStreams. The connection channel creates the
@@ -857,12 +832,6 @@ final class SwiftNetworkQUICConnection {
         return futures
     }
 
-    func fireUserInboundEventOnAllStreams(_ event: any Sendable) {
-        for (_, streamHandler) in self.streamInputHandlers {
-            streamHandler.pipeline.fireUserInboundEventTriggered(event)
-        }
-    }
-
     /// Processes  QUIC packets received from the peer.
     ///
     /// On success the number of bytes processed from the input buffer is
@@ -911,18 +880,6 @@ final class SwiftNetworkQUICConnection {
     @inlinable
     func nextPacketToSend() -> ByteBuffer? {
         self.finalizedOutput.popFirst()
-    }
-
-    func currentMetrics() -> Metrics {
-        // TODO: https://github.com/apple/swift-nio-quic/issues/1
-        .init(
-            receivedPackets: 0,
-            sentPackets: 0,
-            lostPackets: 0,
-            roundTripTimeInNanoseconds: 0,
-            congestionWindowInBytes: 0,
-            deliveryRateInBytesPerSecond: 0
-        )
     }
 
 }
@@ -1117,7 +1074,7 @@ extension SwiftNetworkQUICConnection {
     /// Handle disconnected events from SwiftNetwork for individual stream handlers.
     ///
     /// Connection-level errors are handled separately via `handleConnectionDisconnected`.
-    func streamHandlerHandleDisconnected(streamID: QUICStreamID, error: NetworkError?) {
+    func streamHandlerHandleDisconnected(streamID: QUICStreamID) {
         if !self.removeStreamHandler(streamID: streamID) {
             log("[S\(streamID)] not found, ignoring")
         }
@@ -1298,8 +1255,8 @@ extension SwiftNetworkQUICConnection {
     private func newFlowHandlerAddNewStream(streamHandler: QUICChannelStreamHandler) {
         // Set stream-specific disconnected event handler (similar to client-side in addNewStreamInputHandler)
         if let streamID = streamHandler.streamID {
-            streamHandler.setDisconnectedEventHandler { error in
-                self.streamHandlerHandleDisconnected(streamID: streamID, error: error)
+            streamHandler.setDisconnectedEventHandler { _ in
+                self.streamHandlerHandleDisconnected(streamID: streamID)
             }
 
             self.streamInputHandlers[streamID] = streamHandler
@@ -1370,10 +1327,6 @@ extension SwiftNetworkQUICConnection {
 // Callbacks coming from QUICChannelOutputHandler
 @available(anyAppleOS 26, *)
 extension SwiftNetworkQUICConnection {
-
-    internal func flushOutputFrames() {
-        self.finalizedOutput.removeAll()
-    }
 
     /// Consumes the inputPacketQueue and transforms the ByteBuffers from receivePacket to frames.
     ///

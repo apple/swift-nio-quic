@@ -14,7 +14,6 @@
 
 /// Keys used for logging to ensure consistent naming.
 enum LoggingKeys {
-    static let error = "error"
     static let channelWritability = "channel.writability"
     static let channelOutboundBytes = "channel.outboundBytes"
     static let addressLocal = "quic.localAddress"
@@ -24,5 +23,4 @@ enum LoggingKeys {
     static let connectionDCID = "quic.connection.dcid"
     static let packetType = "quic.packet.type"
     static let packetVersion = "quic.packet.version"
-    static let streamID = "quic.stream.id"
 }

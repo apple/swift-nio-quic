@@ -64,12 +64,8 @@ public final class QUICHandler {
     private var expectingChannelReadComplete: Bool = false
     /// The context of the channel handler.
     private var context: ChannelHandlerContext?
-    /// The optional metrics to be recorded.
-    private var metrics: QUICMetrics?
     /// The next connection handle to use. Don't use directly, use `nextConnectionHandle()` instead.
     private var connectionHandle: ConnectionHandle
-    /// A dictionary of QUIC connection handles to QUIC connection metrics providers.
-    private var quicConnectionMetrics: [ConnectionHandle: () -> SwiftNetworkQUICConnection.Metrics]
     /// Verifies the server identitfy.
     private var asyncVerifierRunner: AsyncVerifierRunner?
     /// Provide certificates and signature to authenticate.
@@ -87,21 +83,18 @@ public final class QUICHandler {
     ///   - channel: The channel this handler resides in.
     ///   - QUICConfiguration: The quic configuration to use for this handler.
     ///   - logger: The logger.
-    ///   - metrics: The optional metrics to be recorded.
     ///   - inboundStreamChannelInitializer: A closure called for any new inbound stream.
     /// - Returns: The handler and the connection multiplexer.
     public static func makeHandlerAndConnectionMultiplexer<Output: Sendable>(
         channel: any Channel,
         quicConfiguration: QUICConfiguration,
         logger: Logger,
-        metrics: QUICMetrics? = nil,
         inboundStreamChannelInitializer: @Sendable @escaping (any Channel) -> EventLoopFuture<Output>
     ) throws -> (QUICHandler, QUICHandler.ConnectionMultiplexer<Output>) {
         try self.makeHandlerAndConnectionMultiplexer(
             channel: channel,
             quicConfiguration: quicConfiguration,
             logger: logger,
-            metrics: metrics,
             inboundStreamChannelInitializer: inboundStreamChannelInitializer,
             quicConnectionIDGenerator: RandomQUICConnectionIDGenerator()
         )
@@ -113,7 +106,6 @@ public final class QUICHandler {
     ///   - channel: The channel this handler resides in.
     ///   - QUICConfiguration: The quic configuration to use for this handler.
     ///   - logger: The logger.
-    ///   - metrics: The optional metrics to be recorded.
     ///   - inboundStreamChannelInitializer: A closure called for any new inbound stream.
     ///   - quicConnectionIDGenerator: The generator used for creating source connection IDs.
     /// - Returns: The handler and the connection multiplexer.
@@ -121,7 +113,6 @@ public final class QUICHandler {
         channel: any Channel,
         quicConfiguration: QUICConfiguration,
         logger: Logger,
-        metrics: QUICMetrics? = nil,
         inboundStreamChannelInitializer: @Sendable @escaping (any Channel) -> EventLoopFuture<Output>,
         quicConnectionIDGenerator: any QUICConnectionIDGenerator
     ) throws -> (QUICHandler, QUICHandler.ConnectionMultiplexer<Output>) {
@@ -174,7 +165,6 @@ public final class QUICHandler {
             asyncVerifier: asyncVerifier,
             authenticator: authenticator,
             logger: logger,
-            metrics: metrics,
             quicConnectionIDGenerator: quicConnectionIDGenerator
         )
 
@@ -197,22 +187,18 @@ public final class QUICHandler {
     ///   - quicConfiguration: The quic configuration to use for this handler.
     ///   - asyncVerifier: Callback provider for SwiftTLS certificate verification.
     ///   - logger: The logger.
-    ///   - metrics: The optional metrics to be recorded.
     init(
         channel: any Channel,
         quicConfiguration: QUICConfiguration,
         asyncVerifier: AsyncVerifier?,
         authenticator: Authenticator?,
         logger: Logger,
-        metrics: QUICMetrics? = nil,
         quicConnectionIDGenerator: any QUICConnectionIDGenerator = RandomQUICConnectionIDGenerator()
     ) {
         self.udpChannel = channel
         self.eventLoop = channel.eventLoop
         self.quicConfiguration = quicConfiguration
         self.logger = logger
-        self.metrics = metrics
-        self.quicConnectionMetrics = [:]
         self.quicConnectionIDGenerator = quicConnectionIDGenerator
         if let asyncVerifier {
             self.asyncVerifierRunner = .init(asyncVerifier: asyncVerifier)
@@ -230,7 +216,6 @@ public final class QUICHandler {
     ///   - asyncVerifier: Callback provider for SwiftTLS certificate verification.
     ///   - authenticator: Authenticator for SwiftTLS certificate verification.
     ///   - logger: The logger.
-    ///   - metrics: The optional metrics to be recorded.
     ///   - inboundConnectionInitializer: Called for every incoming connection and allows you to add handlers.
     ///   - inboundStreamInitializer: Called for every incoming stream on inbound connections and allows you to add handlers. This isn't called for inbound streams on outbound connections.
     ///   - noMoreConnections: Called when this handler becomes inactive. After this, `inboundConnectionInitializer` won't be called again.
@@ -240,7 +225,6 @@ public final class QUICHandler {
         asyncVerifier: AsyncVerifier?,
         authenticator: Authenticator?,
         logger: Logger,
-        metrics: QUICMetrics? = nil,
         inboundConnectionInitializer: @escaping @Sendable (any Channel, QUICStreamCreator) -> EventLoopFuture<Void>,
         inboundStreamInitializer: @escaping @Sendable (any Channel) -> EventLoopFuture<Void>,
         noMoreConnections: @escaping @Sendable () -> Void,
@@ -250,8 +234,6 @@ public final class QUICHandler {
         self.eventLoop = channel.eventLoop
         self.quicConfiguration = quicConfiguration
         self.logger = logger
-        self.metrics = metrics
-        self.quicConnectionMetrics = [:]
         self.quicConnectionIDGenerator = quicConnectionIDGenerator
         self.multiplexerContinuation = .closure(
             connectionInitializer: inboundConnectionInitializer,
@@ -445,32 +427,9 @@ public final class QUICHandler {
         }
     }
 
-    private func updateMetricsForCreatedConnection() {
-        self.metrics?.quicConnectionHandlerMetrics?.openConnections?.increment()
-    }
-
     private func connectionDidClose(_ handle: ConnectionHandle) {
         self.eventLoop.assertInEventLoop()
         self.connectionRegistry.remove(handle)
-
-        let metrics = self.quicConnectionMetrics.removeValue(forKey: handle)
-        guard let metrics else { return }
-
-        let connectionMetrics = metrics()
-        if let connectionCloseMetrics = self.metrics?.connectionCloseMetrics {
-            connectionCloseMetrics.receivedPackets?.record(connectionMetrics.receivedPackets)
-            connectionCloseMetrics.sentPackets?.record(connectionMetrics.sentPackets)
-            connectionCloseMetrics.lostPackets?.record(connectionMetrics.lostPackets)
-            connectionCloseMetrics.roundTripTimeInNanoseconds?.record(
-                .nanoseconds(connectionMetrics.roundTripTimeInNanoseconds)
-            )
-            connectionCloseMetrics.congestionWindowInBytes?.record(connectionMetrics.congestionWindowInBytes)
-            connectionCloseMetrics.deliveryRateInBytesPerSecond?.record(
-                connectionMetrics.deliveryRateInBytesPerSecond
-            )
-        }
-
-        self.metrics?.quicConnectionHandlerMetrics?.openConnections?.decrement()
     }
 }
 
@@ -718,7 +677,6 @@ extension QUICHandler: ChannelInboundHandler {
         )
 
         let handle = self.nextConnectionHandle()
-        self.quicConnectionMetrics[handle] = { quicConnection.currentMetrics() }
 
         switch self.multiplexerContinuation! {
         case .closure(let connectionInitializer, let inboundStreamInitializer, _, let role):
@@ -742,8 +700,6 @@ extension QUICHandler: ChannelInboundHandler {
             view.initialize(promise: initPromise) { ch in
                 connectionInitializer(ch, streamCreator)
             }
-
-            self.metrics?.quicConnectionHandlerMetrics?.openConnections?.increment()
 
             initPromise.futureResult.assumeIsolated().whenComplete { result in
                 switch result {
@@ -778,11 +734,9 @@ extension QUICHandler: ChannelInboundHandler {
             let initPromise = self.eventLoop.makePromise(of: Void.self)
             initPromise.futureResult.cascadeFailure(to: outputPromise)
 
-            let metrics = self.metrics
             view.initialize(promise: initPromise) { _ in
                 multiplexerContinuation.initialize(
                     channel: channel,
-                    metrics: metrics,
                     logger: connectionLogger
                 ).map { output in
                     outputPromise.succeed(output)
@@ -797,7 +751,7 @@ extension QUICHandler: ChannelInboundHandler {
                     switch result {
                     case .success(let (_, output)):
                         connectionLogger.trace("QUICHandler yielding output to multiplexer")
-                        multiplexerContinuation.yield(connection: output, channel: channel)
+                        multiplexerContinuation.yield(connection: output)
                         self.deliverFirstPacket(addressedEnvelope.data, to: view)
                     case .failure:
                         // Nothing to unwind: failing initialization closes the channel, so
@@ -811,10 +765,6 @@ extension QUICHandler: ChannelInboundHandler {
             }
         }
     }
-}
-
-extension ByteBuffer {
-    fileprivate static let maxDatagramSize = 1350
 }
 
 @available(anyAppleOS 26, *)

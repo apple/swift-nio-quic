@@ -45,7 +45,6 @@ final class CertificateAuthTests: XCTestCase {
                             maxIdleTimeout: maxIdleTimeout
                         ),
                         logger: Logger(label: "test"),
-                        metrics: nil,
                         inboundStreamChannelInitializer: { streamChannel in
                             channel.eventLoop.makeCompletedFuture { fatalError() }
                         }
@@ -79,7 +78,6 @@ final class CertificateAuthTests: XCTestCase {
                             applicationProtocols: ["swift_nio_quic"]
                         ),
                         logger: Logger(label: "test"),
-                        metrics: nil,
                         inboundStreamChannelInitializer: { streamChannel in
                             streamChannel.eventLoop.makeCompletedFuture {
                                 let asyncChannel = try NIOAsyncChannel(

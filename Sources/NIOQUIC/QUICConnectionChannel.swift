@@ -482,10 +482,6 @@ extension QUICConnectionChannel {
     struct TransportView {
         private let channel: QUICConnectionChannel
 
-        var eventLoop: any EventLoop {
-            self.channel.eventLoop
-        }
-
         init(_ channel: QUICConnectionChannel) {
             channel.eventLoop.assertInEventLoop()
             self.channel = channel

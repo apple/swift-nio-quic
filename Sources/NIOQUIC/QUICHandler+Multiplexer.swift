@@ -24,10 +24,9 @@ protocol ConnectionMultiplexerContinuation: Sendable {
     /// we yield to. That's why we are using `Any` here to avoid making the handler generic.
     func initialize(
         channel: QUICConnectionChannel,
-        metrics: QUICMetrics?,
         logger: Logger
     ) -> EventLoopFuture<any Sendable>
-    func yield(connection: any Sendable, channel: any Channel)
+    func yield(connection: any Sendable)
     func finish()
 }
 
@@ -80,7 +79,6 @@ extension QUICHandler {
 
         func initialize(
             channel: QUICConnectionChannel,
-            metrics: QUICMetrics?,
             logger: Logger
         ) -> EventLoopFuture<any Sendable> {
             channel.eventLoop.makeCompletedFuture {
@@ -89,12 +87,11 @@ extension QUICHandler {
                     streamCreator: channel.makeStreamCreator(role: self.role)
                 )
                 channel.setInboundStreamInitializer(.multiplexer(connection))
-                metrics?.quicConnectionHandlerMetrics?.openConnections?.increment()
                 return connection
             }
         }
 
-        func yield(connection: any Sendable, channel: any Channel) {
+        func yield(connection: any Sendable) {
             self.inboundConnectionsContinuation.yield(connection as! QUICConnection<Output>)
         }
 
