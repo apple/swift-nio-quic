@@ -69,8 +69,24 @@ final class QUICConnectionChannel: @unchecked Sendable {
     /// A view into the QUIC handler in the UDP channel, for outbound operations.
     private let _transport: Transport
 
+    /// The lifecycle state machine for the channel.
+    private var _lifecycle: Lifecycle
+
+    /// Initializer for inbound streams.
+    private var _streamInitializer: StreamInitializer?
+
+    /// Promise to complete when the channel becomes active (or closed if never active).
+    private var _readyPromise: EventLoopPromise<Void>?
+
     /// Whether auto-read is enabled on this channel.
     private var _autoRead: Bool
+
+    /// Whether the channel is allowed to drain the output from the connection.
+    private var _isAllowedToDrain: Bool
+
+    /// A queue of streams pushed to the channel by the underlying connection. These are dequeued
+    /// at the end of the parent channel's read loop (in `_parentChannelReadComplete`).
+    private var _pendingStreams: Deque<(QUICStreamID, QUICChannelStreamHandler)>
 
     // MARK: - Channel API
 
@@ -105,9 +121,22 @@ final class QUICConnectionChannel: @unchecked Sendable {
         self._connection = connection
         self._registrar = registrar
         self._transport = transport
+        self._lifecycle = Lifecycle()
         self._autoRead = true
+        self._streamInitializer = nil
+        self._readyPromise = nil
+        self._isAllowedToDrain = true
+        self._pendingStreams = []
 
         self._pipeline = ChannelPipeline(channel: self)
+    }
+
+    enum StreamInitializer {
+        /// Hand new streams to a multiplexer continuation. Used by the typed-output
+        /// `QUICConnection<Output>` path.
+        case multiplexer(any StreamMultiplexerContinuation)
+        /// Initialize new streams via the supplied closure.
+        case closure(@Sendable (any Channel) -> EventLoopFuture<Void>)
     }
 }
 
@@ -247,24 +276,36 @@ extension QUICConnectionChannel: ChannelCore {
     }
 
     func read0() {
-        // TODO: read from transport
+        self.eventLoop.assertInEventLoop()
+        self._transport.read()
     }
 
     func close0(error: any Error, mode: CloseMode, promise: EventLoopPromise<Void>?) {
         self.eventLoop.assertInEventLoop()
 
-        // Added in a later PR:
-        // self.closeConnection(
-        //     promise: promise,
-        //     isApplicationClose: false,
-        //     errorCode: QUICTransportErrorCode.noError.rawValue,
-        //     reasonPhrase: ""
-        // )
+        self.closeConnection(
+            promise: promise,
+            isApplicationClose: false,
+            errorCode: QUICTransportErrorCode.noError.rawValue,
+            reasonPhrase: ""
+        )
     }
 
     func triggerUserOutboundEvent0(_ event: Any, promise: EventLoopPromise<Void>?) {
         self.eventLoop.assertInEventLoop()
-        // Handled in a later PR.
+
+        switch event {
+        case let event as QUICCloseConnectionEvent:
+            self.closeConnection(
+                promise: promise,
+                isApplicationClose: true,
+                errorCode: Int64(event.code.rawValue),
+                reasonPhrase: event.reasonPhrase ?? ""
+            )
+
+        default:
+            promise?.fail(ChannelError.operationUnsupported)
+        }
     }
 
     func channelRead0(_ data: NIOAny) {
@@ -273,5 +314,636 @@ extension QUICConnectionChannel: ChannelCore {
 
     func errorCaught0(error: any Error) {
         // Unhandled error, drop it.
+    }
+}
+
+// MARK: - Connection view
+
+@available(anyAppleOS 26, *)
+extension QUICConnectionChannel {
+    /// A view of the channel used by the underlying connection.
+    ///
+    /// The channel acts as the connections delegate and is notified of various lifecycle events
+    /// such as becoming connected and disconeccted, in addition to new streams being openened
+    /// and needing the channel to callback to drain new output.
+    struct ConnectionView {
+        private let _channel: QUICConnectionChannel
+
+        var channel: any Channel {
+            self._channel
+        }
+
+        init(_ channel: QUICConnectionChannel) {
+            channel.eventLoop.assertInEventLoop()
+            self._channel = channel
+        }
+    }
+
+    var connectionView: ConnectionView {
+        ConnectionView(self)
+    }
+}
+
+@available(anyAppleOS 26, *)
+@available(*, unavailable)
+extension QUICConnectionChannel.ConnectionView: Sendable {}
+
+@available(anyAppleOS 26, *)
+extension QUICConnectionChannel.ConnectionView {
+    /// The connection associated a new ID with the existing one, update the routing table so
+    /// that the new ID is used.
+    func associate(_ newID: QUICConnectionID, with existingID: QUICConnectionID) -> Bool {
+        let associated = self._channel._registrar.associate(newID, with: existingID)
+
+        if associated {
+            let event = QUICSCIDAssociatedEvent(scid: newID)
+            self._channel.pipeline.fireUserInboundEventTriggered(event)
+        }
+
+        return associated
+    }
+
+    /// The connection retired the given ID, update the routing table to drop the retired ID.
+    func retire(_ id: QUICConnectionID) -> Bool {
+        let retired = self._channel._registrar.retire(id)
+
+        if retired {
+            let event = QUICSCIDRetiredEvent(scid: id)
+            self._channel.pipeline.fireUserInboundEventTriggered(event)
+        }
+
+        return retired
+    }
+
+    /// Generate a new connection ID for the connection.
+    func generateID() -> QUICConnectionID {
+        self._channel._registrar.generateID()
+    }
+
+    /// Notifies the connection that it should call back into the connection and drain its output
+    /// buffer. This is used for out-of-band writes.
+    func drainOutbound() {
+        self._channel.drainAndReconcileLifecycle()
+    }
+
+    /// Notifies the connection that the handshake completed.
+    func handshakeCompleted() {
+        self._channel._connectionActivated()
+    }
+
+    /// The connection closed spontaneously.
+    ///
+    /// Locally-requested closes do not arrive here, they go via
+    /// ``QUICConnectionProtocol/close(isApplicationClose:errorCode:reason:)`` instead.
+    ///
+    /// - Parameter error: The close error, or `nil` for a clean close.
+    func connectionClosed(error: (any Error)?) {
+        self._channel._connectionClosed(error: error)
+    }
+
+    /// Notify the channel that a peer-initiated inbound stream was created.
+    ///
+    /// - Parameters:
+    ///   - id: The stream's ID.
+    ///   - channel: The stream's handler.
+    func newInboundStream(id: QUICStreamID, channel: QUICChannelStreamHandler) {
+        self._channel._newInboundStream(streamID: id, channel: channel)
+    }
+}
+
+// MARK: - Transport view
+
+@available(anyAppleOS 26, *)
+extension QUICConnectionChannel {
+    /// A view of the channel used by the transport (i.e. UDP channel).
+    struct TransportView {
+        private let channel: QUICConnectionChannel
+
+        var eventLoop: any EventLoop {
+            self.channel.eventLoop
+        }
+
+        init(_ channel: QUICConnectionChannel) {
+            channel.eventLoop.assertInEventLoop()
+            self.channel = channel
+        }
+    }
+
+    var transportView: TransportView {
+        TransportView(self)
+    }
+}
+
+@available(anyAppleOS 26, *)
+@available(*, unavailable)
+extension QUICConnectionChannel.TransportView: Sendable {}
+
+@available(anyAppleOS 26, *)
+extension QUICConnectionChannel.TransportView {
+    /// Configure the pipeline, then complete `promise`.
+    ///
+    /// For a **server** connection the promise is completed when the channel
+    /// is initialized, for a **client** connection the promise is completed when
+    /// the channel is initialized and the handshake has completed.
+    func initialize(
+        promise: EventLoopPromise<Void>?,
+        initializer: (QUICConnectionChannel) -> EventLoopFuture<Void>
+    ) {
+        guard self.channel._lifecycle.initialize() else {
+            promise?.fail(ChannelError.operationUnsupported)
+            return
+        }
+
+        // Inherit autoRead from the parent UDP channel; default if unreadable.
+        let autoRead = (try? self.channel.parent?.syncOptions?.getOption(.autoRead)) ?? true
+        self.channel._autoRead = autoRead
+
+        initializer(self.channel)
+            .hop(to: self.channel.eventLoop)
+            .assumeIsolated()
+            .whenComplete { result in
+                self._initializerCompleted(result: result, promise: promise)
+            }
+    }
+
+    private func _initializerCompleted(
+        result: Result<Void, any Error>,
+        promise: EventLoopPromise<Void>?
+    ) {
+        switch result {
+        case .success:
+            switch self.channel._lifecycle.initialized() {
+            case .awaitingActivation:
+                if self.channel.isServer {
+                    self.channel.drainAndReconcileLifecycle()
+                    promise?.succeed()
+                } else {
+                    self.channel._readyPromise = promise
+                    self.channel.drainAndReconcileLifecycle()
+                }
+
+            case .closedDuringInit:
+                // Closed completed before init; fail the promise now.
+                self.channel.drainAndReconcileLifecycle()
+                promise?.fail(ChannelError.alreadyClosed)
+            }
+
+        case .failure(let error):
+            self.channel.failInitialization(error: error)
+            promise?.fail(error)
+        }
+    }
+
+    func parentChannelRead(_ buffer: ByteBuffer) {
+        self.channel._parentChannelRead(buffer)
+    }
+
+    func parentChannelReadComplete() {
+        self.channel._parentChannelReadComplete()
+    }
+
+    func parentChannelInactive() {
+        self.channel._parentChannelBecameInactive()
+    }
+
+    func parentChannelWritabilityChanged(to isWritable: Bool) {
+        self.channel._parentChannelWritabilityChanged(to: isWritable)
+    }
+
+    func parentChannelUserInboundEventTriggered(_ event: Any) {
+        self.channel._parentChannelUserInboundEvent(event)
+    }
+
+    func shutdown(promise: EventLoopPromise<Void>?) {
+        self.channel._parentInvokedShutdown(promise: promise)
+    }
+
+    /// Tear the channel down immediately.
+    ///
+    /// Skips waiting for the QUIC close handshake or for per-stream close futures; used when
+    /// a graceful shutdown overran its deadline.
+    func forceClose() {
+        self.channel._forceClose()
+    }
+}
+
+// MARK: - Close & inactive
+
+@available(anyAppleOS 26, *)
+extension QUICConnectionChannel {
+    private func _connectionActivated() {
+        self.eventLoop.assertInEventLoop()
+        self._lifecycle.connectionActivated()
+    }
+
+    private func _connectionClosed(error: (any Error)?) {
+        self.eventLoop.assertInEventLoop()
+        self._lifecycle.connectionClosed(error: error)
+    }
+
+    /// Ask the lifecycle whether to initiate a new close, cascade onto an existing close, or
+    /// succeed immediately, then perform the corresponding side effects.
+    func closeConnection(
+        promise: EventLoopPromise<Void>?,
+        isApplicationClose: Bool,
+        errorCode: Int64,
+        reasonPhrase: String
+    ) {
+        self.eventLoop.assertInEventLoop()
+
+        let continueClosing: Bool
+        switch self._lifecycle.beginClosing(error: nil) {
+        case .beganClosing:
+            continueClosing = true
+        case .alreadyClosing:
+            self.closePromise.futureResult.cascade(to: promise)
+            continueClosing = false
+        case .alreadyClosed:
+            continueClosing = false
+        }
+
+        guard continueClosing else { return }
+
+        if let promise {
+            self.closePromise.futureResult.cascade(to: promise)
+        }
+
+        // Notify streams of imminent close so handlers can flush final frames during the
+        // QUIC close handshake. Only on graceful closes — abrupt error closes don't allow
+        // time to wind down.
+        if errorCode == QUICTransportErrorCode.noError.rawValue {
+            self._connection.quiesceStreams()
+        }
+
+        // Close may re-enter the channel and result in a drain; stop the re-entrancy and
+        // explicitly drain after this.
+        self.withoutEnteringDrainOutput {
+            _ = self._connection.close(
+                isApplicationClose: isApplicationClose,
+                errorCode: errorCode,
+                reason: reasonPhrase
+            )
+        }
+
+        self.drainAndReconcileLifecycle()
+    }
+
+    /// Flush finalized output to the UDP side, then apply any pending lifecycle transition.
+    ///
+    /// Bails if drains are suppressed (`!_isAllowedToDrain`): a re-entrant `drainOutbound()`
+    /// fired from inside `withoutEnteringDrainOutput { … }` must not run
+    /// `reconcileLifecycle()` here — that would fire `channelActive`/`channelInactive`
+    /// mid-batch. The enclosing operation re-drives once its suppressed block returns.
+    ///
+    /// This is the only way to pair a drain with a lifecycle reconcile: calling `drainOutput()`
+    /// and `reconcileLifecycle()` separately takes the drain's suppression but not the
+    /// reconcile's, which fires lifecycle events mid-batch when re-entered.
+    ///
+    /// Note this does not *set* `_isAllowedToDrain`: its own work (pop finalized packets, read
+    /// the state machine) never re-enters SwiftNetwork, so there is nothing new to suppress.
+    fileprivate func drainAndReconcileLifecycle() {
+        self.eventLoop.assertInEventLoop()
+
+        guard self._isAllowedToDrain else { return }
+
+        self.drainOutput()
+        self.reconcileLifecycle()
+    }
+
+    /// Tear the channel down after the user's initializer threw. Emits CONNECTION\_CLOSE to the
+    /// peer, then drives normal pipeline teardown (errorCaught + channelInactive) carrying the
+    /// initializer error.
+    fileprivate func failInitialization(error: any Error) {
+        self.eventLoop.assertInEventLoop()
+        self._lifecycle.beginClosing(error: error)
+
+        // Close may re-enter the channel and result in a drain; stop the re-entrancy and
+        // explicitly drain after this.
+        self.withoutEnteringDrainOutput {
+            _ = self._connection.close(
+                isApplicationClose: false,
+                errorCode: QUICTransportErrorCode.internalError.rawValue,
+                reason: ""
+            )
+        }
+
+        self.drainAndReconcileLifecycle()
+    }
+
+    /// Run `body` with the drain guard held, dropping any re-entrant `drainOutbound()`
+    /// SwiftNetwork fires while `body` runs (e.g. from `receivePacketsComplete()` finalizing
+    /// frames, or `close()` stopping the flow handler).
+    ///
+    /// The explicit drain after flushes whatever `body` finalized. Without this
+    /// the re-entrant wake would run a nested `drainAndReconcileLifecycle()`
+    /// mid-batch, firing `channelActive`/`Inactive` before the batch completes.
+    private func withoutEnteringDrainOutput<Result>(_ body: () -> Result) -> Result {
+        let wasAllowedToDrain = self._isAllowedToDrain
+        self._isAllowedToDrain = false
+        defer { self._isAllowedToDrain = wasAllowedToDrain }
+        return body()
+    }
+
+    private func drainOutput() {
+        self.eventLoop.assertInEventLoop()
+
+        guard self._isAllowedToDrain else { return }
+
+        // Avoid re-entering this function.
+        self.withoutEnteringDrainOutput {
+            while let buffer = self._connection.nextPacketToSend() {
+                let envelope = AddressedEnvelope(
+                    remoteAddress: self._remoteAddress,
+                    data: buffer
+                )
+                self._transport.writeDatagram(envelope, promise: nil)
+            }
+
+            // The view discards unnecessary flushes; no need to track them per-write in the loop.
+            self._transport.flush()
+        }
+    }
+
+    /// Apply any lifecycle transition pushed by the connection since the last
+    /// drain. Runs at the post-drain boundary so `channelActive` fires only after
+    /// the handshake's final bytes have flushed. The lifecycle owns the decision;
+    /// this only performs the side effects it hands back.
+    private func reconcileLifecycle() {
+        self.eventLoop.assertInEventLoop()
+
+        while let action = self._lifecycle.reconcile() {
+            switch action {
+            case .fireActive:
+                self._isActive.store(true, ordering: .releasing)
+                self.pipeline.fireChannelActive()
+                self._readyPromise.take()?.succeed()
+
+                if self._autoRead {
+                    self._transport.read()
+                }
+
+            case .fireInactive(let error):
+                self.fireChannelInactiveNow(error: error)
+            }
+        }
+    }
+
+    fileprivate func fireChannelInactiveNow(error: (any Error)? = nil) {
+        self.eventLoop.assertInEventLoop()
+
+        // Stop accepting more inbound streams.
+        switch self._streamInitializer.take() {
+        case .multiplexer(let continuation):
+            continuation.finish()
+        case .closure, .none:
+            ()
+        }
+
+        // Wait for all streams to close before firing inactive.
+        let streamCloseFutures = self._connection.closeAllStreams()
+
+        if streamCloseFutures.isEmpty {
+            self.completeChannelInactive(error: error)
+        } else {
+            EventLoopFuture
+                .andAllComplete(streamCloseFutures, on: self.eventLoop)
+                .assumeIsolated()
+                .whenComplete { _ in
+                    self.completeChannelInactive(error: error)
+                }
+        }
+    }
+
+    private func completeChannelInactive(error: (any Error)?) {
+        self.eventLoop.assertInEventLoop()
+        self._lifecycle.closed()
+        self._isActive.store(false, ordering: .releasing)
+
+        if let error {
+            self.pipeline.fireErrorCaught(error)
+        }
+
+        self.pipeline.fireChannelInactive()
+
+        if let readyPromise = self._readyPromise.take() {
+            readyPromise.fail(error ?? ChannelError.alreadyClosed)
+        }
+
+        // Tear down on the next loop tick.
+        self.eventLoop.assumeIsolated().execute {
+            self.removeHandlers(pipeline: self.pipeline)
+            self.closePromise.succeed()
+        }
+    }
+}
+
+// MARK: - Parent channel events
+
+@available(anyAppleOS 26, *)
+extension QUICConnectionChannel {
+    fileprivate func _parentChannelBecameInactive() {
+        self.eventLoop.assertInEventLoop()
+
+        let shouldClose: Bool
+        switch self._lifecycle.beginClosing(error: nil) {
+        case .beganClosing:
+            shouldClose = true
+        case .alreadyClosing, .alreadyClosed:
+            shouldClose = false
+        }
+
+        guard shouldClose else { return }
+
+        // No drain before the close: the parent channel is already inactive so nothing can
+        // be written. The close is only here to drive the connection's state machine so streams
+        // tear down.
+        self.withoutEnteringDrainOutput {
+            _ = self._connection.close(
+                isApplicationClose: false,
+                errorCode: QUICTransportErrorCode.noError.rawValue,
+                reason: ""
+            )
+        }
+
+        self.drainAndReconcileLifecycle()
+    }
+
+    /// Force the channel closed without waiting for QUIC peer ack or per-stream close futures.
+    /// Used by the registry when graceful shutdown overran its deadline.
+    fileprivate func _forceClose() {
+        self.eventLoop.assertInEventLoop()
+
+        switch self._lifecycle.forceClosing() {
+        case .alreadyClosed:
+            return
+        case .alreadyCommitted:
+            // Another path already committed to firing channelInactive and may be mid-flight
+            // (e.g. waiting on closeAllStreams() futures). Only hurry the streams along; let
+            // that path's own completeChannelInactive finish the job.
+            _ = self._connection.closeAllStreams()
+        case .forceThroughNow:
+            // Stop the stream handlers aggressively (sets each to disconnected and detaches from
+            // the lower protocol). Their own closeFutures may resolve on a later tick, but we
+            // don't wait — that's the whole point of force-close.
+            _ = self._connection.closeAllStreams()
+            self.completeChannelInactive(error: nil)
+        }
+    }
+
+    fileprivate func _parentChannelUserInboundEvent(_ event: Any) {
+        self.eventLoop.assertInEventLoop()
+        self.pipeline.syncOperations.fireUserInboundEventTriggered(event)
+    }
+
+    fileprivate func _parentChannelRead(_ buffer: ByteBuffer) {
+        self.eventLoop.assertInEventLoop()
+        // Feed packets in, '_parentChannelReadComplete' signals to the connection that
+        // it should then consume those packets.
+        self._connection.receivePacket(buffer)
+    }
+
+    fileprivate func _parentChannelReadComplete() {
+        self.eventLoop.assertInEventLoop()
+
+        // Avoid entering 'drainOutput'; wait for all events to be delivered and then
+        // deal with them in 'drainAndReconcileLifecycle' below.
+        self.withoutEnteringDrainOutput {
+            self._connection.receivePacketsComplete()
+        }
+
+        self.drainAndReconcileLifecycle()
+        let initializedAnyStreams = self.processPendingInboundStreams()
+
+        // Stream initializers may produce output; reconcile any pending events again.
+        if initializedAnyStreams {
+            self.drainAndReconcileLifecycle()
+        }
+    }
+
+    fileprivate func _parentChannelWritabilityChanged(to isWritable: Bool) {
+        let (exchanged, _) = self._isWritable.compareExchange(
+            expected: !isWritable,
+            desired: isWritable,
+            ordering: .acquiringAndReleasing
+        )
+
+        // Only fire a notification when the value changed.
+        if exchanged {
+            self.pipeline.fireChannelWritabilityChanged()
+        }
+    }
+
+    fileprivate func _parentInvokedShutdown(promise: EventLoopPromise<Void>?) {
+        self.closeConnection(
+            promise: promise,
+            isApplicationClose: false,
+            errorCode: QUICTransportErrorCode.noError.rawValue,
+            reasonPhrase: ""
+        )
+    }
+}
+
+// MARK: - Outbound streams
+
+@available(anyAppleOS 26, *)
+extension QUICConnectionChannel {
+    fileprivate func _createOutboundStream(
+        type: QUICStreamType,
+        promise: EventLoopPromise<any Channel>,
+        initializer: @escaping (any Channel, QUICStreamID) -> EventLoopFuture<Void>
+    ) {
+        self.eventLoop.assertInEventLoop()
+
+        switch self._connection {
+        case .test:
+            promise.fail(ChannelError.operationUnsupported)
+        }
+
+    }
+
+    func makeStreamCreator(role: Role) -> QUICStreamCreator {
+        QUICStreamCreator(
+            eventLoop: self.eventLoop,
+            role: role,
+            createOutboundStream: NIOLoopBound(
+                self.createOutboundStreamForCreator,
+                eventLoop: self.eventLoop
+            )
+        )
+    }
+
+    private func createOutboundStreamForCreator(
+        _ promise: EventLoopPromise<any Channel>,
+        _ streamType: QUICStreamType,
+        _ streamChannelInitializer: @escaping (any Channel, QUICStreamID) -> EventLoopFuture<Void>
+    ) {
+        self.eventLoop.assertInEventLoop()
+        self._createOutboundStream(
+            type: streamType,
+            promise: promise,
+            initializer: streamChannelInitializer
+        )
+    }
+}
+
+// MARK: - Streams
+
+@available(anyAppleOS 26, *)
+extension QUICConnectionChannel {
+    func setInboundStreamInitializer(_ initializer: StreamInitializer) {
+        self.eventLoop.assertInEventLoop()
+        self._streamInitializer = initializer
+    }
+
+    private func _newInboundStream(streamID: QUICStreamID, channel: QUICChannelStreamHandler) {
+        self.eventLoop.assertInEventLoop()
+        self._pendingStreams.append((streamID, channel))
+    }
+
+    /// Initialize inbound streams pushed during the current read batch, skipping any not yet
+    /// connected. Returns `true` if any stream was initialized.
+    private func processPendingInboundStreams() -> Bool {
+        self.eventLoop.assertInEventLoop()
+        var anyStreamInitialized = false
+
+        while let (streamID, stream) = self._pendingStreams.popFirst() {
+            if stream.streamStateMachine.isConnected {
+                self.runInboundStreamInitializer(streamID: streamID, stream: stream)
+                anyStreamInitialized = true
+            }
+        }
+
+        return anyStreamInitialized
+    }
+
+    private func runInboundStreamInitializer(
+        streamID: QUICStreamID,
+        stream: QUICChannelStreamHandler
+    ) {
+        self.eventLoop.assertInEventLoop()
+
+        self._lifecycle.willInitializeStream()
+
+        // Note: done in a follow-up.
+        // let initialized = stream.initializeInbound(
+        //     streamID: streamID,
+        //     initializer: self._streamInitializer
+        // )
+        let initialized: EventLoopFuture<Void>? = self.eventLoop.makeSucceededVoidFuture()
+
+        if let initialized {
+            initialized.assumeIsolated().whenComplete { _ in
+                self._streamInitializerDidComplete()
+            }
+        } else {
+            self._streamInitializerDidComplete()
+        }
+    }
+
+    fileprivate func _streamInitializerDidComplete() {
+        self.eventLoop.assertInEventLoop()
+
+        self._lifecycle.streamInitializerFinished()
+        self.reconcileLifecycle()
     }
 }
