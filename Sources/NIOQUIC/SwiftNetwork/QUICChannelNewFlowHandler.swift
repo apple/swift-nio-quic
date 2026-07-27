@@ -358,15 +358,14 @@ extension QUICChannelNewFlowHandler {
             transport.setFlowLinkage(linkage)
             linkage.invokeConnect(transport.reference)
 
-            // TODO: Once SwiftNetwork (a40d5771fc586e75f3534e55178398baa1db2966) is released,
-            // replace the hardcoded `UInt16.max` with the peer's advertised `max_datagram_frame_size`, read
-            // from the connection metadata via `getConnectionMetadata()` (as with `activeConnectionIDLimit`).
-            // A zero says that the peer does not accept datagrams.
+            // Propagate the announced max frame size of the peer. Assume 0 (the peer does not accept
+            // datagrams) if the value is not available on the metadata.
             //
             // Better still, use SwiftNetwork's *usable* datagram size, which already subtracts framing
             // overhead and path MTU (`QUICDatagramFlow.updateUsableDatagramFrameSize`) — passing that
             // would make the handler's size check exact instead of the current payload-only estimate.
-            datagramHandler.setBackend(to: transport, withPeerMaxDatagramFrameSize: Int(UInt16.max))
+            let remoteFrameSize = self.getConnectionMetadata()?.connectionMetadata?.remoteMaxDatagramFrameSize ?? 0
+            datagramHandler.setBackend(to: transport, withPeerMaxDatagramFrameSize: Int(remoteFrameSize))
         } catch {
             self.logger.error("\(self.logPrefix) Failed to attach QUIC datagram flow: \(error)")
         }
