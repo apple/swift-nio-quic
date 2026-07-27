@@ -312,7 +312,7 @@ final class DatagramTestTransport: QUICDatagramProtocol {
         self.reader = nil
     }
 
-    func setReader(reader: any QUICDatagramReaderProtocol) {
+    func setReader(_ reader: any QUICDatagramReaderProtocol) {
         self.reader = reader
     }
 
@@ -323,7 +323,7 @@ final class DatagramTestTransport: QUICDatagramProtocol {
 
     /// Test-only: simulate the transport reporting an error.
     func deliverError(_ error: any Error) {
-        self.reader?.error(error: error)
+        self.reader?.error(error)
     }
 }
 

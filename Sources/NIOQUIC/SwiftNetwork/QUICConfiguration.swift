@@ -111,6 +111,9 @@ public struct QUICConfiguration: Sendable {
     public var qLogConfiguration: QLogConfiguration?
     /// Configure verification of the peer's certificate. Only supported by the client.
     public var peerCertificateVerification: CertificateVerification
+    /// Maximum datagram frame size in bytes. Set to 0 to disable datagrams.
+    /// Defaults to 65535 (the max value allowed) as recommended in RFC 9221.
+    public var maxDatagramFrameSize: Int
 
     private init(
         role: Role,
@@ -131,7 +134,8 @@ public struct QUICConfiguration: Sendable {
         sendRetry: Bool,
         keyLogPath: String?,
         qLogConfiguration: QLogConfiguration?,
-        peerCertificateVerification: CertificateVerification
+        peerCertificateVerification: CertificateVerification,
+        maxDatagramFrameSize: Int
     ) {
         self.role = role
         self.serverName = serverName
@@ -152,6 +156,7 @@ public struct QUICConfiguration: Sendable {
         self.keyLogPath = keyLogPath
         self.qLogConfiguration = qLogConfiguration
         self.peerCertificateVerification = peerCertificateVerification
+        self.maxDatagramFrameSize = maxDatagramFrameSize
     }
 
     /// Factory method to initialise a `QUICConfiguration` for servers.
@@ -179,7 +184,8 @@ public struct QUICConfiguration: Sendable {
         keepAliveInterval: Duration? = nil,
         sendRetry: Bool = false,
         keyLogPath: String? = nil,
-        qLogConfiguration: QLogConfiguration? = nil
+        qLogConfiguration: QLogConfiguration? = nil,
+        maxDatagramFrameSize: Int = 65535
     ) -> Self {
         self.init(
             role: .server,
@@ -200,7 +206,8 @@ public struct QUICConfiguration: Sendable {
             sendRetry: sendRetry,
             keyLogPath: keyLogPath,
             qLogConfiguration: qLogConfiguration,
-            peerCertificateVerification: .noVerification
+            peerCertificateVerification: .noVerification,
+            maxDatagramFrameSize: maxDatagramFrameSize
         )
     }
 
@@ -229,7 +236,8 @@ public struct QUICConfiguration: Sendable {
         forceVersionNegotiation: Bool = false,
         keyLogPath: String? = nil,
         qLogConfiguration: QLogConfiguration? = nil,
-        peerCertificateVerification: CertificateVerification = .fullVerification
+        peerCertificateVerification: CertificateVerification = .fullVerification,
+        maxDatagramFrameSize: Int = 65535
     ) -> Self {
         self.init(
             role: .client,
@@ -250,7 +258,8 @@ public struct QUICConfiguration: Sendable {
             sendRetry: false,
             keyLogPath: keyLogPath,
             qLogConfiguration: qLogConfiguration,
-            peerCertificateVerification: peerCertificateVerification
+            peerCertificateVerification: peerCertificateVerification,
+            maxDatagramFrameSize: maxDatagramFrameSize
         )
     }
 }

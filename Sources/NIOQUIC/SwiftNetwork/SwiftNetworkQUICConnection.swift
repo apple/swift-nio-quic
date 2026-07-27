@@ -355,7 +355,8 @@ final class SwiftNetworkQUICConnection {
 
         let localEndpoint = localAddress.toEndpoint()
         let remoteEndpoint = remoteAddress.toEndpoint()
-        let listenerLinkage = StreamListenerLinkage(reference: self.swiftNetworkQUICConnection.reference)
+        let streamListenerLinkage = StreamListenerLinkage(reference: self.swiftNetworkQUICConnection.reference)
+        let datagramListenerLinkage = DatagramListenerLinkage(reference: self.swiftNetworkQUICConnection.reference)
 
         let newFlowHandler = QUICChannelNewFlowHandler(
             local: localEndpoint,
@@ -366,7 +367,8 @@ final class SwiftNetworkQUICConnection {
             remoteAddress: remoteAddress,
             localAddress: localAddress,
             role: self.role,
-            streamListenerProtocol: listenerLinkage,
+            streamListenerProtocol: streamListenerLinkage,
+            datagramListenerProtocol: datagramListenerLinkage,
             // Keep-alive is driven by the connection flow handler on the server, but by the
             // initial client stream on the client (set up below).
             keepAliveInterval: self.role == .server ? configuration.keepAliveInterval : nil
@@ -1204,7 +1206,7 @@ extension SwiftNetworkQUICConnection {
     }
 
     /// Handle connected events from SwiftNetwork for connection-level handlers (e.g., newFlowHandler).
-    private func handleConnectionConnected() {
+    private func handleConnectionConnected() -> Bool {
         let action = self.connectionStateMachine.receiveConnectedEvent()
         switch action {
         case .logConnectionEstablished:
@@ -1215,7 +1217,7 @@ extension SwiftNetworkQUICConnection {
                 metadata: ["state": "\(self.connectionStateMachine.stateDescription)"]
             )
             // Do not announce connection IDs again.
-            return
+            return false
         }
 
         // Generate additional CIDs for the peer after handshake completes.
@@ -1243,7 +1245,7 @@ extension SwiftNetworkQUICConnection {
                 switch action {
                 case .closeInitiated, .alreadyClosed:
                     // No follow-up decisions to make. We just need to close the connection.
-                    return
+                    return false
                 }
             case .announce(let count):
                 for _ in 0..<count {
@@ -1254,6 +1256,7 @@ extension SwiftNetworkQUICConnection {
         } else {
             log("Will not announce new connection IDs because no generator was configured")
         }
+        return true
     }
 
     /// Handle disconnected events from SwiftNetwork for connection-level handlers (e.g., newFlowHandler).
@@ -1539,7 +1542,7 @@ extension SwiftNetworkQUICConnection {
             self.connection = connection
         }
 
-        func connected() {
+        func connected() -> Bool {
             self.connection.handleConnectionConnected()
         }
 

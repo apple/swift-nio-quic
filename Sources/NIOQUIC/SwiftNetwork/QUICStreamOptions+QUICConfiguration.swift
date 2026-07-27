@@ -33,6 +33,7 @@ extension QUICProtocol {
         options.connectionOptions.maximumConcurrentBidirectionalStreams = config.initialMaxStreamsBidi
         options.connectionOptions.initialMaxStreamsUnidirectional = UInt64(config.initialMaxStreamsUni)
         options.connectionOptions.maximumConcurrentUnidirectionalStreams = config.initialMaxStreamsUni
+        options.connectionOptions.maxDatagramFrameSize = UInt16(clamping: config.maxDatagramFrameSize)
 
         guard let perProtocolOptions = options.perProtocolOptions else {
             throw QUICError.invalidConfiguration

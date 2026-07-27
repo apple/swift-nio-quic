@@ -39,6 +39,7 @@ func createServerChannel(
     host: String,
     port: Int,
     logger: Logger,
+    maxDatagramFrameSize: Int = 65535,
     udpChannelInitializer: @Sendable @escaping (any Channel) throws -> Void = { _ in },
     inboundConnectionInitializer:
         @Sendable @escaping (any Channel, NIOQUIC.QUICStreamCreator) -> EventLoopFuture<Void>,
@@ -53,7 +54,8 @@ func createServerChannel(
             privateKeyFilePath: Bundle.module.url(forResource: "privateKey", withExtension: "der")!.path
         ),
         applicationProtocols: ["http/0.9"],
-        keyLogPath: "/tmp/quic-sync-integration-tests-keylogs"
+        keyLogPath: "/tmp/quic-sync-integration-tests-keylogs",
+        maxDatagramFrameSize: maxDatagramFrameSize
     )
     return createQUICChannel(
         eventLoopGroup: eventLoopGroup,
@@ -79,13 +81,15 @@ func createClientChannel(
     host: String,
     port: Int,
     logger: Logger,
+    maxDatagramFrameSize: Int = 65535,
     udpChannelInitializer: @Sendable @escaping (any Channel) throws -> Void = { _ in }
 ) -> EventLoopFuture<any Channel> {
     let quicConfiguration = QUICConfiguration.client(
         verificationConfiguration: .rawPublicKeys(
             publicKeyFilePath: Bundle.module.url(forResource: "publicKey", withExtension: "der")!.path
         ),
-        applicationProtocols: ["http/0.9"]
+        applicationProtocols: ["http/0.9"],
+        maxDatagramFrameSize: maxDatagramFrameSize
     )
 
     return createQUICChannel(

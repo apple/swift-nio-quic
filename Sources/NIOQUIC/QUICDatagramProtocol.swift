@@ -40,7 +40,7 @@ protocol QUICDatagramProtocol {
     func close()
 
     /// Sets the delegate that receives datagrams and errors from this transport.
-    func setReader(reader: any QUICDatagramReaderProtocol)
+    func setReader(_ reader: any QUICDatagramReaderProtocol)
 
 }
 
@@ -54,5 +54,5 @@ protocol QUICDatagramReaderProtocol: AnyObject {
     func read(datagram: ByteBuffer)
 
     /// Called when the underlying transport reports an error.
-    func error(error: any Error)
+    func error(_ error: any Error)
 }

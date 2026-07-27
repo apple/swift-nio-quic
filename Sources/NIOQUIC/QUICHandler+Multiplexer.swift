@@ -102,6 +102,8 @@ extension QUICHandler {
                     inboundStreamInitializer: self.inboundStreamInitializer
                 )
                 try channel.pipeline.syncOperations.addHandler(connectionChannelHandler)
+                let datagramChannelHandler = QUICDatagramHandler(role: role, logger: logger)
+                try channel.pipeline.syncOperations.addHandler(datagramChannelHandler)
 
                 if let connectionDurationTimer = metrics?.connectionCloseMetrics?.connectionDuration {
                     let connectionDurationHandler = ChannelDurationHandler(durationTimer: connectionDurationTimer)
@@ -171,6 +173,8 @@ extension QUICHandler {
                                 )
 
                             try channel.pipeline.syncOperations.addHandler(connectionChannelHandler)
+                            let datagramChannelHandler = QUICDatagramHandler(role: self.role, logger: logger)
+                            try channel.pipeline.syncOperations.addHandler(datagramChannelHandler)
 
                             if let connectionDurationTimer = metrics?.connectionCloseMetrics?.connectionDuration {
                                 let connectionDurationHandler = ChannelDurationHandler(
