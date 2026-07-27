@@ -551,18 +551,18 @@ extension QUICConnectionChannel {
     ) {
         self.eventLoop.assertInEventLoop()
 
+        let continueClosing: Bool
         switch self._lifecycle.beginClosing(error: nil) {
-        case .alreadyClosing:
-            if let promise {
-                self.closePromise.futureResult.cascade(to: promise)
-            }
-            return
-        case .alreadyClosed:
-            promise?.succeed()
-            return
         case .beganClosing:
-            ()  // Fresh close; run the side effects below.
+            continueClosing = true
+        case .alreadyClosing:
+            self.closePromise.futureResult.cascade(to: promise)
+            continueClosing = false
+        case .alreadyClosed:
+            continueClosing = false
         }
+
+        guard continueClosing else { return }
 
         if let promise {
             self.closePromise.futureResult.cascade(to: promise)
