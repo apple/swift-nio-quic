@@ -575,32 +575,32 @@ extension QUICConnectionChannel {
             self._connection.quiesceStreams()
         }
 
-        // Close may re-enter the channal and result in a drain; stop the re-entrancy and
-        // explicitly drain after this if necessary.
-        let initiateClose = self.withoutEnteringDrainOutput {
-            self._connection.close(
+        // Close may re-enter the channel and result in a drain; stop the re-entrancy and
+        // explicitly drain after this.
+        self.withoutEnteringDrainOutput {
+            _ = self._connection.close(
                 isApplicationClose: isApplicationClose,
                 errorCode: errorCode,
                 reason: reasonPhrase
             )
         }
 
-        if initiateClose {
-            self.drainOutput()
-        }
-
-        self.reconcileLifecycle()
+        self.drainAndReconcileLifecycle()
     }
 
     /// Flush finalized output to the UDP side, then apply any pending lifecycle transition.
     ///
-    /// Bails if a drain is already in flight (`_isDraining`): a re-entrant
-    /// `drainOutbound()` fired from inside `withDrainSuppressed { … }` must not run
-    /// `applyPendingLifecycle()` here — that would fire `channelActive`/`channelInactive`
+    /// Bails if drains are suppressed (`!_isAllowedToDrain`): a re-entrant `drainOutbound()`
+    /// fired from inside `withoutEnteringDrainOutput { … }` must not run
+    /// `reconcileLifecycle()` here — that would fire `channelActive`/`channelInactive`
     /// mid-batch. The enclosing operation re-drives once its suppressed block returns.
     ///
-    /// Note this does not *set* `_isDraining`: its own work (pop finalized packets, read the
-    /// state machine) never re-enters SwiftNetwork, so there is nothing new to suppress.
+    /// This is the only way to pair a drain with a lifecycle reconcile: calling `drainOutput()`
+    /// and `reconcileLifecycle()` separately takes the drain's suppression but not the
+    /// reconcile's, which fires lifecycle events mid-batch when re-entered.
+    ///
+    /// Note this does not *set* `_isAllowedToDrain`: its own work (pop finalized packets, read
+    /// the state machine) never re-enters SwiftNetwork, so there is nothing new to suppress.
     fileprivate func drainAndReconcileLifecycle() {
         self.eventLoop.assertInEventLoop()
 
@@ -627,8 +627,7 @@ extension QUICConnectionChannel {
             )
         }
 
-        self.drainOutput()
-        self.reconcileLifecycle()
+        self.drainAndReconcileLifecycle()
     }
 
     /// Run `body` with the drain guard held, dropping any re-entrant `drainOutbound()`
@@ -636,11 +635,12 @@ extension QUICConnectionChannel {
     /// frames, or `close()` stopping the flow handler).
     ///
     /// The explicit drain after flushes whatever `body` finalized. Without this
-    /// the re-entrant wake would run a nested `drainAndApplyLifecycle()`
+    /// the re-entrant wake would run a nested `drainAndReconcileLifecycle()`
     /// mid-batch, firing `channelActive`/`Inactive` before the batch completes.
     private func withoutEnteringDrainOutput<Result>(_ body: () -> Result) -> Result {
+        let wasAllowedToDrain = self._isAllowedToDrain
         self._isAllowedToDrain = false
-        defer { self._isAllowedToDrain = true }
+        defer { self._isAllowedToDrain = wasAllowedToDrain }
         return body()
     }
 
@@ -754,9 +754,9 @@ extension QUICConnectionChannel {
 
         guard shouldClose else { return }
 
-        self.drainOutput()
-
-        // TODO: what's the rationale here? Should we close and then drain?
+        // No drain before the close: the parent channel is already inactive so nothing can
+        // be written. The close is only here to drive the connection's state machine so streams
+        // tear down.
         self.withoutEnteringDrainOutput {
             _ = self._connection.close(
                 isApplicationClose: false,
@@ -765,7 +765,7 @@ extension QUICConnectionChannel {
             )
         }
 
-        self.reconcileLifecycle()
+        self.drainAndReconcileLifecycle()
     }
 
     /// Force the channel closed without waiting for QUIC peer ack or per-stream close futures.
@@ -806,7 +806,7 @@ extension QUICConnectionChannel {
         self.eventLoop.assertInEventLoop()
 
         // Avoid entering 'drainOutput'; wait for all events to be delivered and then
-        // deal with them in 'drainAndApplyLifecycle' below.
+        // deal with them in 'drainAndReconcileLifecycle' below.
         self.withoutEnteringDrainOutput {
             self._connection.receivePacketsComplete()
         }
