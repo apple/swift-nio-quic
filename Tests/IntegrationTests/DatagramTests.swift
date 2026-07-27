@@ -344,7 +344,8 @@ struct DatagramTests {
         try await serverChannel.close()
     }
 
-    /// SwiftNetwork silently drops outbound datagrams larger than the size advertised by the peer..
+    /// A datagram larger than the peer's advertised `max_datagram_frame_size` is rejected locally,
+    /// before it reaches the transport; the connection stays open and unrelated writes still work.
     @available(anyAppleOS 26, *)
     @Test
     func oversizedDatagramIsDroppedAndConnectionStaysOpen() async throws {
@@ -363,6 +364,8 @@ struct DatagramTests {
         // The oversized datagram is not expected to arrive.
         let serverReceivedDatagrams = NIOLockedValueBox<[ByteBuffer]>([])
         let clientReceivedSmall = eventLoopGroup.any().makePromise(of: Void.self)
+        // The oversized write itself is expected to fail, before it ever reaches the transport.
+        let oversizedWriteResult = eventLoopGroup.any().makePromise(of: Void.self)
         // No errors are expected on either connection channel.
         let caughtErrors = NIOLockedValueBox<[String]>([])
 
@@ -424,14 +427,18 @@ struct DatagramTests {
         // Establish the connection with a tiny sync stream before sending datagrams.
         try await performSyncHandshake(streamCreator, signal: syncSignal, serverReceived: serverGotSync)
 
-        // Send the oversized datagram first, then a small one. Our `write` buffers and succeeds for
-        // both (they are below the hardcoded `.max` guard); SwiftNetwork drops the oversized one at
-        // packetization while the small one goes through.
-        clientConnectionChannel.writeAndFlush(oversizedPayload, promise: nil)
+        // Send the oversized datagram first, then a small one. The handler now knows the peer's real
+        // advertised limit (256), so the oversized write is rejected locally and never reaches the
+        // transport; the small one is unaffected.
+        clientConnectionChannel.writeAndFlush(oversizedPayload, promise: oversizedWriteResult)
         clientConnectionChannel.writeAndFlush(smallPayload, promise: nil)
 
+        await #expect(throws: QUICError.datagramTooLarge) {
+            try await oversizedWriteResult.futureResult.get()
+        }
+
         // The connection is proven alive if the small datagram round-trips (client -> server ->
-        // client) after the oversized one was dropped.
+        // client) after the oversized write was rejected.
         try await clientReceivedSmall.futureResult.get()
 
         let serverReceived = serverReceivedDatagrams.withLockedValue { $0 }
