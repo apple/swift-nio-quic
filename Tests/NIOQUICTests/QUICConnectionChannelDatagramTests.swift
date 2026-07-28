@@ -17,6 +17,7 @@ import Logging
 import NIOConcurrencyHelpers
 import NIOCore
 import NIOEmbedded
+import Synchronization
 import Testing
 
 @testable import NIOQUIC
@@ -436,19 +437,27 @@ final class DatagramTestTransport: QUICDatagramProtocol {
 }
 
 /// Records the inbound datagrams and errors fired down the connection channel's pipeline.
-final class DatagramRecorder: ChannelInboundHandler {
+///
+/// The recorded state is held under a lock so the recorder can be captured by the `@Sendable`
+/// pipeline-initializer closure and read back from the test body.
+@available(anyAppleOS 26, *)
+final class DatagramRecorder: ChannelInboundHandler, Sendable {
     typealias InboundIn = ByteBuffer
 
-    var reads: [ByteBuffer] = []
-    var errors: [any Error] = []
+    private let _reads: Mutex<[ByteBuffer]> = Mutex([])
+    private let _errors: Mutex<[any Error]> = Mutex([])
+
+    var reads: [ByteBuffer] { self._reads.withLock { $0 } }
+    var errors: [any Error] { self._errors.withLock { $0 } }
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
-        self.reads.append(self.unwrapInboundIn(data))
+        let buffer = self.unwrapInboundIn(data)
+        self._reads.withLock { $0.append(buffer) }
         context.fireChannelRead(data)
     }
 
     func errorCaught(context: ChannelHandlerContext, error: any Error) {
-        self.errors.append(error)
+        self._errors.withLock { $0.append(error) }
         context.fireErrorCaught(error)
     }
 }
