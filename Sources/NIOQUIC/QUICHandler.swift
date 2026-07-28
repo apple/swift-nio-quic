@@ -416,6 +416,26 @@ public final class QUICHandler {
         }
     }
 
+    /// Hands the packet which created a connection to its channel once the connection has been
+    /// initialized.
+    ///
+    /// The connection only queues the packet: it consumes its queue when the parent channel's read
+    /// loop ends. If the connection initializer completed asynchronously then that read loop has
+    /// already ended and no 'channelReadComplete' is coming for this packet, so the end of the read
+    /// loop is signalled here instead. Without it the packet — an INITIAL, so the whole handshake —
+    /// waits for the peer to retransmit.
+    private func deliverFirstPacket(
+        _ packet: ByteBuffer,
+        to view: QUICConnectionChannel.TransportView
+    ) {
+        self.eventLoop.assertInEventLoop()
+        view.parentChannelRead(packet)
+
+        if !self.expectingChannelReadComplete {
+            view.parentChannelReadComplete()
+        }
+    }
+
     private func updateMetricsForCreatedConnection() {
         self.metrics?.quicConnectionHandlerMetrics?.openConnections?.increment()
     }
@@ -720,7 +740,7 @@ extension QUICHandler: ChannelInboundHandler {
             initPromise.futureResult.assumeIsolated().whenComplete { result in
                 switch result {
                 case .success:
-                    view.parentChannelRead(addressedEnvelope.data)
+                    self.deliverFirstPacket(addressedEnvelope.data, to: view)
                 case .failure:
                     self.connectionRegistry.removeValue(forKey: view.registeredConnectionID)
                 }
@@ -765,7 +785,7 @@ extension QUICHandler: ChannelInboundHandler {
                     case .success(let (_, output)):
                         connectionLogger.trace("QUICHandler yielding output to multiplexer")
                         multiplexerContinuation.yield(connection: output, channel: channel)
-                        view.parentChannelRead(addressedEnvelope.data)
+                        self.deliverFirstPacket(addressedEnvelope.data, to: view)
                     case .failure:
                         self.connectionRegistry.removeValue(forKey: view.registeredConnectionID)
                     }

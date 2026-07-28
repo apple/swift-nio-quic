@@ -1930,6 +1930,60 @@ final class SyncIntegrationTests: XCTestCase {
     }
     #endif
 
+    /// Tests that a server whose connection initializer completes asynchronously still handles
+    /// the connection's first packet promptly.
+    func testAsyncConnectionInitializerDoesNotStallHandshake() async throws {
+        let eventLoopGroup = MultiThreadedEventLoopGroup.singleton
+        let loggers = getChannelLoggers()
+        let host = "127.0.0.1"
+
+        let serverChannel = try await createServerChannel(
+            eventLoopGroup: eventLoopGroup,
+            host: host,
+            port: 0,
+            logger: loggers.serverLogger,
+            inboundConnectionInitializer: { connectionChannel, _ in
+                // Complete on a later tick: the client's INITIAL is handed to the connection
+                // after the UDP channel's read loop has already ended.
+                connectionChannel.eventLoop.scheduleTask(in: .milliseconds(10)) {}.futureResult
+            },
+            noMoreConnections: {}
+        ).get()
+        let serverPort = serverChannel.localAddress!.port!
+
+        let clientChannel = try await createClientChannel(
+            eventLoopGroup: eventLoopGroup,
+            host: host,
+            port: 0,
+            logger: loggers.clientLogger
+        ).get()
+
+        // The promise completes when the handshake does, which needs the server to have consumed
+        // the INITIAL.
+        let start = NIODeadline.now()
+        let (clientConnectionChannel, _) = try await clientChannel.pipeline.handler(type: QUICHandler.self)
+            .flatMap { quicHandler in
+                quicHandler.createOutboundConnection(
+                    serverName: "\(host):\(serverPort)",
+                    remoteAddress: try! .init(ipAddress: host, port: serverPort),
+                    connectionInitializer: { connectionChannel, _ in
+                        connectionChannel.eventLoop.makeSucceededVoidFuture()
+                    },
+                    inboundStreamInitializer: { streamChannel in
+                        streamChannel.eventLoop.makeSucceededVoidFuture()
+                    }
+                )
+            }.get()
+        let elapsed = NIODeadline.now() - start
+
+        // If the queued INITIAL isn't consumed until the next read loop then nothing happens
+        // until the client's PTO fires (~1s) and it retransmits.
+        XCTAssertLessThan(elapsed, .milliseconds(500))
+
+        try await clientConnectionChannel.close()
+        try await serverChannel.close()
+    }
+
     /// Tests the `scidPendingDeletion` buffering mechanism: when the peer retires the last
     /// active SCID, the retirement is deferred until a new SCID is associated.
     #if DEBUG  // Test only runs in Debug builds
