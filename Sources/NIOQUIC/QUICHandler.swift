@@ -276,31 +276,22 @@ public final class QUICHandler {
         connectionInitializer: @escaping @Sendable (any Channel, QUICStreamCreator) -> EventLoopFuture<Void>,
         inboundStreamInitializer: @escaping @Sendable (any Channel) -> EventLoopFuture<Void>
     ) -> EventLoopFuture<(any Channel, QUICStreamCreator)> {
-        let channelPromise = self.eventLoop.makePromise(of: QUICConnectionChannel.self)
-        // Completed with the creator handed to the initializer, so the caller and the initializer
-        // share one. Only completed if the initializer runs, so failures are cascaded onto it.
-        let creatorPromise = self.eventLoop.makePromise(of: QUICStreamCreator.self)
-        channelPromise.futureResult.cascadeFailure(to: creatorPromise)
-        let role = self.quicConfiguration.role
+        let promise = self.eventLoop.makePromise(of: (QUICConnectionChannel, QUICStreamCreator).self)
 
         do {
             try self.createNewConnection(
-                promise: channelPromise,
+                promise: promise,
                 serverName: serverName,
                 remoteAddress: remoteAddress
-            ) { channel in
+            ) { channel, streamCreator in
                 channel.setInboundStreamInitializer(.closure(inboundStreamInitializer))
-                let streamCreator = channel.makeStreamCreator(role: role)
-                creatorPromise.succeed(streamCreator)
                 return connectionInitializer(channel, streamCreator)
             }
         } catch {
-            channelPromise.fail(error)
+            promise.fail(error)
         }
 
-        return channelPromise.futureResult.and(creatorPromise.futureResult).map { channel, creator in
-            (channel, creator)
-        }
+        return promise.futureResult.map { channel, streamCreator in (channel, streamCreator) }
     }
 
     /// Shuts the server down gracefully.
@@ -354,10 +345,14 @@ public final class QUICHandler {
     }
 
     private func createNewConnection(
-        promise: EventLoopPromise<QUICConnectionChannel>,
+        promise: EventLoopPromise<(QUICConnectionChannel, QUICStreamCreator)>,
         serverName: String,
         remoteAddress: SocketAddress,
-        connectionInitializer: @Sendable @escaping (QUICConnectionChannel) -> EventLoopFuture<Void>
+        connectionInitializer:
+            @Sendable @escaping (
+                _ channel: QUICConnectionChannel,
+                _ streamCreator: QUICStreamCreator
+            ) -> EventLoopFuture<Void>
     ) throws {
         switch self.state {
         case .accepting:
@@ -393,15 +388,18 @@ public final class QUICHandler {
             let view = channel.transportView
             self.connectionRegistry.updateValue(view, forKey: sourceConnectionID)
 
+            let streamCreator = channel.makeStreamCreator(role: self.quicConfiguration.role)
             let activePromise = self.eventLoop.makePromise(of: Void.self)
-            view.initialize(promise: activePromise, initializer: connectionInitializer)
+            view.initialize(promise: activePromise) { channel in
+                connectionInitializer(channel, streamCreator)
+            }
 
             activePromise.futureResult
                 .assumeIsolated()
                 .whenComplete { result in
                     switch result {
                     case .success:
-                        promise.succeed(channel)
+                        promise.succeed((channel, streamCreator))
                     case .failure(let error):
                         self.connectionRegistry.removeValue(forKey: view.registeredConnectionID)
                         promise.fail(error)

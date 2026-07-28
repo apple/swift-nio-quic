@@ -45,16 +45,20 @@ extension QUICHandler {
         let eventLoop: any EventLoop
         /// The role of the underlying `QUICHandler` (client or server).
         private let role: Role
+        /// Creates a new outbound connection: the handler's 'createNewConnection'.
+        typealias CreateNewConnection = (
+            _ promise: EventLoopPromise<(QUICConnectionChannel, QUICStreamCreator)>,
+            _ serverName: String,
+            _ remoteAddress: SocketAddress,
+            _ channelInitializer:
+                @Sendable @escaping (
+                    _ channel: QUICConnectionChannel,
+                    _ streamCreator: QUICStreamCreator
+                ) -> EventLoopFuture<Void>
+        ) throws -> Void
+
         /// A method to create a new connection.
-        internal let _createNewConnection:
-            NIOLoopBound<
-                (
-                    _ promise: EventLoopPromise<QUICConnectionChannel>,
-                    _ serverName: String,
-                    _ remoteAddress: SocketAddress,
-                    _ channelInitializer: @Sendable @escaping (QUICConnectionChannel) -> EventLoopFuture<Void>
-                ) throws -> Void
-            >
+        internal let _createNewConnection: NIOLoopBound<CreateNewConnection>
 
         /// An asynchronous sequence of inbound connections.
         public let inboundConnections: InboundConnections
@@ -63,14 +67,7 @@ extension QUICHandler {
             eventLoop: any EventLoop,
             role: Role,
             inboundStreamInitializer: @escaping @Sendable (any Channel) -> EventLoopFuture<Output>,
-            createNewConnection: NIOLoopBound<
-                (
-                    _ promise: EventLoopPromise<QUICConnectionChannel>,
-                    _ serverName: String,
-                    _ remoteAddress: SocketAddress,
-                    _ channelInitializer: @Sendable @escaping (QUICConnectionChannel) -> EventLoopFuture<Void>
-                ) throws -> Void
-            >
+            createNewConnection: NIOLoopBound<CreateNewConnection>
         ) {
             self.eventLoop = eventLoop
             self.role = role
@@ -120,7 +117,7 @@ extension QUICHandler {
                     InitializerOutput
                 >
         ) async throws -> QUICConnection<InitializerOutput> {
-            let channelPromise = self.eventLoop.makePromise(of: QUICConnectionChannel.self)
+            let channelPromise = self.eventLoop.makePromise(of: (QUICConnectionChannel, QUICStreamCreator).self)
             let outputPromise = self.eventLoop.makePromise(of: QUICConnection<InitializerOutput>.self)
             channelPromise.futureResult.cascadeFailure(to: outputPromise)
             // We have to await both futures here because of two reasons:
@@ -134,10 +131,10 @@ extension QUICHandler {
                 }
             self._createNewConnection.execute { createNewConnection in
                 do {
-                    try createNewConnection(channelPromise, serverName, remoteAddress) { channel in
+                    try createNewConnection(channelPromise, serverName, remoteAddress) { channel, streamCreator in
                         let connection = QUICConnection<InitializerOutput>(
                             inboundStreamInitializer: inboundStreamInitializer,
-                            streamCreator: channel.makeStreamCreator(role: self.role)
+                            streamCreator: streamCreator
                         )
                         channel.setInboundStreamInitializer(.multiplexer(connection))
                         outputPromise.succeed(connection)

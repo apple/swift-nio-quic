@@ -425,23 +425,21 @@ extension QUICConnectionChannel.ConnectionView {
 
     /// The connection retired the given ID, update the routing table to drop the retired ID.
     func retire(_ id: QUICConnectionID) -> Bool {
-        let onRetire = self._channel._registrar.retire(id)
+        switch self._channel._registrar.retire(id) {
+        case .notRegistered:
+            return false
 
-        switch onRetire {
-        case .notRegistered, .retired:
-            ()
+        case .retired:
+            self._channel.pipeline.fireUserInboundEventTriggered(QUICSCIDRetiredEvent(scid: id))
+            return true
+
         case .retiredAndRekeyed(let key):
             // The connection was registered under the retired ID: track the key which replaced
             // it so that the connection can be unregistered when it closes.
             self._channel._registeredConnectionID = key
+            self._channel.pipeline.fireUserInboundEventTriggered(QUICSCIDRetiredEvent(scid: id))
+            return true
         }
-
-        if onRetire.didRetire {
-            let event = QUICSCIDRetiredEvent(scid: id)
-            self._channel.pipeline.fireUserInboundEventTriggered(event)
-        }
-
-        return onRetire.didRetire
     }
 
     /// Generate a new connection ID for the connection.

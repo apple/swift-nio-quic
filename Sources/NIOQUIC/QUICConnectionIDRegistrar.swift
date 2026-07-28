@@ -46,16 +46,6 @@ enum OnRetireConnectionID: Hashable {
     /// The ID was retired. It was the key the connection was registered under, so `key` was
     /// promoted in its place: the connection must use `key` to unregister itself.
     case retiredAndRekeyed(key: QUICConnectionID)
-
-    /// Whether anything was retired.
-    var didRetire: Bool {
-        switch self {
-        case .notRegistered:
-            return false
-        case .retired, .retiredAndRekeyed:
-            return true
-        }
-    }
 }
 
 @available(anyAppleOS 26, *)
