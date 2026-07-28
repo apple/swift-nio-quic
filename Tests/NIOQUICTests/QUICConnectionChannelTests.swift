@@ -45,7 +45,7 @@ private func makeChannel(
         channel.transportView.initialize(promise: promise, initializer: initializer)
 
         // Activate the connection.
-        channel.connectionView.handshakeCompleted()
+        channel.connectionView.handshakeCompleted(peerMaxDatagramFrameSize: 0)
         channel.connectionView.drainOutbound()
 
         try promise.futureResult.wait()
@@ -292,7 +292,7 @@ struct QUICConnectionChannelTests {
             #expect(!channel.isActive)
 
             // Complete handshake to activate.
-            channel.connectionView.handshakeCompleted()
+            channel.connectionView.handshakeCompleted(peerMaxDatagramFrameSize: 0)
             channel.connectionView.drainOutbound()
             #expect(channel.isActive)
         }
@@ -306,7 +306,7 @@ struct QUICConnectionChannelTests {
             view.initialize(promise: promise) { $0.eventLoop.makeSucceededVoidFuture() }
 
             // Only completes when the handshake completes.
-            channel.connectionView.handshakeCompleted()
+            channel.connectionView.handshakeCompleted(peerMaxDatagramFrameSize: 0)
             channel.connectionView.drainOutbound()
 
             try promise.futureResult.wait()
@@ -656,6 +656,13 @@ final class RecordingConnection: QUICConnectionProtocol {
     var outboundPackets: Deque<ByteBuffer>
     var events: Deque<Event>
 
+    /// Datagrams accepted by `writeDatagram(_:)`, and the number of times they were flushed.
+    var writtenDatagrams: [ByteBuffer]
+    var datagramFlushCount: Int
+    /// What `writeDatagram(_:)` returns. Flip to `false` to simulate a connection which can't
+    /// accept datagrams (e.g. it has no datagram flow attached).
+    var writeDatagramResult: Bool
+
     /// Futures returned by `closeAllStreams()`. Empty means `channelInactive` fires
     /// synchronously; a pending future defers it until the future completes.
     var streamCloseFutures: [EventLoopFuture<Void>]
@@ -675,6 +682,9 @@ final class RecordingConnection: QUICConnectionProtocol {
         self.outboundPackets = []
         self.events = []
         self.streamCloseFutures = []
+        self.writtenDatagrams = []
+        self.datagramFlushCount = 0
+        self.writeDatagramResult = true
     }
 
     func receivePacket(_ packet: ByteBuffer) -> Int {
@@ -700,6 +710,17 @@ final class RecordingConnection: QUICConnectionProtocol {
     }
 
     func quiesceStreams() {
+    }
+
+    func writeDatagram(_ datagram: ByteBuffer) -> Bool {
+        if self.writeDatagramResult {
+            self.writtenDatagrams.append(datagram)
+        }
+        return self.writeDatagramResult
+    }
+
+    func flushDatagrams() {
+        self.datagramFlushCount += 1
     }
 }
 
@@ -736,6 +757,13 @@ struct NoOpConnection: QUICConnectionProtocol {
     }
 
     func quiesceStreams() {
+    }
+
+    func writeDatagram(_ datagram: ByteBuffer) -> Bool {
+        false
+    }
+
+    func flushDatagrams() {
     }
 }
 

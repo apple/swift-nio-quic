@@ -38,10 +38,13 @@ public protocol QUICConnectionIDRegistrar {
 @available(anyAppleOS 26, *)
 extension QUICConnectionChannel {
     enum ConnectionIDRegistrar: QUICConnectionIDRegistrar {
+        case live(QUICHandler.RegistrarView)
         case test(any QUICConnectionIDRegistrar)
 
         func associate(_ newID: QUICConnectionID, with existingID: QUICConnectionID) -> Bool {
             switch self {
+            case .live(let registrar):
+                return registrar.associate(newID, with: existingID)
             case .test(let registrar):
                 return registrar.associate(newID, with: existingID)
             }
@@ -49,6 +52,8 @@ extension QUICConnectionChannel {
 
         func retire(_ connectionID: QUICConnectionID) -> Bool {
             switch self {
+            case .live(let registrar):
+                return registrar.retire(connectionID)
             case .test(let registrar):
                 return registrar.retire(connectionID)
             }
@@ -56,6 +61,8 @@ extension QUICConnectionChannel {
 
         func generateID() -> QUICConnectionID {
             switch self {
+            case .live(let registrar):
+                return registrar.generateID()
             case .test(let registrar):
                 return registrar.generateID()
             }

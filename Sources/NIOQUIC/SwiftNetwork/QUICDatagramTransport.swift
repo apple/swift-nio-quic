@@ -27,39 +27,10 @@ import Musl
 /// Implementation of `QUICDatagramProtocol` backed by a SwiftNetwork QUIC datagram flow.
 ///
 /// Conforms to SwiftNetwork's `InboundDatagramHandler` to receive inbound datagram events and
-/// `ProtocolInstanceContainer` to be addressable as a protocol instance; `QUICDatagramHandler`
-/// talks to it only through `QUICDatagramProtocol`.
+/// `ProtocolInstanceContainer` to be addressable as a protocol instance; the connection which owns
+/// it talks to it only through `QUICDatagramProtocol`.
 @available(anyAppleOS 26, *)
 final class QUICDatagramTransport: ProtocolInstanceContainer, InboundDatagramHandler {
-
-    // Dispatch to support testing as well as concrete implementation.
-    enum Reader {
-        case none
-        case testing(any QUICDatagramReaderProtocol)
-        case datagramhandler(QUICDatagramHandler)
-
-        func error(_ error: any Error) {
-            switch self {
-            case .none:
-                break
-            case .testing(let reader):
-                reader.error(error)
-            case .datagramhandler(let handler):
-                handler.error(error)
-            }
-        }
-
-        func read(datagram: ByteBuffer) {
-            switch self {
-            case .none:
-                break
-            case .testing(let reader):
-                reader.read(datagram: datagram)
-            case .datagramhandler(let handler):
-                handler.read(datagram: datagram)
-            }
-        }
-    }
 
     typealias LowerProtocol = OutboundDatagramLinkage
 
@@ -76,11 +47,11 @@ final class QUICDatagramTransport: ProtocolInstanceContainer, InboundDatagramHan
     /// Datagrams written since the last successful `flush()`.
     private var bufferedDatagrams: TinyArray<ByteBuffer> = []
 
-    /// The delegate notified of inbound datagrams and errors, set via `setReader(_:)`.
-    private var quicDatagramReader: Reader = .none
+    /// The connection notified of inbound datagrams and errors.
+    private var reader: SwiftNetworkQUICConnection?
 
     init(role: Role, logger: Logger, context: NetworkContext) {
-        self.logPrefix = "[\(role.description)][DatagramHandler]"
+        self.logPrefix = "[\(role.description)][DatagramTransport]"
         self.logger = logger
         self.context = context
         self.reference = ProtocolInstanceReference(custom: self)
@@ -100,7 +71,6 @@ final class QUICDatagramTransport: ProtocolInstanceContainer, InboundDatagramHan
 
 @available(anyAppleOS 26, *)
 extension QUICDatagramTransport: QUICDatagramProtocol {
-
     /// Buffers `datagram` for the next `flush()`, always returning `true`.
     ///
     /// Datagram delivery is unreliable: buffering here always succeeds, but the datagram may still
@@ -130,7 +100,7 @@ extension QUICDatagramTransport: QUICDatagramProtocol {
             self.bufferedDatagrams.removeAll(where: { _ in true })
         } catch {
             self.logger.error("QUIC send datagrams: \(error)")
-            self.quicDatagramReader.error(error)
+            self.reader?.error(error)
         }
     }
 
@@ -152,14 +122,14 @@ extension QUICDatagramTransport: QUICDatagramProtocol {
         self.reference = ProtocolInstanceReference()
 
         // Remove reference to reader.
-        self.quicDatagramReader = .none
+        self.reader = nil
     }
 
-    /// Register a reader for datagrams.
+    /// Register the connection which owns this transport as its reader.
     ///
     /// This can only hold one endpoint. Each call overwrite the previously set reader.
-    func setReader(_ reader: any QUICDatagramReaderProtocol) {
-        self.quicDatagramReader = .testing(reader)
+    func setReader(connection: SwiftNetworkQUICConnection) {
+        self.reader = connection
     }
 }
 
@@ -168,12 +138,9 @@ extension QUICDatagramTransport {
     /// Drains all datagrams currently available on the flow and forwards each to the reader.
     /// Does nothing if no reader has been set.
     func handleInboundDataAvailableEvent(_ from: ProtocolInstanceReference) {
-        switch self.quicDatagramReader {
-        case .none:
+        guard let reader = self.reader else {
             self.log("handle inbound data, but no reader set")
             return
-        case .datagramhandler, .testing:
-            break
         }
 
         do throws(NetworkError) {
@@ -189,7 +156,7 @@ extension QUICDatagramTransport {
                             buffer.copyMemory(from: UnsafeRawBufferPointer(spanBuffer))
                             return spanBuffer.count
                         }
-                        self.quicDatagramReader.read(datagram: datagram)
+                        reader.read(datagram: datagram)
                     }
                     frame.finalize(success: true)
                     return true

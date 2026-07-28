@@ -71,12 +71,6 @@ struct QUICRequestRetireDCIDEvent: Sendable {
     }
 }
 
-/// Internal event fired when Swift QUIC produces outbound data outside of the
-/// normal state-machine-initiated write path (e.g. from PTO timers).
-/// The connection child channel state machine handles this by draining the
-/// finalized output queue.
-struct QUICDrainOutputEvent {}
-
 /// Test-only event: Injects a connection ID into the retired SCID set.
 /// This allows triggering the protocol violation path when the peer reissues this ID.
 /// This event will be handled by the stream state machine.

@@ -22,4 +22,10 @@ extension NIOLoopBound {
             execute(self.value)
         }
     }
+
+    func execute(_ execute: @Sendable @escaping (Value) -> Void) {
+        self.eventLoop.execute {
+            execute(self.value)
+        }
+    }
 }

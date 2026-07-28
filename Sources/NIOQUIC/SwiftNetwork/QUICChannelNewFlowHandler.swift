@@ -111,6 +111,12 @@ final class QUICChannelNewFlowHandler: ProtocolInstanceContainer, InboundFlowHan
         self.connectionChannel = channel
     }
 
+    // Drop the strong reference to the connection channel, breaking the channel <-> connection
+    // retain cycle once the channel has gone inactive.
+    func clearConnectionChannel() {
+        self.connectionChannel = nil
+    }
+
     /// Local logging function to debug the datapath
     ///
     /// This layer adds the context and fetches the message only if the debug flags are enabled.
@@ -165,12 +171,7 @@ final class QUICChannelNewFlowHandler: ProtocolInstanceContainer, InboundFlowHan
     // Received connected event
     func handleConnectedEvent(_ from: SwiftNetwork.ProtocolInstanceReference) {
         log("connected received")
-        if self.connectionView.connected() {
-            // Only attach if the connection setup succeeded. The state machine
-            // in the connection will reject repeated events and connected
-            // events while the connection is already closing.
-            self.attachDatagramFlow()
-        }
+        self.connectionView.connected()
     }
 
     // Received disconnected event
@@ -314,22 +315,15 @@ extension QUICChannelNewFlowHandler: UpperProtocolHandler {
 
 @available(anyAppleOS 26, *)
 extension QUICChannelNewFlowHandler {
-    /// Attach the datagram flow once the connection is established.
+    /// Attach the datagram flow to the connection.
     ///
     /// Note: This must run after the peer's transport parameters are applied: SwiftNetwork computes the
     /// flow's usable datagram size only at attach time (`updateUsableDatagramFrameSize`), from
     /// `remoteMaxDatagramFrameSize`, which is `0` until the handshake completes. Attaching earlier
     /// freezes the usable size at `0` and datagrams can never be sent.
-    private func attachDatagramFlow() {
-        guard
-            let datagramHandler = try? self.connectionChannel?.pipeline.syncOperations.handler(
-                type: QUICDatagramHandler.self
-            )
-        else {
-            self.logger.warning("\(self.logPrefix) No datagram channel handler found in pipeline")
-            return
-        }
-
+    ///
+    /// - Returns: The transport for the attached flow, or `nil` if it could not be attached.
+    func attachDatagramFlow() -> QUICDatagramTransport? {
         do {
             let transport = QUICDatagramTransport(
                 role: self.role,
@@ -358,16 +352,10 @@ extension QUICChannelNewFlowHandler {
             transport.setFlowLinkage(linkage)
             linkage.invokeConnect(transport.reference)
 
-            // Propagate the announced max frame size of the peer. Assume 0 (the peer does not accept
-            // datagrams) if the value is not available on the metadata.
-            //
-            // Better still, use SwiftNetwork's *usable* datagram size, which already subtracts framing
-            // overhead and path MTU (`QUICDatagramFlow.updateUsableDatagramFrameSize`) — passing that
-            // would make the handler's size check exact instead of the current payload-only estimate.
-            let remoteFrameSize = self.getConnectionMetadata()?.connectionMetadata?.remoteMaxDatagramFrameSize ?? 0
-            datagramHandler.setBackend(to: transport, withPeerMaxDatagramFrameSize: Int(remoteFrameSize))
+            return transport
         } catch {
             self.logger.error("\(self.logPrefix) Failed to attach QUIC datagram flow: \(error)")
+            return nil
         }
     }
 }

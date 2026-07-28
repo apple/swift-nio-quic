@@ -14,22 +14,22 @@
 
 import NIOCore
 
-/// The datagram transport interface `QUICDatagramHandler` writes to and reads from.
+/// The datagram transport interface `SwiftNetworkQUICConnection` writes to and reads from.
 ///
-/// This exists so `QUICDatagramHandler` does not depend on the SwiftNetwork-backed
+/// This exists so the connection does not depend on the SwiftNetwork-backed
 /// `QUICDatagramTransport` directly: production code is backed by `QUICDatagramTransport`, while
-/// tests can install a a testing `setTestBackend(transport:)`.
+/// tests can install a test double.
 @available(anyAppleOS 26, *)
 protocol QUICDatagramProtocol {
 
     /// Buffers `datagram` to be sent on the next `flush()`.
     ///
-    /// The peer's advertised `max_datagram_frame_size` is checked by `QUICDatagramHandler`
+    /// The peer's advertised `max_datagram_frame_size` is checked by the connection channel
     /// *before* this is called (that path fails with `QUICError.datagramTooLarge`), so the return
     /// value is the transport's own accept/reject signal.
     ///
     /// - Returns: `true` if the datagram was accepted and buffered for the next `flush()`; `false`
-    ///   if the transport could not accept it (a transport-level constraint), which the handler
+    ///   if the transport could not accept it (a transport-level constraint), which the channel
     ///   surfaces to the caller as `QUICError.datagramWriteFailed`.
     func write(datagram: ByteBuffer) -> Bool
 
@@ -39,20 +39,56 @@ protocol QUICDatagramProtocol {
     /// Detaches the underlying flow and clears the current reader.
     func close()
 
-    /// Sets the delegate that receives datagrams and errors from this transport.
-    func setReader(_ reader: any QUICDatagramReaderProtocol)
+    /// Sets the connection which receives datagrams and errors from this transport.
+    func setReader(connection: SwiftNetworkQUICConnection)
 
 }
 
-/// Receive datagrams and errors from a `QUICDatagramProtocol` conformance.
 @available(anyAppleOS 26, *)
-protocol QUICDatagramReaderProtocol: AnyObject {
-    /// Called once per datagram received from the peer.
-    ///
-    /// - Precondition: The propagated datagram must adhere to the frame size
-    ///     limits advertised by this peer.
-    func read(datagram: ByteBuffer)
+extension SwiftNetworkQUICConnection {
+    /// The connection's datagram transport, either the real SwiftNetwork-backed flow
+    /// (statically dispatched) or an existential test conformance.
+    enum DatagramTransport {
+        case live(QUICDatagramTransport)
+        case test(any QUICDatagramProtocol)
+    }
+}
 
-    /// Called when the underlying transport reports an error.
-    func error(_ error: any Error)
+@available(anyAppleOS 26, *)
+extension SwiftNetworkQUICConnection.DatagramTransport: QUICDatagramProtocol {
+    func write(datagram: ByteBuffer) -> Bool {
+        switch self {
+        case .live(let transport):
+            transport.write(datagram: datagram)
+        case .test(let transport):
+            transport.write(datagram: datagram)
+        }
+    }
+
+    func flush() {
+        switch self {
+        case .live(let transport):
+            transport.flush()
+        case .test(let transport):
+            transport.flush()
+        }
+    }
+
+    func close() {
+        switch self {
+        case .live(let transport):
+            transport.close()
+        case .test(let transport):
+            transport.close()
+        }
+    }
+
+    func setReader(connection: SwiftNetworkQUICConnection) {
+        switch self {
+        case .live(let transport):
+            transport.setReader(connection: connection)
+        case .test(let transport):
+            transport.setReader(connection: connection)
+        }
+    }
 }

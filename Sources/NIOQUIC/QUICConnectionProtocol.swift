@@ -66,6 +66,19 @@ protocol QUICConnectionProtocol {
         reason: String
     ) -> Bool
 
+    /// Buffers an application datagram (RFC 9221) to be sent on the next ``flushDatagrams()``.
+    ///
+    /// The peer's advertised `max_datagram_frame_size` is checked by the channel *before* this is
+    /// called, so the return value is the connection's own accept/reject signal.
+    ///
+    /// - Parameter datagram: The datagram to send to the peer.
+    /// - Returns: `true` if the datagram was buffered, `false` if the connection could not accept
+    ///   it (e.g. it has no datagram flow attached).
+    func writeDatagram(_ datagram: ByteBuffer) -> Bool
+
+    /// Sends any datagrams buffered since the last ``flushDatagrams()``.
+    func flushDatagrams()
+
     /// Closes all streams on the connection and returns a future per stream that
     /// completes once that stream's teardown finishes.
     ///
@@ -81,7 +94,25 @@ extension QUICConnectionChannel {
     /// The channel's connection, either the real SwiftNetwork-backed connection
     /// (statically dispatched) or an existential test conformance.
     enum Connection {
+        case live(SwiftNetworkQUICConnection)
         case test(any QUICConnectionProtocol)
+
+        func withLiveOnly(
+            promise: EventLoopPromise<Void>?,
+            execute body: (SwiftNetworkQUICConnection) throws -> Void
+        ) {
+            switch self {
+            case .live(let connection):
+                do {
+                    try body(connection)
+                    promise?.succeed()
+                } catch {
+                    promise?.fail(error)
+                }
+            case .test:
+                promise?.fail(ChannelError.operationUnsupported)
+            }
+        }
     }
 }
 
@@ -89,6 +120,8 @@ extension QUICConnectionChannel {
 extension QUICConnectionChannel.Connection: QUICConnectionProtocol {
     var localAddress: SocketAddress {
         switch self {
+        case .live(let connection):
+            connection.localAddress
         case .test(let connection):
             connection.localAddress
         }
@@ -96,6 +129,8 @@ extension QUICConnectionChannel.Connection: QUICConnectionProtocol {
 
     var remoteAddress: SocketAddress {
         switch self {
+        case .live(let connection):
+            connection.remoteAddress
         case .test(let connection):
             connection.remoteAddress
         }
@@ -104,6 +139,8 @@ extension QUICConnectionChannel.Connection: QUICConnectionProtocol {
     @discardableResult
     func receivePacket(_ packet: ByteBuffer) -> Int {
         switch self {
+        case .live(let connection):
+            connection.receivePacket(packet)
         case .test(let connection):
             connection.receivePacket(packet)
         }
@@ -111,6 +148,8 @@ extension QUICConnectionChannel.Connection: QUICConnectionProtocol {
 
     func receivePacketsComplete() {
         switch self {
+        case .live(let connection):
+            connection.receivePacketsComplete()
         case .test(let connection):
             connection.receivePacketsComplete()
         }
@@ -118,6 +157,8 @@ extension QUICConnectionChannel.Connection: QUICConnectionProtocol {
 
     func nextPacketToSend() -> ByteBuffer? {
         switch self {
+        case .live(let connection):
+            connection.nextPacketToSend()
         case .test(let connection):
             connection.nextPacketToSend()
         }
@@ -125,6 +166,12 @@ extension QUICConnectionChannel.Connection: QUICConnectionProtocol {
 
     func close(isApplicationClose: Bool, errorCode: Int64, reason: String) -> Bool {
         switch self {
+        case .live(let connection):
+            return connection.close(
+                isApplicationClose: isApplicationClose,
+                errorCode: errorCode,
+                reason: reason
+            )
         case .test(let connection):
             return connection.close(
                 isApplicationClose: isApplicationClose,
@@ -136,15 +183,46 @@ extension QUICConnectionChannel.Connection: QUICConnectionProtocol {
 
     func closeAllStreams() -> [EventLoopFuture<Void>] {
         switch self {
+        case .live(let connection):
+            connection.closeAllStreams()
         case .test(let connection):
             connection.closeAllStreams()
         }
     }
 
+    func writeDatagram(_ datagram: ByteBuffer) -> Bool {
+        switch self {
+        case .live(let connection):
+            connection.writeDatagram(datagram)
+        case .test(let connection):
+            connection.writeDatagram(datagram)
+        }
+    }
+
+    func flushDatagrams() {
+        switch self {
+        case .live(let connection):
+            connection.flushDatagrams()
+        case .test(let connection):
+            connection.flushDatagrams()
+        }
+    }
+
     func quiesceStreams() {
         switch self {
+        case .live(let connection):
+            connection.quiesceStreams()
         case .test(let connection):
             connection.quiesceStreams()
+        }
+    }
+
+    func dropChannelReferences() {
+        switch self {
+        case .live(let connection):
+            connection.dropChannelReferences()
+        case .test:
+            ()  // Test connections don't retain the channel.
         }
     }
 }
