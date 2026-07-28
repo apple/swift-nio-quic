@@ -66,6 +66,13 @@ final class QUICConnectionChannel: @unchecked Sendable {
     /// A registrar for connection IDs.
     private let _registrar: ConnectionIDRegistrar
 
+    /// The connection ID the connection is registered under in the parent channel's routing table.
+    ///
+    /// Initially the connection's source connection ID. If the peer retires that ID while other
+    /// IDs are associated with the connection then one of those is promoted in its place and
+    /// recorded here, so that the connection can always be unregistered.
+    private var _registeredConnectionID: QUICConnectionID
+
     /// A view into the QUIC handler in the UDP channel, for outbound operations.
     private let _transport: Transport
 
@@ -118,7 +125,8 @@ final class QUICConnectionChannel: @unchecked Sendable {
         connection: Connection,
         registrar: ConnectionIDRegistrar,
         transport: Transport,
-        isServer: Bool
+        isServer: Bool,
+        sourceConnectionID: QUICConnectionID
     ) {
         self.parent = udpChannel
 
@@ -134,6 +142,7 @@ final class QUICConnectionChannel: @unchecked Sendable {
 
         self._connection = connection
         self._registrar = registrar
+        self._registeredConnectionID = sourceConnectionID
         self._transport = transport
         self._lifecycle = Lifecycle()
         self._autoRead = true
@@ -416,14 +425,23 @@ extension QUICConnectionChannel.ConnectionView {
 
     /// The connection retired the given ID, update the routing table to drop the retired ID.
     func retire(_ id: QUICConnectionID) -> Bool {
-        let retired = self._channel._registrar.retire(id)
+        let onRetire = self._channel._registrar.retire(id)
 
-        if retired {
+        switch onRetire {
+        case .notRegistered, .retired:
+            ()
+        case .retiredAndRekeyed(let key):
+            // The connection was registered under the retired ID: track the key which replaced
+            // it so that the connection can be unregistered when it closes.
+            self._channel._registeredConnectionID = key
+        }
+
+        if onRetire.didRetire {
             let event = QUICSCIDRetiredEvent(scid: id)
             self._channel.pipeline.fireUserInboundEventTriggered(event)
         }
 
-        return retired
+        return onRetire.didRetire
     }
 
     /// Generate a new connection ID for the connection.
@@ -485,6 +503,15 @@ extension QUICConnectionChannel {
 
         var eventLoop: any EventLoop {
             self.channel.eventLoop
+        }
+
+        /// The connection ID the connection is currently registered under.
+        ///
+        /// This may not be the ID the connection was created with: if the peer retires that ID
+        /// another of the connection's IDs is promoted in its place.
+        var registeredConnectionID: QUICConnectionID {
+            self.channel.eventLoop.assertInEventLoop()
+            return self.channel._registeredConnectionID
         }
 
         init(_ channel: QUICConnectionChannel) {

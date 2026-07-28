@@ -26,13 +26,36 @@ protocol QUICConnectionIDRegistrar {
     /// Retires `connectionID`.
     ///
     /// - Parameter connectionID: The ID to retire.
-    /// - Returns: `false` if it wasn't registered.
-    func retire(_ connectionID: QUICConnectionID) -> Bool
+    /// - Returns: The outcome of the retirement, including the replacement key if the connection
+    ///   was registered under `connectionID` and had to be re-keyed.
+    func retire(_ connectionID: QUICConnectionID) -> OnRetireConnectionID
 
     /// Generates a new connection ID.
     ///
     /// - Returns: A new connection ID.
     func generateID() -> QUICConnectionID
+}
+
+/// The outcome of retiring a connection ID from the routing table.
+@available(anyAppleOS 26, *)
+enum OnRetireConnectionID: Hashable {
+    /// The ID wasn't registered, nothing was retired.
+    case notRegistered
+    /// The ID was retired and the connection is still registered under the same key.
+    case retired
+    /// The ID was retired. It was the key the connection was registered under, so `key` was
+    /// promoted in its place: the connection must use `key` to unregister itself.
+    case retiredAndRekeyed(key: QUICConnectionID)
+
+    /// Whether anything was retired.
+    var didRetire: Bool {
+        switch self {
+        case .notRegistered:
+            return false
+        case .retired, .retiredAndRekeyed:
+            return true
+        }
+    }
 }
 
 @available(anyAppleOS 26, *)
@@ -50,7 +73,7 @@ extension QUICConnectionChannel {
             }
         }
 
-        func retire(_ connectionID: QUICConnectionID) -> Bool {
+        func retire(_ connectionID: QUICConnectionID) -> OnRetireConnectionID {
             switch self {
             case .live(let registrar):
                 return registrar.retire(connectionID)

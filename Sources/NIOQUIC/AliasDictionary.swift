@@ -146,6 +146,18 @@ struct AliasDictionary<Key: Hashable, Value> {
         return true
     }
 
+    /// The outcome of removing a single key via ``removeKey(_:)``.
+    enum OnRemoveKey: Hashable {
+        /// The key wasn't found, nothing was removed.
+        case notFound
+        /// The key was removed. It was either an alias, or a canonical key with no aliases (in
+        /// which case the value was removed with it).
+        case removed
+        /// The canonical key was removed and the value preserved: the associated key was promoted
+        /// to be the value's new canonical key.
+        case removedAndPromoted(Key)
+    }
+
     /// Removes a single key from the dictionary, preserving the value where possible.
     ///
     /// Behavior depends on what `key` is:
@@ -158,31 +170,30 @@ struct AliasDictionary<Key: Hashable, Value> {
     /// ``removeValue(forKey:)``.
     ///
     /// - Parameter key: The key to remove. May be the canonical key or an alias.
-    /// - Returns: `true` if the key was removed; `false` if `key` was not found.
+    /// - Returns: What was removed, and the promoted key if the value was re-keyed.
     /// - Complexity: O(*a*) where *a* is the number of aliases registered for the affected
     ///   value. O(1) if `key` is unknown.
     @discardableResult
-    mutating func removeKey(_ key: Key) -> Bool {
-        let removed: Bool
+    mutating func removeKey(_ key: Key) -> OnRemoveKey {
+        let onRemoveKey: OnRemoveKey
 
         if let value = self.storage.removeValue(forKey: key) {
-            removed = true
-
             // Retiring the canonical key. Promote an alias if one exists.
-            if var aliases = self.aliasesForKey.removeValue(forKey: key) {
-                if let promoted = aliases.popLast() {
-                    // 'key' was canonical and a replacement alias exists:
-                    // - store the value under the promoted alias
-                    // - drop the promoted alias's now-stale entry in the alias lookup
-                    // - point the remaining aliases at the promoted key
-                    // - record the remaining aliases under the promoted key
-                    self.storage[promoted] = value
-                    self.keyForAlias.removeValue(forKey: promoted)
-                    for alias in aliases {
-                        self.keyForAlias[alias] = promoted
-                    }
-                    self.aliasesForKey[promoted] = aliases
+            if var aliases = self.aliasesForKey.removeValue(forKey: key), let promoted = aliases.popLast() {
+                // 'key' was canonical and a replacement alias exists:
+                // - store the value under the promoted alias
+                // - drop the promoted alias's now-stale entry in the alias lookup
+                // - point the remaining aliases at the promoted key
+                // - record the remaining aliases under the promoted key
+                self.storage[promoted] = value
+                self.keyForAlias.removeValue(forKey: promoted)
+                for alias in aliases {
+                    self.keyForAlias[alias] = promoted
                 }
+                self.aliasesForKey[promoted] = aliases
+                onRemoveKey = .removedAndPromoted(promoted)
+            } else {
+                onRemoveKey = .removed
             }
         } else if let canonical = self.keyForAlias[key] {
             assert(self.storage.keys.contains(canonical))
@@ -191,9 +202,9 @@ struct AliasDictionary<Key: Hashable, Value> {
                 // '!' okay: index isn't 'nil' so the array must exist.
                 self.aliasesForKey[canonical]!.removeWithoutPreservingOrder(at: index)
                 self.keyForAlias.removeValue(forKey: key)
-                removed = true
+                onRemoveKey = .removed
             } else {
-                removed = false
+                onRemoveKey = .notFound
                 assertionFailure(
                     """
                     Alias (\(key)) maps to canonical key (\(canonical)) but the canonical key has \
@@ -203,10 +214,10 @@ struct AliasDictionary<Key: Hashable, Value> {
             }
         } else {
             // Unknown key.
-            removed = false
+            onRemoveKey = .notFound
         }
 
-        return removed
+        return onRemoveKey
     }
 
     /// Removes the value for `key`, along with all keys that reference it.

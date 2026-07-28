@@ -28,6 +28,7 @@ private func makeChannel(
     connection: (any QUICConnectionProtocol)? = nil,
     registrar: any QUICConnectionIDRegistrar = RecordingRegistrar(),
     transport: any QUICTransport = RecordingTransport(),
+    sourceConnectionID: QUICConnectionID = .zero,
     initializer: ((any Channel) -> EventLoopFuture<Void>)? = nil
 ) throws -> QUICConnectionChannel {
     let connection = connection ?? NoOpConnection()
@@ -37,7 +38,8 @@ private func makeChannel(
         connection: .test(connection),
         registrar: .test(registrar),
         transport: .test(transport),
-        isServer: isServer
+        isServer: isServer,
+        sourceConnectionID: sourceConnectionID
     )
 
     if let initializer {
@@ -207,6 +209,28 @@ struct QUICConnectionChannelTests {
             #expect(view.retire(id1))
 
             #expect(registrar.events == [.associated(id1, id2), .retired(id1)])
+        }
+
+        @available(anyAppleOS 26, *)
+        @Test
+        func retireRekeysTheConnection() throws {
+            var generator = RandomQUICConnectionIDGenerator()
+            let sourceConnectionID = generator.next()
+            let promoted = generator.next()
+
+            let registrar = RecordingRegistrar()
+            let channel = try makeChannel(registrar: registrar, sourceConnectionID: sourceConnectionID)
+            #expect(channel.transportView.registeredConnectionID == sourceConnectionID)
+
+            // Retiring an ID the connection isn't registered under doesn't re-key it.
+            #expect(channel.connectionView.retire(generator.next()))
+            #expect(channel.transportView.registeredConnectionID == sourceConnectionID)
+
+            // Retiring the ID it is registered under promotes another of its IDs in its place;
+            // the transport must use the promoted ID to unregister the connection.
+            registrar.retireResult = .retiredAndRekeyed(key: promoted)
+            #expect(channel.connectionView.retire(sourceConnectionID))
+            #expect(channel.transportView.registeredConnectionID == promoted)
         }
 
         @available(anyAppleOS 26, *)
@@ -646,9 +670,13 @@ final class RecordingRegistrar: QUICConnectionIDRegistrar {
     private(set) var events: [Event]
     private let generate: () -> QUICConnectionID
 
+    /// What `retire(_:)` returns.
+    var retireResult: OnRetireConnectionID
+
     init(_ generate: @escaping () -> QUICConnectionID = { .zero }) {
         self.events = []
         self.generate = generate
+        self.retireResult = .retired
     }
 
     func associate(_ newID: QUICConnectionID, with existingID: QUICConnectionID) -> Bool {
@@ -656,9 +684,9 @@ final class RecordingRegistrar: QUICConnectionIDRegistrar {
         return true
     }
 
-    func retire(_ connectionID: QUICConnectionID) -> Bool {
+    func retire(_ connectionID: QUICConnectionID) -> OnRetireConnectionID {
         self.events.append(.retired(connectionID))
-        return true
+        return self.retireResult
     }
 
     func generateID() -> QUICConnectionID {
