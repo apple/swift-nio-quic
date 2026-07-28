@@ -13,7 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 @available(anyAppleOS 26, *)
-public protocol QUICConnectionIDRegistrar {
+protocol QUICConnectionIDRegistrar {
     /// Associate `newID` to the same connection as `existingID`.
     ///
     /// - Parameters:
