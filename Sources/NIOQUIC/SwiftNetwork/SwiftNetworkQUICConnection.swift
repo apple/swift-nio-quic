@@ -1431,17 +1431,16 @@ extension SwiftNetworkQUICConnection {
 
     /// Trigger outbound writes that drain `finalizedOutput`. This should only be called when no outbound drain is in progress.
     func triggerOutOfBandWriteEvent() {
-        switch self.connectionStateMachine.receiveOutOfBandWriteRequest(hasConnectionChannel: self.channelView != nil) {
+        switch self.connectionStateMachine.receiveOutOfBandWriteRequest(connectionChannel: self.channelView) {
         case .ignoreRequest:
             log("Ignoring request to trigger write")
-            return
         case .unexpectedRequest:
-            self.logger.error("[\(self.role)] Dropping unexpected request to trigger write")
-        case .triggerEvent:
-            if let channelView = self.channelView {
-                log("Triggering out-of-band outbound write event")
-                channelView.drainOutbound()
-            }
+            // Not worth more than a trace: this is called for every batch of frames finalized, so
+            // it's expected once the connection is closed or has dropped its channel.
+            log("Dropping unexpected request to trigger write")
+        case .triggerEvent(let channelView):
+            log("Triggering out-of-band outbound write event")
+            channelView.drainOutbound()
         }
     }
 }

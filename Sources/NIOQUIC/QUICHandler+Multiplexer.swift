@@ -49,7 +49,7 @@ extension QUICHandler {
         internal let _createNewConnection:
             NIOLoopBound<
                 (
-                    _ promise: EventLoopPromise<any Channel>,
+                    _ promise: EventLoopPromise<QUICConnectionChannel>,
                     _ serverName: String,
                     _ remoteAddress: SocketAddress,
                     _ channelInitializer: @Sendable @escaping (QUICConnectionChannel) -> EventLoopFuture<Void>
@@ -65,7 +65,7 @@ extension QUICHandler {
             inboundStreamInitializer: @escaping @Sendable (any Channel) -> EventLoopFuture<Output>,
             createNewConnection: NIOLoopBound<
                 (
-                    _ promise: EventLoopPromise<any Channel>,
+                    _ promise: EventLoopPromise<QUICConnectionChannel>,
                     _ serverName: String,
                     _ remoteAddress: SocketAddress,
                     _ channelInitializer: @Sendable @escaping (QUICConnectionChannel) -> EventLoopFuture<Void>
@@ -120,7 +120,7 @@ extension QUICHandler {
                     InitializerOutput
                 >
         ) async throws -> QUICConnection<InitializerOutput> {
-            let channelPromise = self.eventLoop.makePromise(of: (any Channel).self)
+            let channelPromise = self.eventLoop.makePromise(of: QUICConnectionChannel.self)
             let outputPromise = self.eventLoop.makePromise(of: QUICConnection<InitializerOutput>.self)
             channelPromise.futureResult.cascadeFailure(to: outputPromise)
             // We have to await both futures here because of two reasons:

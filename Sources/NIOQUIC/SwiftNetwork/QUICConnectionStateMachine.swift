@@ -622,39 +622,39 @@ struct QUICConnectionStateMachine: ~Copyable {
 
     enum OutOfBandWriteRequestAction: ~Copyable {
         case unexpectedRequest
-        case triggerEvent
+        case triggerEvent(QUICConnectionChannel.ConnectionView)
         case ignoreRequest
     }
 
     mutating func receiveOutOfBandWriteRequest(
-        hasConnectionChannel: Bool
+        connectionChannel: QUICConnectionChannel.ConnectionView?
     ) -> OutOfBandWriteRequestAction {
         switch consume self.state {
         case .connecting(let connecting):
             self = .init(state: .connecting(connecting))
             // It is expected that the channel is not always set at this time. Best-effort write.
-            guard hasConnectionChannel else {
+            guard let connectionChannel else {
                 return .ignoreRequest
             }
-            return .triggerEvent
+            return .triggerEvent(connectionChannel)
         case .connected(let connected):
             self = .init(state: .connected(connected))
-            guard hasConnectionChannel else {
+            guard let connectionChannel else {
                 return .unexpectedRequest
             }
-            return .triggerEvent
+            return .triggerEvent(connectionChannel)
         case .closing(let closing):
             self = .init(state: .closing(closing))
-            guard hasConnectionChannel else {
+            guard let connectionChannel else {
                 return .unexpectedRequest
             }
-            return .triggerEvent
+            return .triggerEvent(connectionChannel)
         case .draining(let draining):
             self = .init(state: .draining(draining))
-            guard hasConnectionChannel else {
+            guard let connectionChannel else {
                 return .unexpectedRequest
             }
-            return .triggerEvent
+            return .triggerEvent(connectionChannel)
         case .closed(let closed):
             self = .init(state: .closed(closed))
             return .unexpectedRequest

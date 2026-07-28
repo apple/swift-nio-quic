@@ -51,7 +51,8 @@ public final class QUICHandler {
             QUICConnectionChannel.TransportView
         >
 
-    /// The QUIC connection ID generator.
+    /// How new connections are surfaced to the user: either a multiplexer continuation or a pair
+    /// of initializer closures.
     private var multiplexerContinuation: MultiplexerContinuation?
     /// The event loop of the channel we are added to.
     private let eventLoop: any EventLoop
@@ -267,15 +268,19 @@ public final class QUICHandler {
     ///   - connectionInitializer: How to initialize the connection. This closure will be called with a channel and a stream creator.
     ///   - inboundStreamInitializer: How to initialize any inbound streams on the new connection. This closure is
     ///     called with each new inbound stream channel; it is the only place inbound streams are surfaced. Add your per-stream handlers here.
-    /// - Returns: The initialized connection channel. Open outbound streams on it with the provided stream creator.
-    ///     Use the stream creator to open outbound streams on the connection.
+    /// - Returns: The initialized connection channel and a stream creator to open outbound streams
+    ///     on it with.
     public func createOutboundConnection(
         serverName: String,
         remoteAddress: SocketAddress,
         connectionInitializer: @escaping @Sendable (any Channel, QUICStreamCreator) -> EventLoopFuture<Void>,
         inboundStreamInitializer: @escaping @Sendable (any Channel) -> EventLoopFuture<Void>
     ) -> EventLoopFuture<(any Channel, QUICStreamCreator)> {
-        let channelPromise = self.eventLoop.makePromise(of: (any Channel).self)
+        let channelPromise = self.eventLoop.makePromise(of: QUICConnectionChannel.self)
+        // Completed with the creator handed to the initializer, so the caller and the initializer
+        // share one. Only completed if the initializer runs, so failures are cascaded onto it.
+        let creatorPromise = self.eventLoop.makePromise(of: QUICStreamCreator.self)
+        channelPromise.futureResult.cascadeFailure(to: creatorPromise)
         let role = self.quicConfiguration.role
 
         do {
@@ -286,16 +291,15 @@ public final class QUICHandler {
             ) { channel in
                 channel.setInboundStreamInitializer(.closure(inboundStreamInitializer))
                 let streamCreator = channel.makeStreamCreator(role: role)
+                creatorPromise.succeed(streamCreator)
                 return connectionInitializer(channel, streamCreator)
             }
         } catch {
             channelPromise.fail(error)
         }
 
-        return channelPromise.futureResult.map { channel in
-            let channel = channel as! QUICConnectionChannel
-            let creator = channel.makeStreamCreator(role: role)
-            return (channel, creator)
+        return channelPromise.futureResult.and(creatorPromise.futureResult).map { channel, creator in
+            (channel, creator)
         }
     }
 
@@ -350,7 +354,7 @@ public final class QUICHandler {
     }
 
     private func createNewConnection(
-        promise: EventLoopPromise<any Channel>,
+        promise: EventLoopPromise<QUICConnectionChannel>,
         serverName: String,
         remoteAddress: SocketAddress,
         connectionInitializer: @Sendable @escaping (QUICConnectionChannel) -> EventLoopFuture<Void>
