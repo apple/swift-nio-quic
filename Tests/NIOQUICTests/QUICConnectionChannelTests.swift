@@ -540,6 +540,24 @@ struct QUICConnectionChannelTests {
 
         @available(anyAppleOS 26, *)
         @Test
+        func shutdownWhenAlreadyClosedCompletesPromise() throws {
+            let channel = try makeChannel()
+
+            channel.transportView.forceClose()
+            channel.embeddedEventLoop.run()
+            try channel.closeFuture.wait()
+
+            // Shutting down an already closed channel must still complete the promise,
+            // otherwise callers waiting on it (e.g. shutting down every connection in the
+            // registry) wait until their deadline expires.
+            let promise = channel.eventLoop.makePromise(of: Void.self)
+            channel.transportView.shutdown(promise: promise)
+            channel.embeddedEventLoop.run()
+            try promise.futureResult.wait()
+        }
+
+        @available(anyAppleOS 26, *)
+        @Test
         func forceCloseWhileInactiveDeferredDoesNotDoubleFire() throws {
             let connection = RecordingConnection()
             let recorder = LifecycleRecorder()

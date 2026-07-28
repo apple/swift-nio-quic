@@ -624,6 +624,9 @@ extension QUICConnectionChannel {
             self.closePromise.futureResult.cascade(to: promise)
             continueClosing = false
         case .alreadyClosed:
+            // The close promise has already been completed; cascading it completes 'promise'
+            // immediately rather than leaving the caller waiting forever.
+            self.closePromise.futureResult.cascade(to: promise)
             continueClosing = false
         }
 
