@@ -622,7 +622,7 @@ struct QUICConnectionStateMachine: ~Copyable {
 
     enum OutOfBandWriteRequestAction: ~Copyable {
         case unexpectedRequest
-        case triggerEvent(QUICConnectionChannel.ConnectionView)
+        case triggerEvent(on: QUICConnectionChannel.ConnectionView)
         case ignoreRequest
     }
 
@@ -636,25 +636,25 @@ struct QUICConnectionStateMachine: ~Copyable {
             guard let connectionChannel else {
                 return .ignoreRequest
             }
-            return .triggerEvent(connectionChannel)
+            return .triggerEvent(on: connectionChannel)
         case .connected(let connected):
             self = .init(state: .connected(connected))
             guard let connectionChannel else {
                 return .unexpectedRequest
             }
-            return .triggerEvent(connectionChannel)
+            return .triggerEvent(on: connectionChannel)
         case .closing(let closing):
             self = .init(state: .closing(closing))
             guard let connectionChannel else {
                 return .unexpectedRequest
             }
-            return .triggerEvent(connectionChannel)
+            return .triggerEvent(on: connectionChannel)
         case .draining(let draining):
             self = .init(state: .draining(draining))
             guard let connectionChannel else {
                 return .unexpectedRequest
             }
-            return .triggerEvent(connectionChannel)
+            return .triggerEvent(on: connectionChannel)
         case .closed(let closed):
             self = .init(state: .closed(closed))
             return .unexpectedRequest
