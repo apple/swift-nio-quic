@@ -19,10 +19,10 @@ import NIOCore
 /// kernel as a single UDP Generic Segmentation Offload write.
 struct GSOCoalescer {
     /// The maximum number of segments to coalesce.
-    let maxSegments: Int
+    var maxSegments: Int
 
     /// The maximum size of a coalesced datagram.
-    let maxCoalescedSize: Int
+    var maxCoalescedSize: Int
 
     private var buffers: Deque<ByteBuffer>
     private let remoteAddress: SocketAddress
@@ -82,12 +82,12 @@ struct GSOCoalescer {
             // Smaller; end run the run.
             if size < segmentSize { break }
 
-            // Same size: continue iterating.
+            // Same size; continue iterating.
             self.buffers.formIndex(after: &index)
         }
 
         if runLength == 1 {
-            // Nothing to coalesce; so just remove and return
+            // Nothing to coalesce; so just remove and return.
             return AddressedEnvelope(
                 remoteAddress: self.remoteAddress,
                 data: self.buffers.removeFirst()
