@@ -12,7 +12,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-import ChildChannelMultiplexer
 import NIOCore
 
 /// A data structure for processing QUIC stream messages.
