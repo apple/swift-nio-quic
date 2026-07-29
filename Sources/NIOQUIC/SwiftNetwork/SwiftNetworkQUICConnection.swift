@@ -797,8 +797,8 @@ final class SwiftNetworkQUICConnection {
                 newFlowHandler.stop(error: NetworkError(quicTransportError: transportError))
             }
         }
-        // Clean up callbacks before teardown to break retain cycles
-        self.cleanupCallbacks()
+        // The channel reference is dropped in 'dropChannelReferences()' once the channel has gone
+        // inactive: it's still needed here to deliver 'connectionClosed' back to the channel.
         newFlowHandler.teardown()
         log("close sentApplicationClose: \(sendApplicationClose), errorCode: \(errorCode), reason: \(reason)")
 
@@ -814,12 +814,6 @@ final class SwiftNetworkQUICConnection {
         }
         // For established connections, teardown happens via handleConnectionDisconnected (called by newFlowHandler.stop above)
         return .closeInitiated
-    }
-
-    /// Cleans up callbacks to break retain cycles before connection teardown
-    private func cleanupCallbacks() {
-        self.log("Cleaning up connection callbacks")
-        self.channelView = nil
     }
 
     /// Drops every strong reference the connection holds back to the connection channel.
