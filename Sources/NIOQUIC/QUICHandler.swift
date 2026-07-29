@@ -727,6 +727,9 @@ extension QUICHandler: ChannelInboundHandler {
 
             let view = channel.transportView
             self.connectionRegistry.updateValue(view, forKey: newSourceConnectionID)
+            // Keep track of the original DCID the peer used in case they retransmit or send
+            // additional INITIAL packets.
+            // TODO: Remove the DCID alias from multiplexing.
             if newSourceConnectionID != destinationConnectionID {
                 self.connectionRegistry.addAlias(destinationConnectionID, for: newSourceConnectionID)
             }
@@ -759,6 +762,9 @@ extension QUICHandler: ChannelInboundHandler {
             )
             let view = channel.transportView
             self.connectionRegistry.updateValue(view, forKey: newSourceConnectionID)
+            // Keep track of the original DCID the peer used in case they retransmit or send
+            // additional INITIAL packets.
+            // TODO: Remove the DCID alias from multiplexing.
             if newSourceConnectionID != destinationConnectionID {
                 self.connectionRegistry.addAlias(destinationConnectionID, for: newSourceConnectionID)
             }
