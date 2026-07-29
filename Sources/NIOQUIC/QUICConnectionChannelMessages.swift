@@ -12,7 +12,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-import ChildChannelMultiplexer
 import NIOCore
 import NIOQUICHelpers
 
@@ -28,10 +27,4 @@ struct QUICConnectionChannelOutboundMessage: Hashable {
     var streamID: QUICStreamID
     /// The message to send.
     var streamMessage: QUICStreamMessage
-}
-
-extension QUICConnectionChannelOutboundMessage: FlowControlledMessage {
-    var flowControlSize: Int {
-        self.streamMessage.data.readableBytes
-    }
 }

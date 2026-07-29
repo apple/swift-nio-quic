@@ -80,17 +80,8 @@ let package = Package(
                 .product(name: "SwiftTLS", package: "swift-tls"),
                 .product(name: "SwiftNetwork", package: "swift-network-evolution"),
                 .product(name: "DequeModule", package: "swift-collections"),
-                .target(name: "ChildChannelMultiplexer"),
             ],
             swiftSettings: swiftSettings
-        ),
-        .target(
-            name: "ChildChannelMultiplexer",
-            dependencies: [
-                .product(name: "NIOCore", package: "swift-nio"),
-                .product(name: "Logging", package: "swift-log"),
-                .product(name: "HeapModule", package: "swift-collections"),
-            ]
         ),
         .testTarget(
             name: "NIOQUICTests",

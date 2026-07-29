@@ -12,7 +12,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-import ChildChannelMultiplexer
 import NIOCore
 
 /// A data structure for processing QUIC stream messages.
@@ -30,11 +29,5 @@ struct QUICStreamMessage: Hashable {
     init(data: ByteBuffer, fin: Bool) {
         self.data = data
         self.fin = fin
-    }
-}
-
-extension QUICStreamMessage: FlowControlledMessage {
-    var flowControlSize: Int {
-        self.data.readableBytes
     }
 }
