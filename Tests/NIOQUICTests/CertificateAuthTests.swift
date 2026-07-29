@@ -21,7 +21,6 @@ import NIOQUICHelpers
 import Synchronization
 import XCTest
 
-@testable import ChildChannelMultiplexer
 @testable import NIOQUIC
 
 @available(anyAppleOS 26, *)

@@ -248,7 +248,7 @@ struct AliasDictionaryTests {
 
         @Test
         mutating func keyWithAlias() {
-            self.dictionary.removeKey("key-1")
+            #expect(self.dictionary.removeKey("key-1") == .removedAndPromoted("key-1-alt"))
             #expect(self.dictionary.count == 1)  // still 1
 
             #expect(self.dictionary["key-1"] == nil)
@@ -259,7 +259,7 @@ struct AliasDictionaryTests {
         @Test
         mutating func keyWithNoAlias() {
             self.dictionary = ["key-1": 42]
-            self.dictionary.removeKey("key-1")
+            #expect(self.dictionary.removeKey("key-1") == .removed)
 
             #expect(self.dictionary.count == 0)
             #expect(self.dictionary.isEmpty)
@@ -285,7 +285,7 @@ struct AliasDictionaryTests {
 
         @Test
         mutating func alias() {
-            self.dictionary.removeKey("key-1-alt")
+            #expect(self.dictionary.removeKey("key-1-alt") == .removed)
             #expect(self.dictionary.count == 1)  // still 1
             #expect(self.dictionary["key-1"] == 42)
             #expect(self.dictionary["key-1-alt"] == nil)
@@ -305,8 +305,7 @@ struct AliasDictionaryTests {
 
         @Test
         mutating func unknownKey() {
-            let removed = self.dictionary.removeKey("unknown")
-            #expect(!removed)
+            #expect(self.dictionary.removeKey("unknown") == .notFound)
         }
 
         @Test
@@ -359,6 +358,17 @@ struct AliasDictionaryTests {
             #expect(self.dictionary["key-1b"] == nil)
             #expect(self.dictionary._canonicalKey(forKey: "key-1a") == nil)
             #expect(self.dictionary._canonicalKey(forKey: "key-1b") == nil)
+        }
+
+        @Test
+        mutating func promotedKeyAfterCanonicalKeyRemoved() {
+            // Removing the canonical key promotes "key-1a" in its place: the value is no longer
+            // reachable by the key it was inserted under, only by the promoted key.
+            #expect(self.dictionary.removeKey("key-1") == .removedAndPromoted("key-1a"))
+            #expect(self.dictionary.removeValue(forKey: "key-1") == nil)
+
+            #expect(self.dictionary.removeValue(forKey: "key-1a") == 42)
+            #expect(self.dictionary.isEmpty)
         }
     }
 }

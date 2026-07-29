@@ -21,7 +21,6 @@ extension QUICMetrics {
     fileprivate static func makeTestMetrics() -> Self {
         QUICMetrics(
             connectionMetrics: .init(
-                openStreams: Meter(label: "openStreams"),
                 streamDuration: Timer(label: "streamDuration")
             ),
             connectionCloseMetrics: .init(

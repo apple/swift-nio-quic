@@ -622,11 +622,13 @@ struct QUICConnectionStateMachine: ~Copyable {
 
     enum OutOfBandWriteRequestAction: ~Copyable {
         case unexpectedRequest
-        case triggerEvent(on: any Channel)
+        case triggerEvent(on: QUICConnectionChannel.ConnectionView)
         case ignoreRequest
     }
 
-    mutating func receiveOutOfBandWriteRequest(connectionChannel: (any Channel)?) -> OutOfBandWriteRequestAction {
+    mutating func receiveOutOfBandWriteRequest(
+        connectionChannel: QUICConnectionChannel.ConnectionView?
+    ) -> OutOfBandWriteRequestAction {
         switch consume self.state {
         case .connecting(let connecting):
             self = .init(state: .connecting(connecting))

@@ -23,9 +23,7 @@ protocol ConnectionMultiplexerContinuation: Sendable {
     /// We have to do a bit of an awkward dance here to carry the `Output` between the initializer and the continuation where
     /// we yield to. That's why we are using `Any` here to avoid making the handler generic.
     func initialize(
-        channel: any Channel,
-        connectionID: QUICConnectionID,
-        quicConnection: SwiftNetworkQUICConnection,
+        channel: QUICConnectionChannel,
         metrics: QUICMetrics?,
         logger: Logger
     ) -> EventLoopFuture<any Sendable>
@@ -47,17 +45,20 @@ extension QUICHandler {
         let eventLoop: any EventLoop
         /// The role of the underlying `QUICHandler` (client or server).
         private let role: Role
+        /// Creates a new outbound connection: the handler's 'createNewConnection'.
+        typealias CreateNewConnection = (
+            _ promise: EventLoopPromise<(QUICConnectionChannel, QUICStreamCreator)>,
+            _ serverName: String,
+            _ remoteAddress: SocketAddress,
+            _ channelInitializer:
+                @Sendable @escaping (
+                    _ channel: QUICConnectionChannel,
+                    _ streamCreator: QUICStreamCreator
+                ) -> EventLoopFuture<Void>
+        ) throws -> Void
+
         /// A method to create a new connection.
-        internal let _createNewConnection:
-            NIOLoopBound<
-                (
-                    EventLoopPromise<any Channel>, String, SocketAddress,
-                    @Sendable @escaping (
-                        any Channel, QUICConnectionID, SwiftNetworkQUICConnection, QUICMetrics?, Logger
-                    ) ->
-                        EventLoopFuture<Void>
-                ) throws -> Void
-            >
+        internal let _createNewConnection: NIOLoopBound<CreateNewConnection>
 
         /// An asynchronous sequence of inbound connections.
         public let inboundConnections: InboundConnections
@@ -66,15 +67,7 @@ extension QUICHandler {
             eventLoop: any EventLoop,
             role: Role,
             inboundStreamInitializer: @escaping @Sendable (any Channel) -> EventLoopFuture<Output>,
-            createNewConnection: NIOLoopBound<
-                (
-                    EventLoopPromise<any Channel>, String, SocketAddress,
-                    @Sendable @escaping (
-                        any Channel, QUICConnectionID, SwiftNetworkQUICConnection, QUICMetrics?, Logger
-                    ) ->
-                        EventLoopFuture<Void>
-                ) throws -> Void
-            >
+            createNewConnection: NIOLoopBound<CreateNewConnection>
         ) {
             self.eventLoop = eventLoop
             self.role = role
@@ -86,34 +79,17 @@ extension QUICHandler {
         }
 
         func initialize(
-            channel: any Channel,
-            connectionID: QUICConnectionID,
-            quicConnection: SwiftNetworkQUICConnection,
+            channel: QUICConnectionChannel,
             metrics: QUICMetrics?,
             logger: Logger
         ) -> EventLoopFuture<any Sendable> {
             channel.eventLoop.makeCompletedFuture {
-                let (connectionChannelHandler, connection) = QUICConnectionChannelHandler.makeHandlerAndQUICConnection(
-                    quicConnection: quicConnection,
-                    role: self.role,
-                    channel: channel,
-                    logger: logger,
-                    metrics: metrics,
-                    inboundStreamInitializer: self.inboundStreamInitializer
+                let connection = QUICConnection<Output>(
+                    inboundStreamInitializer: self.inboundStreamInitializer,
+                    streamCreator: channel.makeStreamCreator(role: self.role)
                 )
-                try channel.pipeline.syncOperations.addHandler(connectionChannelHandler)
-                let datagramChannelHandler = QUICDatagramHandler(role: role, logger: logger)
-                try channel.pipeline.syncOperations.addHandler(datagramChannelHandler)
-
-                if let connectionDurationTimer = metrics?.connectionCloseMetrics?.connectionDuration {
-                    let connectionDurationHandler = ChannelDurationHandler(durationTimer: connectionDurationTimer)
-                    try channel.pipeline.syncOperations.addHandler(connectionDurationHandler)
-                }
-
-                let errorCatchingHandler = ErrorCatchingHandler(logger: logger)
-                try channel.pipeline.syncOperations.addHandler(errorCatchingHandler)
+                channel.setInboundStreamInitializer(.multiplexer(connection))
                 metrics?.quicConnectionHandlerMetrics?.openConnections?.increment()
-
                 return connection
             }
         }
@@ -141,7 +117,7 @@ extension QUICHandler {
                     InitializerOutput
                 >
         ) async throws -> QUICConnection<InitializerOutput> {
-            let channelPromise = self.eventLoop.makePromise(of: (any Channel).self)
+            let channelPromise = self.eventLoop.makePromise(of: (QUICConnectionChannel, QUICStreamCreator).self)
             let outputPromise = self.eventLoop.makePromise(of: QUICConnection<InitializerOutput>.self)
             channelPromise.futureResult.cascadeFailure(to: outputPromise)
             // We have to await both futures here because of two reasons:
@@ -155,48 +131,14 @@ extension QUICHandler {
                 }
             self._createNewConnection.execute { createNewConnection in
                 do {
-                    try createNewConnection(channelPromise, serverName, remoteAddress) {
-                        channel,
-                        connectionID,
-                        quicConnection,
-                        metrics,
-                        logger in
-                        channel.eventLoop.makeCompletedFuture {
-                            let (connectionChannelHandler, connection) =
-                                QUICConnectionChannelHandler.makeHandlerAndQUICConnection(
-                                    quicConnection: quicConnection,
-                                    role: self.role,
-                                    channel: channel,
-                                    logger: logger,
-                                    metrics: metrics,
-                                    inboundStreamInitializer: inboundStreamInitializer
-                                )
-
-                            try channel.pipeline.syncOperations.addHandler(connectionChannelHandler)
-                            let datagramChannelHandler = QUICDatagramHandler(role: self.role, logger: logger)
-                            try channel.pipeline.syncOperations.addHandler(datagramChannelHandler)
-
-                            if let connectionDurationTimer = metrics?.connectionCloseMetrics?.connectionDuration {
-                                let connectionDurationHandler = ChannelDurationHandler(
-                                    durationTimer: connectionDurationTimer
-                                )
-                                try channel.pipeline.syncOperations.addHandler(connectionDurationHandler)
-                            }
-
-                            let errorCatchingHandler = ErrorCatchingHandler(logger: logger)
-                            try channel.pipeline.syncOperations.addHandler(errorCatchingHandler)
-                            metrics?.quicConnectionHandlerMetrics?.openConnections?.increment()
-
-                            return connection
-                        }
-                        .flatMapErrorThrowing { error in
-                            outputPromise.fail(error)
-                            throw error
-                        }
-                        .map { (connection: QUICConnection<InitializerOutput>) in
-                            outputPromise.succeed(connection)
-                            return ()
-                        }
+                    try createNewConnection(channelPromise, serverName, remoteAddress) { channel, streamCreator in
+                        let connection = QUICConnection<InitializerOutput>(
+                            inboundStreamInitializer: inboundStreamInitializer,
+                            streamCreator: streamCreator
+                        )
+                        channel.setInboundStreamInitializer(.multiplexer(connection))
+                        outputPromise.succeed(connection)
+                        return channel.eventLoop.makeSucceededVoidFuture()
                     }
                 } catch {
                     channelPromise.fail(error)

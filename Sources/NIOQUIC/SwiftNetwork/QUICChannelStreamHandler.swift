@@ -79,7 +79,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
 
     internal var eventManager = ProtocolEventManager()
     internal var streamStateMachine: QUICStreamStateMachine
-    internal var pipelineStateMachine: QUICStreamPipelineStateMachine
+    private var pipelineStateMachine: QUICStreamPipelineStateMachine
     internal var swiftNetworkStreamHandle: SwiftNetworkStreamHandle
 
     // Stream state machine (RFC 9000 Section 3 compliant)
@@ -448,21 +448,47 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
         }
     }
 
-    // MARK: - Inbound initializer dispatch
+    // MARK: - Initializer dispatch
     //
-    // Called by `QUICConnectionChannelHandler.channelRead` after the per-stream
-    // pipeline state machine returns `.runInitializer`. Each overload runs one
-    // of the application-supplied initializer flavours, then on success calls
-    // `markInitializerComplete()` and surfaces the now-ready stream.
+    // Called by `QUICConnectionChannel` when a stream needs its application-supplied
+    // initializer run. The stream owns its own pipeline state machine: it gates on
+    // `startInitializer`, runs the initializer, then on success calls
+    // `markInitializerComplete()` and surfaces the now-ready stream. The connection
+    // never reaches into the pipeline state machine directly.
 
-    /// Run the multiplexer-style initializer; on success yield to the
-    /// continuation and trigger the first read.
-    internal func initialize(
-        multiplexerContinuation continuation: any StreamMultiplexerContinuation,
-        streamID: QUICStreamID
-    ) {
-        continuation.initialize(channel: self, streamID: streamID)
-            .whenComplete { result in
+    /// Runs the inbound initializer for this stream, driving the per-stream pipeline state
+    /// machine and surfacing the stream once it is ready.
+    ///
+    /// - Returns: A future that completes when an asynchronous initializer finishes, or `nil`
+    ///   when there was no asynchronous work to wait for (no initializer, or the pipeline is
+    ///   already initialized or inactive). The connection uses this to defer its own
+    ///   `channelInactive` while an initializer is in flight.
+    func initializeInbound(
+        streamID: QUICStreamID,
+        initializer: QUICConnectionChannel.StreamInitializer?
+    ) -> EventLoopFuture<Void>? {
+        self.eventLoop.preconditionInEventLoop()
+
+        switch self.pipelineStateMachine.startInitializer(channelActive: self.isStreamChannelActive) {
+        case .runInitializer:
+            break  // continue below
+        case .ignore(let reason):
+            switch consume reason {
+            case .initializerComplete:
+                self.tryToAutoRead()
+            case .channelInactive:
+                break
+            case .initializerInProgress:
+                break
+            }
+            return nil
+        }
+
+        switch initializer {
+        case .multiplexer(let continuation):
+            let future = continuation.initialize(channel: self, streamID: streamID)
+                .hop(to: self.eventLoop)
+            future.assumeIsolated().whenComplete { result in
                 switch result {
                 case .success(let output):
                     switch self.pipelineStateMachine.markInitializerComplete() {
@@ -472,40 +498,89 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
                     case .ignoreAlreadyComplete:
                         break
                     }
-                case .failure(let error):
-                    self.logger.error("Inbound stream failed to initialize", metadata: ["error": "\(error)"])
+                case .failure:
                     self.close(promise: nil)
                 }
             }
-    }
+            return future.map { _ in () }
 
-    /// Run the closure-style initializer; on success trigger the first read.
-    internal func initialize(
-        _ initializer: @escaping @Sendable (any Channel) -> EventLoopFuture<Void>
-    ) {
-        initializer(self).assumeIsolated().whenComplete { result in
-            switch result {
-            case .success:
-                switch self.pipelineStateMachine.markInitializerComplete() {
-                case .surfaceInitializedStream:
-                    self.tryToAutoRead()
-                case .ignoreAlreadyComplete:
-                    break
+        case .closure(let initializer):
+            let future = initializer(self).hop(to: self.eventLoop)
+            future.assumeIsolated().whenComplete { result in
+                switch result {
+                case .success:
+                    switch self.pipelineStateMachine.markInitializerComplete() {
+                    case .surfaceInitializedStream:
+                        self.tryToAutoRead()
+                    case .ignoreAlreadyComplete:
+                        break
+                    }
+                case .failure:
+                    self.close(promise: nil)
                 }
-            case .failure(let error):
-                self.logger.error("Inbound stream failed to initialize", metadata: ["error": "\(error)"])
-                self.close(promise: nil)
             }
+            return future
+
+        case .none:
+            switch self.pipelineStateMachine.markInitializerComplete() {
+            case .surfaceInitializedStream:
+                self.tryToAutoRead()
+            case .ignoreAlreadyComplete:
+                break
+            }
+            return nil
         }
     }
 
-    /// No initializer to run; just trigger the first read.
-    internal func initialize() {
-        switch self.pipelineStateMachine.markInitializerComplete() {
-        case .surfaceInitializedStream:
-            self.tryToAutoRead()
-        case .ignoreAlreadyComplete:
-            break
+    /// Runs the outbound initializer for this stream, driving the per-stream pipeline state
+    /// machine and succeeding `promise` with the stream once it is ready.
+    ///
+    /// - Note: If the stream's channel has already gone inactive by the time this is called (the
+    ///   stream connected but was reset, or the connection closed, before the creation callback
+    ///   ran) then the initializer can't be run at all and `promise` is failed rather than
+    ///   succeeded with a stream that has no pipeline.
+    func initializeOutbound(
+        streamID: QUICStreamID,
+        initializer: @escaping (any Channel, QUICStreamID) -> EventLoopFuture<Void>,
+        promise: EventLoopPromise<any Channel>
+    ) {
+        self.eventLoop.preconditionInEventLoop()
+
+        switch self.pipelineStateMachine.startInitializer(channelActive: self.isStreamChannelActive) {
+        case .runInitializer:
+            initializer(self, streamID)
+                .hop(to: self.eventLoop)
+                .assumeIsolated()
+                .whenComplete { result in
+                    switch result {
+                    case .success:
+                        switch self.pipelineStateMachine.markInitializerComplete() {
+                        case .surfaceInitializedStream:
+                            promise.succeed(self)
+                            self.tryToAutoRead()
+                        case .ignoreAlreadyComplete:
+                            promise.succeed(self)
+                        }
+                    case .failure(let error):
+                        promise.fail(error)
+                    }
+                }
+        case .ignore(let reason):
+            switch consume reason {
+            case .initializerComplete:
+                // Outbound streams get a fresh handler each time, so the pipeline can't already
+                // be initialized here. Surface it rather than dropping the promise on the floor.
+                assertionFailure("outbound initializer already ran for stream \(streamID)")
+                promise.succeed(self)
+                self.tryToAutoRead()
+            case .channelInactive:
+                // The initializer never ran: the stream has no pipeline, so don't hand it back.
+                promise.fail(ChannelError.ioOnClosedChannel)
+            case .initializerInProgress:
+                // As above: a fresh handler can't have an initializer in flight.
+                assertionFailure("outbound initializer already in flight for stream \(streamID)")
+                promise.succeed(self)
+            }
         }
     }
 

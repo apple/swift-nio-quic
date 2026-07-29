@@ -28,6 +28,7 @@ private func makeChannel(
     connection: (any QUICConnectionProtocol)? = nil,
     registrar: any QUICConnectionIDRegistrar = RecordingRegistrar(),
     transport: any QUICTransport = RecordingTransport(),
+    sourceConnectionID: QUICConnectionID = .zero,
     initializer: ((any Channel) -> EventLoopFuture<Void>)? = nil
 ) throws -> QUICConnectionChannel {
     let connection = connection ?? NoOpConnection()
@@ -37,7 +38,8 @@ private func makeChannel(
         connection: .test(connection),
         registrar: .test(registrar),
         transport: .test(transport),
-        isServer: isServer
+        isServer: isServer,
+        sourceConnectionID: sourceConnectionID
     )
 
     if let initializer {
@@ -45,7 +47,7 @@ private func makeChannel(
         channel.transportView.initialize(promise: promise, initializer: initializer)
 
         // Activate the connection.
-        channel.connectionView.handshakeCompleted()
+        channel.connectionView.handshakeCompleted(peerMaxDatagramFrameSize: 0)
         channel.connectionView.drainOutbound()
 
         try promise.futureResult.wait()
@@ -211,6 +213,28 @@ struct QUICConnectionChannelTests {
 
         @available(anyAppleOS 26, *)
         @Test
+        func retireRekeysTheConnection() throws {
+            var generator = RandomQUICConnectionIDGenerator()
+            let sourceConnectionID = generator.next()
+            let promoted = generator.next()
+
+            let registrar = RecordingRegistrar()
+            let channel = try makeChannel(registrar: registrar, sourceConnectionID: sourceConnectionID)
+            #expect(channel.transportView.registeredConnectionID == sourceConnectionID)
+
+            // Retiring an ID the connection isn't registered under doesn't re-key it.
+            #expect(channel.connectionView.retire(generator.next()))
+            #expect(channel.transportView.registeredConnectionID == sourceConnectionID)
+
+            // Retiring the ID it is registered under promotes another of its IDs in its place;
+            // the transport must use the promoted ID to unregister the connection.
+            registrar.retireResult = .retiredAndRekeyed(key: promoted)
+            #expect(channel.connectionView.retire(sourceConnectionID))
+            #expect(channel.transportView.registeredConnectionID == promoted)
+        }
+
+        @available(anyAppleOS 26, *)
+        @Test
         func generate() throws {
             var generator = RandomQUICConnectionIDGenerator()
             let id = generator.next()
@@ -292,7 +316,7 @@ struct QUICConnectionChannelTests {
             #expect(!channel.isActive)
 
             // Complete handshake to activate.
-            channel.connectionView.handshakeCompleted()
+            channel.connectionView.handshakeCompleted(peerMaxDatagramFrameSize: 0)
             channel.connectionView.drainOutbound()
             #expect(channel.isActive)
         }
@@ -306,7 +330,7 @@ struct QUICConnectionChannelTests {
             view.initialize(promise: promise) { $0.eventLoop.makeSucceededVoidFuture() }
 
             // Only completes when the handshake completes.
-            channel.connectionView.handshakeCompleted()
+            channel.connectionView.handshakeCompleted(peerMaxDatagramFrameSize: 0)
             channel.connectionView.drainOutbound()
 
             try promise.futureResult.wait()
@@ -540,6 +564,24 @@ struct QUICConnectionChannelTests {
 
         @available(anyAppleOS 26, *)
         @Test
+        func shutdownWhenAlreadyClosedCompletesPromise() throws {
+            let channel = try makeChannel()
+
+            channel.transportView.forceClose()
+            channel.embeddedEventLoop.run()
+            try channel.closeFuture.wait()
+
+            // Shutting down an already closed channel must still complete the promise,
+            // otherwise callers waiting on it (e.g. shutting down every connection in the
+            // registry) wait until their deadline expires.
+            let promise = channel.eventLoop.makePromise(of: Void.self)
+            channel.transportView.shutdown(promise: promise)
+            channel.embeddedEventLoop.run()
+            try promise.futureResult.wait()
+        }
+
+        @available(anyAppleOS 26, *)
+        @Test
         func forceCloseWhileInactiveDeferredDoesNotDoubleFire() throws {
             let connection = RecordingConnection()
             let recorder = LifecycleRecorder()
@@ -628,9 +670,13 @@ final class RecordingRegistrar: QUICConnectionIDRegistrar {
     private(set) var events: [Event]
     private let generate: () -> QUICConnectionID
 
+    /// What `retire(_:)` returns.
+    var retireResult: OnRetireConnectionID
+
     init(_ generate: @escaping () -> QUICConnectionID = { .zero }) {
         self.events = []
         self.generate = generate
+        self.retireResult = .retired
     }
 
     func associate(_ newID: QUICConnectionID, with existingID: QUICConnectionID) -> Bool {
@@ -638,9 +684,9 @@ final class RecordingRegistrar: QUICConnectionIDRegistrar {
         return true
     }
 
-    func retire(_ connectionID: QUICConnectionID) -> Bool {
+    func retire(_ connectionID: QUICConnectionID) -> OnRetireConnectionID {
         self.events.append(.retired(connectionID))
-        return true
+        return self.retireResult
     }
 
     func generateID() -> QUICConnectionID {
@@ -655,6 +701,13 @@ final class RecordingConnection: QUICConnectionProtocol {
 
     var outboundPackets: Deque<ByteBuffer>
     var events: Deque<Event>
+
+    /// Datagrams accepted by `writeDatagram(_:)`, and the number of times they were flushed.
+    var writtenDatagrams: [ByteBuffer]
+    var datagramFlushCount: Int
+    /// What `writeDatagram(_:)` returns. Flip to `false` to simulate a connection which can't
+    /// accept datagrams (e.g. it has no datagram flow attached).
+    var writeDatagramResult: Bool
 
     /// Futures returned by `closeAllStreams()`. Empty means `channelInactive` fires
     /// synchronously; a pending future defers it until the future completes.
@@ -675,6 +728,9 @@ final class RecordingConnection: QUICConnectionProtocol {
         self.outboundPackets = []
         self.events = []
         self.streamCloseFutures = []
+        self.writtenDatagrams = []
+        self.datagramFlushCount = 0
+        self.writeDatagramResult = true
     }
 
     func receivePacket(_ packet: ByteBuffer) -> Int {
@@ -700,6 +756,17 @@ final class RecordingConnection: QUICConnectionProtocol {
     }
 
     func quiesceStreams() {
+    }
+
+    func writeDatagram(_ datagram: ByteBuffer) -> Bool {
+        if self.writeDatagramResult {
+            self.writtenDatagrams.append(datagram)
+        }
+        return self.writeDatagramResult
+    }
+
+    func flushDatagrams() {
+        self.datagramFlushCount += 1
     }
 }
 
@@ -736,6 +803,13 @@ struct NoOpConnection: QUICConnectionProtocol {
     }
 
     func quiesceStreams() {
+    }
+
+    func writeDatagram(_ datagram: ByteBuffer) -> Bool {
+        false
+    }
+
+    func flushDatagrams() {
     }
 }
 

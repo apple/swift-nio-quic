@@ -13,7 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 @available(anyAppleOS 26, *)
-public protocol QUICConnectionIDRegistrar {
+protocol QUICConnectionIDRegistrar {
     /// Associate `newID` to the same connection as `existingID`.
     ///
     /// - Parameters:
@@ -26,8 +26,9 @@ public protocol QUICConnectionIDRegistrar {
     /// Retires `connectionID`.
     ///
     /// - Parameter connectionID: The ID to retire.
-    /// - Returns: `false` if it wasn't registered.
-    func retire(_ connectionID: QUICConnectionID) -> Bool
+    /// - Returns: The outcome of the retirement, including the replacement key if the connection
+    ///   was registered under `connectionID` and had to be re-keyed.
+    func retire(_ connectionID: QUICConnectionID) -> OnRetireConnectionID
 
     /// Generates a new connection ID.
     ///
@@ -35,20 +36,37 @@ public protocol QUICConnectionIDRegistrar {
     func generateID() -> QUICConnectionID
 }
 
+/// The outcome of retiring a connection ID from the routing table.
+@available(anyAppleOS 26, *)
+enum OnRetireConnectionID: Hashable {
+    /// The ID wasn't registered, nothing was retired.
+    case notRegistered
+    /// The ID was retired and the connection is still registered under the same key.
+    case retired
+    /// The ID was retired. It was the key the connection was registered under, so `key` was
+    /// promoted in its place: the connection must use `key` to unregister itself.
+    case retiredAndRekeyed(key: QUICConnectionID)
+}
+
 @available(anyAppleOS 26, *)
 extension QUICConnectionChannel {
     enum ConnectionIDRegistrar: QUICConnectionIDRegistrar {
+        case live(QUICHandler.RegistrarView)
         case test(any QUICConnectionIDRegistrar)
 
         func associate(_ newID: QUICConnectionID, with existingID: QUICConnectionID) -> Bool {
             switch self {
+            case .live(let registrar):
+                return registrar.associate(newID, with: existingID)
             case .test(let registrar):
                 return registrar.associate(newID, with: existingID)
             }
         }
 
-        func retire(_ connectionID: QUICConnectionID) -> Bool {
+        func retire(_ connectionID: QUICConnectionID) -> OnRetireConnectionID {
             switch self {
+            case .live(let registrar):
+                return registrar.retire(connectionID)
             case .test(let registrar):
                 return registrar.retire(connectionID)
             }
@@ -56,6 +74,8 @@ extension QUICConnectionChannel {
 
         func generateID() -> QUICConnectionID {
             switch self {
+            case .live(let registrar):
+                return registrar.generateID()
             case .test(let registrar):
                 return registrar.generateID()
             }

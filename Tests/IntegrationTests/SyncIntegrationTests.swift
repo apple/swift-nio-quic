@@ -134,6 +134,42 @@ final class ConnectionIDSideChannel: Sendable {
     }
 }
 
+/// Test helper that observes connection-scoped connection ID events on the **connection
+/// channel** and forwards them to the supplied closures.
+///
+/// `QUICSCIDAssociatedEvent`/`QUICSCIDRetiredEvent` are fired on the connection channel's
+/// pipeline (they are connection-scoped, not stream-scoped), so tests that react to them
+/// install this handler on the connection channel rather than on a stream. The closures run
+/// on the connection channel's event loop and receive the `ChannelHandlerContext` so they can
+/// fire follow-up connection ID request events on the same channel.
+@available(anyAppleOS 26, *)
+final class ConnectionIDEventForwarder: ChannelInboundHandler {
+    typealias InboundIn = ByteBuffer
+    typealias InboundOut = ByteBuffer
+
+    private let onAssociated: (QUICConnectionID, ChannelHandlerContext) -> Void
+    private let onRetired: (QUICConnectionID, ChannelHandlerContext) -> Void
+
+    init(
+        onAssociated: @escaping (_ scid: QUICConnectionID, _ context: ChannelHandlerContext) -> Void,
+        onRetired: @escaping (_ scid: QUICConnectionID, _ context: ChannelHandlerContext) -> Void
+    ) {
+        self.onAssociated = onAssociated
+        self.onRetired = onRetired
+    }
+
+    func userInboundEventTriggered(context: ChannelHandlerContext, event: Any) {
+        switch event {
+        case let associated as QUICSCIDAssociatedEvent:
+            self.onAssociated(associated.scid, context)
+        case let retired as QUICSCIDRetiredEvent:
+            self.onRetired(retired.scid, context)
+        default:
+            context.fireUserInboundEventTriggered(event)
+        }
+    }
+}
+
 /// Waits for incoming "GET /foo" requests and answer them. Shuts down when receiving "GET /bye".
 @available(anyAppleOS 26, *)
 final class TestConnectionIDCycleServerHandler: ChannelInboundHandler {
@@ -201,15 +237,38 @@ final class TestConnectionIDCycleServerHandler: ChannelInboundHandler {
     }
 }
 
-/// Generates and associates a new connection ID on startup. Then continuously sends requests to a server
-/// until it receives an event that the connection ID has been retired. At that point it sends "GET /bye" and
-/// shuts down its output.
+/// Shared state for the connection ID cycle test. Holds the connection ID the client
+/// announces and whether its retirement has been observed. Written by the connection-channel
+/// ``ConnectionIDEventForwarder`` and read by the stream handler.
+@available(anyAppleOS 26, *)
+final class ConnectionIDCycleDriver: Sendable {
+    let connectionIDForRoundtrip: QUICConnectionID
+    private let done: NIOLockedValueBox<Bool>
+
+    init() {
+        var generator: any RandomNumberGenerator = SystemRandomNumberGenerator()
+        self.connectionIDForRoundtrip = QUICConnectionID.random(using: &generator)
+        self.done = NIOLockedValueBox(false)
+    }
+
+    var isDone: Bool {
+        self.done.withLockedValue { $0 }
+    }
+
+    func markDone() {
+        self.done.withLockedValue { $0 = true }
+    }
+}
+
+/// Stream handler for the connection ID cycle test. Sends requests until the connection ID it
+/// announced on startup is retired — observed on the connection channel via
+/// ``ConnectionIDEventForwarder`` — then sends "GET /bye" and shuts down its output.
 ///
 /// The expected cycle for the connection ID is:
-/// 1. Generate a new connection ID and request its association with the connection via an outbound event.
-/// 2. Receive an inbound event that the connection ID was associated with the connection.
-/// 3. Put the connection ID in the side channel for the server to request its retirement.
-/// 4. Receive an inbound event that the connection ID was retired from the connection.
+/// 1. Announce a new connection ID via an outbound event on the connection channel.
+/// 2. The connection-channel forwarder observes its association and puts it in the side channel.
+/// 3. The server requests its retirement.
+/// 4. The connection-channel forwarder observes the retirement and marks the driver done.
 @available(anyAppleOS 26, *)
 final class TestConnectionIDCycleClientHandler: ChannelInboundHandler {
     typealias InboundIn = ByteBuffer
@@ -219,20 +278,16 @@ final class TestConnectionIDCycleClientHandler: ChannelInboundHandler {
 
     private var context: ChannelHandlerContext!
     private var sentInitialRequest = false
-    private var done: Bool = false
 
     private var responseBuffer = ByteBuffer()
     private let requestBuffer = ByteBuffer(string: "GET /foo")
     private let finalReqestBuffer = ByteBuffer(string: "GET /bye")
     private let expectedResponse = ByteBuffer(string: "<b>Success</b>")
 
-    private var anyRandomNumberGenerator: any RandomNumberGenerator = SystemRandomNumberGenerator()
-    private let connectionIDForRoundtrip: QUICConnectionID
-    private let connectionIDSideChannel: ConnectionIDSideChannel
+    private let driver: ConnectionIDCycleDriver
 
-    init(connectionIDSideChannel: ConnectionIDSideChannel) {
-        self.connectionIDSideChannel = connectionIDSideChannel
-        self.connectionIDForRoundtrip = QUICConnectionID.random(using: &anyRandomNumberGenerator)
+    init(driver: ConnectionIDCycleDriver) {
+        self.driver = driver
     }
 
     func handlerAdded(context: ChannelHandlerContext) {
@@ -246,7 +301,7 @@ final class TestConnectionIDCycleClientHandler: ChannelInboundHandler {
 
     func handlerRemoved(context: ChannelHandlerContext) {
         XCTAssertTrue(self.sentInitialRequest)
-        XCTAssertTrue(self.done)
+        XCTAssertTrue(self.driver.isDone)
     }
 
     func channelActive(context: ChannelHandlerContext) {
@@ -260,11 +315,11 @@ final class TestConnectionIDCycleClientHandler: ChannelInboundHandler {
         // Send the initial request.
         self.context.write(self.wrapOutboundOut(self.requestBuffer), promise: nil)
         // And announce a new connection ID that the peer can use.
-        context.channel.parent!.triggerUserOutboundEvent(
-            QUICRequestAssociateSCIDEvent(scid: connectionIDForRoundtrip),
+        self.context.channel.parent!.triggerUserOutboundEvent(
+            QUICRequestAssociateSCIDEvent(scid: self.driver.connectionIDForRoundtrip),
             promise: nil
         )
-        context.flush()
+        self.context.flush()
         // Only do this once!
         self.sentInitialRequest = true
     }
@@ -282,7 +337,7 @@ final class TestConnectionIDCycleClientHandler: ChannelInboundHandler {
 
         XCTAssertEqual(self.responseBuffer, self.expectedResponse)
 
-        if self.done {
+        if self.driver.isDone {
             context.writeAndFlush(self.wrapOutboundOut(self.finalReqestBuffer), promise: nil)
             context.close(mode: .output, promise: nil)
         } else {
@@ -292,29 +347,6 @@ final class TestConnectionIDCycleClientHandler: ChannelInboundHandler {
         self.responseBuffer.clear()
 
         context.fireChannelRead(data)
-    }
-
-    public func userInboundEventTriggered(context: ChannelHandlerContext, event: Any) {
-        switch event {
-        case is QUICSCIDAssociatedEvent:
-            let newCIDEvent: QUICSCIDAssociatedEvent = event as! QUICSCIDAssociatedEvent
-            if newCIDEvent.scid == self.connectionIDForRoundtrip {
-                // Put this into the side channel so the server can read the ID and retire it.
-                self.connectionIDSideChannel.connectionID.withLock {
-                    $0 = newCIDEvent.scid
-                }
-            }
-
-        case is QUICSCIDRetiredEvent:
-            let retiredCIDEvent: QUICSCIDRetiredEvent = event as! QUICSCIDRetiredEvent
-            if retiredCIDEvent.scid == self.connectionIDForRoundtrip {
-                // The connection ID made the full cycle.
-                self.done = true
-            }
-
-        default:
-            context.fireUserInboundEventTriggered(event)
-        }
     }
 }
 
@@ -462,28 +494,73 @@ final class TestBufferedDeletionServerHandler: ChannelInboundHandler {
     }
 }
 
-/// Client handler that tests the `scidPendingDeletion` buffering mechanism.
+/// Shared state for the buffered connection ID deletion test. Wraps the phase state machine and
+/// the connection IDs, shared between the stream handler (which drives the request/response
+/// roundtrips) and the connection-channel ``ConnectionIDEventForwarder`` (which reacts to CID
+/// association/retirement events). The lock decides the transition; the caller performs the side
+/// effect on the appropriate channel.
+@available(anyAppleOS 26, *)
+final class BufferedDeletionDriver: Sendable {
+    let scidA: QUICConnectionID
+    let scidB: QUICConnectionID
+
+    private let state: NIOLockedValueBox<State>
+
+    struct State {
+        var stateMachine = BufferedDeletionStateMachine()
+        /// The connection's initial SCIDs, captured by the stream handler and consumed by the
+        /// connection-channel forwarder when it removes them.
+        var initialSCIDs: [QUICConnectionID] = []
+    }
+
+    init() {
+        var generator: any RandomNumberGenerator = SystemRandomNumberGenerator()
+        self.scidA = QUICConnectionID.random(using: &generator)
+        self.scidB = QUICConnectionID.random(using: &generator)
+        self.state = NIOLockedValueBox(State())
+    }
+
+    var initialSCIDs: [QUICConnectionID] {
+        get { self.state.withLockedValue { $0.initialSCIDs } }
+        set { self.state.withLockedValue { $0.initialSCIDs = newValue } }
+    }
+
+    var isShuttingDown: Bool {
+        self.state.withLockedValue { $0.stateMachine.isShuttingDown }
+    }
+
+    func receivedResponse() -> BufferedDeletionStateMachine.ReceivedResponseAction {
+        self.state.withLockedValue { $0.stateMachine.receivedResponse() }
+    }
+
+    func scidAAssociated() -> BufferedDeletionStateMachine.ScidAAssociatedAction {
+        self.state.withLockedValue { $0.stateMachine.scidAAssociated() }
+    }
+
+    func scidBAssociated() -> BufferedDeletionStateMachine.ScidBAssociatedAction {
+        self.state.withLockedValue { $0.stateMachine.scidBAssociated() }
+    }
+
+    func scidARetired() -> BufferedDeletionStateMachine.ScidARetiredAction {
+        self.state.withLockedValue { $0.stateMachine.scidARetired() }
+    }
+}
+
+/// Stream handler for the buffered connection ID deletion test. Drives the request/response
+/// roundtrips. Connection ID association/retirement is connection-scoped and observed on the
+/// connection channel via ``ConnectionIDEventForwarder`` (wired in the test body).
 ///
-/// The flow exercises the case where the peer retires the last active SCID. The retirement
-/// is buffered until a new SCID is associated. This test verifies:
+/// The flow exercises the case where the peer retires the last active SCID. The retirement is
+/// buffered until a new SCID is associated. This test verifies:
 /// 1. Normal retirements fire `QUICSCIDRetiredEvent` immediately
 /// 2. Retiring the last SCID is buffered (no event fired)
 /// 3. Associating a new SCID triggers the deferred `QUICSCIDRetiredEvent`
-///
-/// Phase transitions are managed by `BufferedDeletionStateMachine`. This handler
-/// switches over the returned actions to perform NIO channel operations.
 @available(anyAppleOS 26, *)
 final class TestBufferedDeletionClientHandler: ChannelInboundHandler {
     typealias InboundIn = ByteBuffer
     typealias InboundOut = ByteBuffer
     typealias OutboundIn = ByteBuffer
     typealias OutboundOut = ByteBuffer
-
-    // MARK: State machine
-
-    private var stateMachine = BufferedDeletionStateMachine()
-
-    // MARK: Infrastructure
 
     private var sentInitialRequest = false
 
@@ -492,14 +569,10 @@ final class TestBufferedDeletionClientHandler: ChannelInboundHandler {
     private let finalRequestBuffer = ByteBuffer(string: "GET /bye")
     private let expectedResponse = ByteBuffer(string: "<b>Success</b>")
 
-    private var anyRandomNumberGenerator: any RandomNumberGenerator = SystemRandomNumberGenerator()
-    private let scidA: QUICConnectionID
-    private let scidB: QUICConnectionID
-    private var initialSCIDs: [QUICConnectionID] = []
+    private let driver: BufferedDeletionDriver
 
-    init() {
-        self.scidA = QUICConnectionID.random(using: &anyRandomNumberGenerator)
-        self.scidB = QUICConnectionID.random(using: &anyRandomNumberGenerator)
+    init(driver: BufferedDeletionDriver) {
+        self.driver = driver
     }
 
     // MARK: Channel lifecycle
@@ -516,7 +589,7 @@ final class TestBufferedDeletionClientHandler: ChannelInboundHandler {
     }
 
     func handlerRemoved(context: ChannelHandlerContext) {
-        guard self.stateMachine.isShuttingDown else {
+        guard self.driver.isShuttingDown else {
             XCTFail("Handler removed before completing the buffered deletion flow")
             return
         }
@@ -542,7 +615,7 @@ final class TestBufferedDeletionClientHandler: ChannelInboundHandler {
         self.responseBuffer.clear()
 
         // Progress state.
-        switch self.stateMachine.receivedResponse() {
+        switch self.driver.receivedResponse() {
         case .queryActiveSCIDsAndAssociateA:
             self.queryActiveSCIDsAndAssociateA(with: context)
             context.writeAndFlush(self.wrapOutboundOut(self.requestBuffer), promise: nil)
@@ -561,82 +634,20 @@ final class TestBufferedDeletionClientHandler: ChannelInboundHandler {
         context.fireChannelRead(data)
     }
 
-    // MARK: Event handling
-
-    func userInboundEventTriggered(context: ChannelHandlerContext, event: Any) {
-        switch event {
-        case let associated as QUICSCIDAssociatedEvent:
-            if associated.scid == self.scidA {
-                switch self.stateMachine.scidAAssociated() {
-                case .removeAllSCIDsAndAssociateB:
-                    self.removeAllSCIDsAndAssociateB(with: context)
-
-                case .unexpectedState:
-                    XCTFail("Unexpected event: A associated with connection")
-                    context.close(mode: .all, promise: nil)
-                }
-            } else if associated.scid == self.scidB {
-                switch self.stateMachine.scidBAssociated() {
-                case .noAction:
-                    break
-                case .unexpectedState:
-                    XCTFail("Unexpected event: B associated with connection")
-                    context.close(mode: .all, promise: nil)
-                }
-            }
-
-        case let retired as QUICSCIDRetiredEvent:
-            // The ordering invariant: B must be associated before A's deferred retirement fires.
-            if retired.scid == self.scidA {
-                switch self.stateMachine.scidARetired() {
-                case .noAction:
-                    break
-                case .unexpectedState:
-                    XCTFail("B must be associated before A's deferred retirement arrives")
-                    context.close(mode: .all, promise: nil)
-                }
-            }
-
-        default:
-            context.fireUserInboundEventTriggered(event)
-        }
-    }
-
     // MARK: Actions
 
-    func queryActiveSCIDsAndAssociateA(with context: ChannelHandlerContext) {
+    private func queryActiveSCIDsAndAssociateA(with context: ChannelHandlerContext) {
         let result = NIOLockedValueBox<[QUICConnectionID]>([])
         context.channel.parent!.triggerUserOutboundEvent(
             _QUICForTestingGetActiveSCIDsEvent(result: result),
             promise: nil
         )
-        self.initialSCIDs = result.withLockedValue { $0 }
-        XCTAssertFalse(self.initialSCIDs.isEmpty, "Expected at least one initial SCID")
+        let initialSCIDs = result.withLockedValue { $0 }
+        XCTAssertFalse(initialSCIDs.isEmpty, "Expected at least one initial SCID")
+        self.driver.initialSCIDs = initialSCIDs
 
         context.channel.parent!.triggerUserOutboundEvent(
-            QUICRequestAssociateSCIDEvent(scid: self.scidA),
-            promise: nil
-        )
-    }
-
-    func removeAllSCIDsAndAssociateB(with context: ChannelHandlerContext) {
-        // Remove initial SCIDs from activeSCIDs without affecting routing.
-        for scid in self.initialSCIDs {
-            context.channel.parent!.triggerUserOutboundEvent(
-                _QUICForTestingRemoveActiveSCIDEvent(scid: scid),
-                promise: nil
-            )
-        }
-
-        // Remove A — last one, gets buffered in scidPendingDeletion.
-        context.channel.parent!.triggerUserOutboundEvent(
-            _QUICForTestingRemoveActiveSCIDEvent(scid: self.scidA),
-            promise: nil
-        )
-
-        // Associate B — triggers deferred retirement of A.
-        context.channel.parent!.triggerUserOutboundEvent(
-            QUICRequestAssociateSCIDEvent(scid: self.scidB),
+            QUICRequestAssociateSCIDEvent(scid: self.driver.scidA),
             promise: nil
         )
     }
@@ -1744,6 +1755,10 @@ final class SyncIntegrationTests: XCTestCase {
         // Sidechannel to transfer a connection ID between client and server.
         let connectionIDSideChannel = ConnectionIDSideChannel()
 
+        // Holds the announced connection ID and tracks its retirement, shared between the
+        // connection-channel event forwarder and the stream handler.
+        let driver = ConnectionIDCycleDriver()
+
         // We'll use this promise to assert that the server-side request stream channel is properly closed
         let allServerRequestStreamsClosedPromise = eventLoopGroup.any().makePromise(of: Void.self)
 
@@ -1785,7 +1800,25 @@ final class SyncIntegrationTests: XCTestCase {
                     serverName: "\(host):\(serverPort)",
                     remoteAddress: try! .init(ipAddress: host, port: serverPort),
                     connectionInitializer: { connectionChannel, streamCreator in
-                        connectionChannel.eventLoop.makeSucceededVoidFuture()
+                        // CID events are connection-scoped: observe them on the connection channel.
+                        connectionChannel.eventLoop.makeCompletedFuture {
+                            try connectionChannel.pipeline.syncOperations.addHandler(
+                                ConnectionIDEventForwarder(
+                                    onAssociated: { scid, _ in
+                                        if scid == driver.connectionIDForRoundtrip {
+                                            // Put this in the side channel so the server can retire it.
+                                            connectionIDSideChannel.connectionID.withLock { $0 = scid }
+                                        }
+                                    },
+                                    onRetired: { scid, _ in
+                                        if scid == driver.connectionIDForRoundtrip {
+                                            // The connection ID made the full cycle.
+                                            driver.markDone()
+                                        }
+                                    }
+                                )
+                            )
+                        }
                     },
                     inboundStreamInitializer: { streamChannel in
                         streamChannel.eventLoop.makeSucceededVoidFuture()
@@ -1798,7 +1831,7 @@ final class SyncIntegrationTests: XCTestCase {
             XCTAssertEqual(streamInitializer.streamID.rawValue, 0)
             return streamInitializer.channel.eventLoop.makeCompletedFuture {
                 try streamInitializer.channel.pipeline.syncOperations.addHandlers([
-                    TestConnectionIDCycleClientHandler(connectionIDSideChannel: connectionIDSideChannel)
+                    TestConnectionIDCycleClientHandler(driver: driver)
                 ])
                 return streamInitializer.channel
             }
@@ -1897,6 +1930,60 @@ final class SyncIntegrationTests: XCTestCase {
     }
     #endif
 
+    /// Tests that a server whose connection initializer completes asynchronously still handles
+    /// the connection's first packet promptly.
+    func testAsyncConnectionInitializerDoesNotStallHandshake() async throws {
+        let eventLoopGroup = MultiThreadedEventLoopGroup.singleton
+        let loggers = getChannelLoggers()
+        let host = "127.0.0.1"
+
+        let serverChannel = try await createServerChannel(
+            eventLoopGroup: eventLoopGroup,
+            host: host,
+            port: 0,
+            logger: loggers.serverLogger,
+            inboundConnectionInitializer: { connectionChannel, _ in
+                // Complete on a later tick: the client's INITIAL is handed to the connection
+                // after the UDP channel's read loop has already ended.
+                connectionChannel.eventLoop.scheduleTask(in: .milliseconds(10)) {}.futureResult
+            },
+            noMoreConnections: {}
+        ).get()
+        let serverPort = serverChannel.localAddress!.port!
+
+        let clientChannel = try await createClientChannel(
+            eventLoopGroup: eventLoopGroup,
+            host: host,
+            port: 0,
+            logger: loggers.clientLogger
+        ).get()
+
+        // The promise completes when the handshake does, which needs the server to have consumed
+        // the INITIAL.
+        let start = NIODeadline.now()
+        let (clientConnectionChannel, _) = try await clientChannel.pipeline.handler(type: QUICHandler.self)
+            .flatMap { quicHandler in
+                quicHandler.createOutboundConnection(
+                    serverName: "\(host):\(serverPort)",
+                    remoteAddress: try! .init(ipAddress: host, port: serverPort),
+                    connectionInitializer: { connectionChannel, _ in
+                        connectionChannel.eventLoop.makeSucceededVoidFuture()
+                    },
+                    inboundStreamInitializer: { streamChannel in
+                        streamChannel.eventLoop.makeSucceededVoidFuture()
+                    }
+                )
+            }.get()
+        let elapsed = NIODeadline.now() - start
+
+        // If the queued INITIAL isn't consumed until the next read loop then nothing happens
+        // until the client's PTO fires (~1s) and it retransmits.
+        XCTAssertLessThan(elapsed, .milliseconds(500))
+
+        try await clientConnectionChannel.close()
+        try await serverChannel.close()
+    }
+
     /// Tests the `scidPendingDeletion` buffering mechanism: when the peer retires the last
     /// active SCID, the retirement is deferred until a new SCID is associated.
     #if DEBUG  // Test only runs in Debug builds
@@ -1907,6 +1994,10 @@ final class SyncIntegrationTests: XCTestCase {
 
         let noMoreConnectionsPromise = eventLoopGroup.any().makePromise(of: Void.self)
         let allServerRequestStreamsClosedPromise = eventLoopGroup.any().makePromise(of: Void.self)
+
+        // Holds the phase state machine and connection IDs, shared between the connection-channel
+        // event forwarder and the stream handler.
+        let driver = BufferedDeletionDriver()
 
         let serverChannel = try await createServerChannel(
             eventLoopGroup: eventLoopGroup,
@@ -1946,7 +2037,62 @@ final class SyncIntegrationTests: XCTestCase {
                     serverName: "\(host):\(serverPort)",
                     remoteAddress: try! .init(ipAddress: host, port: serverPort),
                     connectionInitializer: { connectionChannel, streamCreator in
-                        connectionChannel.eventLoop.makeSucceededVoidFuture()
+                        // CID events are connection-scoped: observe them on the connection channel
+                        // and drive the CID phase of the flow from there.
+                        connectionChannel.eventLoop.makeCompletedFuture {
+                            try connectionChannel.pipeline.syncOperations.addHandler(
+                                ConnectionIDEventForwarder(
+                                    onAssociated: { scid, context in
+                                        if scid == driver.scidA {
+                                            switch driver.scidAAssociated() {
+                                            case .removeAllSCIDsAndAssociateB:
+                                                // Remove the initial SCIDs (without affecting routing).
+                                                for initial in driver.initialSCIDs {
+                                                    context.channel.triggerUserOutboundEvent(
+                                                        _QUICForTestingRemoveActiveSCIDEvent(scid: initial),
+                                                        promise: nil
+                                                    )
+                                                }
+                                                // Remove A — last one, gets buffered in scidPendingDeletion.
+                                                context.channel.triggerUserOutboundEvent(
+                                                    _QUICForTestingRemoveActiveSCIDEvent(scid: driver.scidA),
+                                                    promise: nil
+                                                )
+                                                // Associate B — triggers deferred retirement of A.
+                                                context.channel.triggerUserOutboundEvent(
+                                                    QUICRequestAssociateSCIDEvent(scid: driver.scidB),
+                                                    promise: nil
+                                                )
+                                            case .unexpectedState:
+                                                XCTFail("Unexpected event: A associated with connection")
+                                                context.close(mode: .all, promise: nil)
+                                            }
+                                        } else if scid == driver.scidB {
+                                            switch driver.scidBAssociated() {
+                                            case .noAction:
+                                                ()
+                                            case .unexpectedState:
+                                                XCTFail("Unexpected event: B associated with connection")
+                                                context.close(mode: .all, promise: nil)
+                                            }
+                                        }
+                                    },
+                                    onRetired: { scid, context in
+                                        // The ordering invariant: B must be associated before A's
+                                        // deferred retirement fires.
+                                        if scid == driver.scidA {
+                                            switch driver.scidARetired() {
+                                            case .noAction:
+                                                ()
+                                            case .unexpectedState:
+                                                XCTFail("B must be associated before A's deferred retirement arrives")
+                                                context.close(mode: .all, promise: nil)
+                                            }
+                                        }
+                                    }
+                                )
+                            )
+                        }
                     },
                     inboundStreamInitializer: { streamChannel in
                         streamChannel.eventLoop.makeSucceededVoidFuture()
@@ -1959,7 +2105,7 @@ final class SyncIntegrationTests: XCTestCase {
             XCTAssertEqual(streamInitializer.streamID.rawValue, 0)
             return streamInitializer.channel.eventLoop.makeCompletedFuture {
                 try streamInitializer.channel.pipeline.syncOperations.addHandlers([
-                    TestBufferedDeletionClientHandler()
+                    TestBufferedDeletionClientHandler(driver: driver)
                 ])
                 return streamInitializer.channel
             }

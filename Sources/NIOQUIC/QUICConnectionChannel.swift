@@ -66,6 +66,13 @@ final class QUICConnectionChannel: @unchecked Sendable {
     /// A registrar for connection IDs.
     private let _registrar: ConnectionIDRegistrar
 
+    /// The connection ID the connection is registered under in the parent channel's routing table.
+    ///
+    /// Initially the connection's source connection ID. If the peer retires that ID while other
+    /// IDs are associated with the connection then one of those is promoted in its place and
+    /// recorded here, so that the connection can always be unregistered.
+    private var _registeredConnectionID: QUICConnectionID
+
     /// A view into the QUIC handler in the UDP channel, for outbound operations.
     private let _transport: Transport
 
@@ -88,6 +95,20 @@ final class QUICConnectionChannel: @unchecked Sendable {
     /// at the end of the parent channel's read loop (in `_parentChannelReadComplete`).
     private var _pendingStreams: Deque<(QUICStreamID, QUICChannelStreamHandler)>
 
+    /// The negotiation state of the QUIC datagram extension (RFC 9221) for the connection.
+    enum DatagramNegotiation {
+        /// The peer's `max_datagram_frame_size` transport parameter is not yet known.
+        /// Early writes are buffered until the peer's advertisement is received.
+        case waitingForPeerAdvertisement(earlyWrites: TinyArray<(ByteBuffer, EventLoopPromise<Void>?)>)
+        /// The peer advertised a `max_datagram_frame_size` of 0: it does not support datagrams.
+        case peerDoesNotAcceptDatagrams
+        /// The peer accepts datagrams up to `maximumSize` bytes.
+        case peerAcceptsDatagrams(maximumSize: Int)
+    }
+
+    /// The negotiation state of the QUIC datagram extension (RFC 9221).
+    private var _datagramNegotiation: DatagramNegotiation
+
     // MARK: - Channel API
 
     /// The parent `Channel` (i.e. the UDP channel).
@@ -104,7 +125,8 @@ final class QUICConnectionChannel: @unchecked Sendable {
         connection: Connection,
         registrar: ConnectionIDRegistrar,
         transport: Transport,
-        isServer: Bool
+        isServer: Bool,
+        sourceConnectionID: QUICConnectionID
     ) {
         self.parent = udpChannel
 
@@ -120,6 +142,7 @@ final class QUICConnectionChannel: @unchecked Sendable {
 
         self._connection = connection
         self._registrar = registrar
+        self._registeredConnectionID = sourceConnectionID
         self._transport = transport
         self._lifecycle = Lifecycle()
         self._autoRead = true
@@ -127,8 +150,16 @@ final class QUICConnectionChannel: @unchecked Sendable {
         self._readyPromise = nil
         self._isAllowedToDrain = true
         self._pendingStreams = []
+        self._datagramNegotiation = .waitingForPeerAdvertisement(earlyWrites: TinyArray())
 
         self._pipeline = ChannelPipeline(channel: self)
+
+        switch connection {
+        case .live(let connection):
+            connection.setDriver(self)
+        case .test:
+            ()
+        }
     }
 
     enum StreamInitializer {
@@ -267,12 +298,13 @@ extension QUICConnectionChannel: ChannelCore {
     }
 
     func write0(_ data: NIOAny, promise: EventLoopPromise<Void>?) {
-        // TODO: support QUIC datagrams.
-        promise?.fail(ChannelError.operationUnsupported)
+        self.eventLoop.assertInEventLoop()
+        self._writeDatagram(self.unwrapData(data, as: ByteBuffer.self), promise: promise)
     }
 
     func flush0() {
-        // TODO: support QUIC datagrams
+        self.eventLoop.assertInEventLoop()
+        self._flushDatagrams()
     }
 
     func read0() {
@@ -302,6 +334,34 @@ extension QUICConnectionChannel: ChannelCore {
                 errorCode: Int64(event.code.rawValue),
                 reasonPhrase: event.reasonPhrase ?? ""
             )
+
+        case let event as QUICRequestAssociateSCIDEvent:
+            self._connection.withLiveOnly(promise: promise) { connection in
+                try connection.requestAssociationOfConnectionID(event.scid)
+            }
+
+        case let event as QUICRequestRetireDCIDEvent:
+            self._connection.withLiveOnly(promise: promise) { connection in
+                try connection.requestRetirementOfConnectionID(event.dcid)
+            }
+
+        #if DEBUG
+        case let event as _QUICForTestingPoisonRetiredSCIDEvent:
+            self._connection.withLiveOnly(promise: promise) { connection in
+                connection._forTesting_addRetiredSCID(event.scid)
+            }
+
+        case let event as _QUICForTestingGetActiveSCIDsEvent:
+            self._connection.withLiveOnly(promise: promise) { connection in
+                let scids = connection._forTesting_getActiveSCIDs()
+                event.result.withLockedValue { $0 = scids }
+            }
+
+        case let event as _QUICForTestingRemoveActiveSCIDEvent:
+            self._connection.withLiveOnly(promise: promise) { connection in
+                connection._forTesting_removeFromActiveSCIDs(event.scid)
+            }
+        #endif
 
         default:
             promise?.fail(ChannelError.operationUnsupported)
@@ -365,14 +425,21 @@ extension QUICConnectionChannel.ConnectionView {
 
     /// The connection retired the given ID, update the routing table to drop the retired ID.
     func retire(_ id: QUICConnectionID) -> Bool {
-        let retired = self._channel._registrar.retire(id)
+        switch self._channel._registrar.retire(id) {
+        case .notRegistered:
+            return false
 
-        if retired {
-            let event = QUICSCIDRetiredEvent(scid: id)
-            self._channel.pipeline.fireUserInboundEventTriggered(event)
+        case .retired:
+            self._channel.pipeline.fireUserInboundEventTriggered(QUICSCIDRetiredEvent(scid: id))
+            return true
+
+        case .retiredAndRekeyed(let key):
+            // The connection was registered under the retired ID: track the key which replaced
+            // it so that the connection can be unregistered when it closes.
+            self._channel._registeredConnectionID = key
+            self._channel.pipeline.fireUserInboundEventTriggered(QUICSCIDRetiredEvent(scid: id))
+            return true
         }
-
-        return retired
     }
 
     /// Generate a new connection ID for the connection.
@@ -387,8 +454,21 @@ extension QUICConnectionChannel.ConnectionView {
     }
 
     /// Notifies the connection that the handshake completed.
-    func handshakeCompleted() {
-        self._channel._connectionActivated()
+    ///
+    /// - Parameter peerMaxDatagramFrameSize: The peer's advertised `max_datagram_frame_size`
+    ///   or `0` if the peer does not accept datagrams.
+    func handshakeCompleted(peerMaxDatagramFrameSize: Int) {
+        self._channel._connectionActivated(peerMaxDatagramFrameSize: peerMaxDatagramFrameSize)
+    }
+
+    /// A datagram was received from the peer; fire it as a `channelRead`.
+    func datagramRead(_ datagram: ByteBuffer) {
+        self._channel.pipeline.syncOperations.fireChannelRead(NIOAny(datagram))
+    }
+
+    /// The connection's datagram flow failed; fire the error into the pipeline.
+    func datagramError(_ error: any Error) {
+        self._channel.pipeline.syncOperations.fireErrorCaught(error)
     }
 
     /// The connection closed spontaneously.
@@ -421,6 +501,15 @@ extension QUICConnectionChannel {
 
         var eventLoop: any EventLoop {
             self.channel.eventLoop
+        }
+
+        /// The connection ID the connection is currently registered under.
+        ///
+        /// This may not be the ID the connection was created with: if the peer retires that ID
+        /// another of the connection's IDs is promoted in its place.
+        var registeredConnectionID: QUICConnectionID {
+            self.channel.eventLoop.assertInEventLoop()
+            return self.channel._registeredConnectionID
         }
 
         init(_ channel: QUICConnectionChannel) {
@@ -531,9 +620,10 @@ extension QUICConnectionChannel.TransportView {
 
 @available(anyAppleOS 26, *)
 extension QUICConnectionChannel {
-    private func _connectionActivated() {
+    private func _connectionActivated(peerMaxDatagramFrameSize: Int) {
         self.eventLoop.assertInEventLoop()
         self._lifecycle.connectionActivated()
+        self._setPeerMaxDatagramFrameSize(peerMaxDatagramFrameSize)
     }
 
     private func _connectionClosed(error: (any Error)?) {
@@ -559,6 +649,9 @@ extension QUICConnectionChannel {
             self.closePromise.futureResult.cascade(to: promise)
             continueClosing = false
         case .alreadyClosed:
+            // The close promise has already been completed; cascading it completes 'promise'
+            // immediately rather than leaving the caller waiting forever.
+            self.closePromise.futureResult.cascade(to: promise)
             continueClosing = false
         }
 
@@ -719,6 +812,9 @@ extension QUICConnectionChannel {
         self._lifecycle.closed()
         self._isActive.store(false, ordering: .releasing)
 
+        // Datagram writes buffered while waiting for the peer's advertisement will never be sent.
+        self._failBufferedDatagramWrites()
+
         if let error {
             self.pipeline.fireErrorCaught(error)
         }
@@ -732,6 +828,7 @@ extension QUICConnectionChannel {
         // Tear down on the next loop tick.
         self.eventLoop.assumeIsolated().execute {
             self.removeHandlers(pipeline: self.pipeline)
+            self._connection.dropChannelReferences()
             self.closePromise.succeed()
         }
     }
@@ -855,6 +952,28 @@ extension QUICConnectionChannel {
         self.eventLoop.assertInEventLoop()
 
         switch self._connection {
+        case .live(let connection):
+            do {
+                try connection.addNewOutboundStreamInputHandler(
+                    streamType: type,
+                    connectionChannel: self
+                ) { result in
+                    switch result {
+                    case .success(let (streamID, stream)):
+                        stream.initializeOutbound(
+                            streamID: streamID,
+                            initializer: initializer,
+                            promise: promise
+                        )
+                    case .failure(let error):
+                        promise.fail(error)
+                    }
+                }
+            } catch {
+                // Invalid stream type.
+                promise.fail(error)
+            }
+
         case .test:
             promise.fail(ChannelError.operationUnsupported)
         }
@@ -924,12 +1043,10 @@ extension QUICConnectionChannel {
 
         self._lifecycle.willInitializeStream()
 
-        // Note: done in a follow-up.
-        // let initialized = stream.initializeInbound(
-        //     streamID: streamID,
-        //     initializer: self._streamInitializer
-        // )
-        let initialized: EventLoopFuture<Void>? = self.eventLoop.makeSucceededVoidFuture()
+        let initialized = stream.initializeInbound(
+            streamID: streamID,
+            initializer: self._streamInitializer
+        )
 
         if let initialized {
             initialized.assumeIsolated().whenComplete { _ in
@@ -945,5 +1062,108 @@ extension QUICConnectionChannel {
 
         self._lifecycle.streamInitializerFinished()
         self.reconcileLifecycle()
+    }
+}
+
+// MARK: - Datagrams
+
+@available(anyAppleOS 26, *)
+extension QUICConnectionChannel {
+    /// Writes a datagram, applying the current negotiation state.
+    func _writeDatagram(_ datagram: ByteBuffer, promise: EventLoopPromise<Void>?) {
+        self.eventLoop.assertInEventLoop()
+
+        switch self._datagramNegotiation {
+        case .waitingForPeerAdvertisement(var earlyWrites):
+            // The handshake has not finished and the peer's advertised size is yet unknown.
+            // Temporarily switch state to avoid CoW-ign earlyWrites.
+            self._datagramNegotiation = .peerDoesNotAcceptDatagrams
+            earlyWrites.append((datagram, promise))
+            self._datagramNegotiation = .waitingForPeerAdvertisement(earlyWrites: earlyWrites)
+
+        case .peerDoesNotAcceptDatagrams:
+            // Nope. Drop it.
+            promise?.fail(QUICError.peerDoesNotAcceptDatagrams)
+
+        case .peerAcceptsDatagrams(let maximumSize):
+            self.sendDatagram(datagram, maximumSize: maximumSize, promise: promise)
+        }
+    }
+
+    /// Flushes datagrams buffered in the connection since the last flush.
+    func _flushDatagrams() {
+        self.eventLoop.assertInEventLoop()
+
+        self.withoutEnteringDrainOutput {
+            self._connection.flushDatagrams()
+        }
+
+        self.drainAndReconcileLifecycle()
+    }
+
+    /// Applies the peer's advertised `max_datagram_frame_size` setting.
+    ///
+    /// - Precondition: Must only be called once per connection; the peer only advertises this once.
+    private func _setPeerMaxDatagramFrameSize(_ size: Int) {
+        self.eventLoop.assertInEventLoop()
+
+        switch self._datagramNegotiation {
+        case .waitingForPeerAdvertisement(let earlyWrites):
+            if size == 0 {
+                self._datagramNegotiation = .peerDoesNotAcceptDatagrams
+                for (_, promise) in earlyWrites {
+                    promise?.fail(QUICError.peerDoesNotAcceptDatagrams)
+                }
+            } else {
+                self._datagramNegotiation = .peerAcceptsDatagrams(maximumSize: size)
+                for (datagram, promise) in earlyWrites {
+                    self.sendDatagram(datagram, maximumSize: size, promise: promise)
+                }
+
+                if !earlyWrites.isEmpty {
+                    self._flushDatagrams()
+                }
+            }
+
+        case .peerDoesNotAcceptDatagrams, .peerAcceptsDatagrams:
+            assertionFailure("peer max datagram size must not be updated more than once")
+        }
+    }
+
+    /// Fails any writes buffered while waiting for the peer's advertisement. Called as the channel
+    /// tears down: nothing will arrive to resolve them otherwise.
+    private func _failBufferedDatagramWrites() {
+        self.eventLoop.assertInEventLoop()
+
+        switch self._datagramNegotiation {
+        case .waitingForPeerAdvertisement(let earlyWrites):
+            self._datagramNegotiation = .peerDoesNotAcceptDatagrams
+            for (_, promise) in earlyWrites {
+                promise?.fail(ChannelError.ioOnClosedChannel)
+            }
+        case .peerDoesNotAcceptDatagrams, .peerAcceptsDatagrams:
+            ()  // Nothing is buffered here, writes are handed straight to the connection.
+        }
+    }
+
+    /// Rejects the datagram if it exceeds the peer's advertised limit, then hands it to the
+    /// connection (which may still refuse the write, e.g. because it has no datagram flow).
+    ///
+    /// The size check is payload-only, see `QUICError.datagramTooLarge`.
+    private func sendDatagram(
+        _ datagram: ByteBuffer,
+        maximumSize: Int,
+        promise: EventLoopPromise<Void>?
+    ) {
+        guard datagram.readableBytes <= maximumSize else {
+            promise?.fail(QUICError.datagramTooLarge)
+            return
+        }
+
+        if self._connection.writeDatagram(datagram) {
+            promise?.succeed()
+        } else {
+            promise?.fail(QUICError.datagramWriteFailed)
+        }
     }
 }

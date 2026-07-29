@@ -447,7 +447,6 @@ extension QUICChannelStreamHandlerTests {
 
         let eventLoop = EmbeddedEventLoop()
         let udpChannel = EmbeddedChannel(loop: eventLoop)
-        let connectionChannel = EmbeddedChannel(loop: eventLoop)
 
         let connection = try SwiftNetworkQUICConnection.server(
             configuration: .server(
@@ -466,7 +465,16 @@ extension QUICChannelStreamHandlerTests {
             eventLoop: eventLoop
         )
 
-        connection.setConnectionChannel(connectionChannel)
+        // Constructing the channel wires it into the connection via setDriver, which
+        // registerConnectedStubStreamHandler relies on through the connection's back-ref.
+        _ = QUICConnectionChannel(
+            udpChannel: udpChannel,
+            connection: .live(connection),
+            registrar: .test(NoOpConnectionIDRegistrar()),
+            transport: .test(RecordingTransport()),
+            isServer: connection.role == .server,
+            sourceConnectionID: .zero
+        )
 
         connection.registerConnectedStubStreamHandler(
             for: QUICStreamID(rawValue: streamID),
@@ -479,11 +487,21 @@ extension QUICChannelStreamHandlerTests {
         try body(streamChannel)
 
         try udpChannel.close().wait()
-        try connectionChannel.close().wait()
     }
 }
 
 extension QUICChannelStreamHandlerTests {
+    /// A no-op registrar for stream-handler tests, which never exercise connection-ID
+    /// association/retirement. Satisfies the `QUICConnectionChannel` init only.
+    @available(anyAppleOS 26, *)
+    private struct NoOpConnectionIDRegistrar: QUICConnectionIDRegistrar {
+        func associate(_ newID: NIOQUIC.QUICConnectionID, with existingID: NIOQUIC.QUICConnectionID) -> Bool { true }
+        func retire(_ connectionID: NIOQUIC.QUICConnectionID) -> OnRetireConnectionID { .retired }
+        func generateID() -> NIOQUIC.QUICConnectionID {
+            NIOQUIC.QUICConnectionID(bytes: InlineArray<20, UInt8>(repeating: 0), length: 8)
+        }
+    }
+
     // Records events from the parent channel.
     private final class RecordingHandler: ChannelDuplexHandler {
         typealias OutboundIn = ByteBuffer

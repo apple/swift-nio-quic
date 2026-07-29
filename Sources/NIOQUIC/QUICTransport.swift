@@ -36,10 +36,13 @@ protocol QUICTransport {
 @available(anyAppleOS 26, *)
 extension QUICConnectionChannel {
     enum Transport: QUICTransport {
+        case live(QUICHandler.ChildView)
         case test(any QUICTransport)
 
         func writeDatagram(_ envelope: AddressedEnvelope<ByteBuffer>, promise: EventLoopPromise<Void>?) {
             switch self {
+            case .live(let transport):
+                transport.writeDatagram(envelope, promise: promise)
             case .test(let transport):
                 transport.writeDatagram(envelope, promise: promise)
             }
@@ -47,6 +50,8 @@ extension QUICConnectionChannel {
 
         func flush() {
             switch self {
+            case .live(let transport):
+                transport.flush()
             case .test(let transport):
                 transport.flush()
             }
@@ -54,6 +59,8 @@ extension QUICConnectionChannel {
 
         func read() {
             switch self {
+            case .live(let transport):
+                transport.read()
             case .test(let transport):
                 transport.read()
             }

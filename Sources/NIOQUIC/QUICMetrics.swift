@@ -56,18 +56,13 @@ public struct QUICMetrics: Sendable {
 
     /// Metrics to be recorded at the connection level.
     public struct Connection: Sendable {
-        /// The number of currently open streams.
-        public var openStreams: Meter?
-
         /// The total time the stream was open.
         public var streamDuration: Timer?
 
         /// Initializes a new instance of ``QUICMetrics.Connection``.
         public init(
-            openStreams: Meter? = nil,
             streamDuration: Timer? = nil
         ) {
-            self.openStreams = openStreams
             self.streamDuration = streamDuration
         }
     }
