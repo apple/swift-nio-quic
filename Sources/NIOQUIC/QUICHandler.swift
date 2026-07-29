@@ -45,11 +45,7 @@ public final class QUICHandler {
     private let quicConfiguration: QUICConfiguration
 
     /// A registry of connections.
-    private var connectionRegistry:
-        AliasDictionary<
-            QUICConnectionID,
-            QUICConnectionChannel.TransportView
-        >
+    private var connectionRegistry: ConnectionRegistry<QUICConnectionChannel.TransportView>
 
     /// How new connections are surfaced to the user: either a multiplexer continuation or a pair
     /// of initializer closures.
@@ -70,12 +66,20 @@ public final class QUICHandler {
     private var context: ChannelHandlerContext?
     /// The optional metrics to be recorded.
     private var metrics: QUICMetrics?
-    /// A dictionary of QUIC connection IDs to QUIC connection metrics providers.
-    private var quicConnectionMetrics: [QUICConnectionID: () -> SwiftNetworkQUICConnection.Metrics]
+    /// The next connection handle to use. Don't use directly, use `nextConnectionHandle()` instead.
+    private var connectionHandle: ConnectionHandle
+    /// A dictionary of QUIC connection handles to QUIC connection metrics providers.
+    private var quicConnectionMetrics: [ConnectionHandle: () -> SwiftNetworkQUICConnection.Metrics]
     /// Verifies the server identitfy.
     private var asyncVerifierRunner: AsyncVerifierRunner?
     /// Provide certificates and signature to authenticate.
     private var authenticator: Authenticator?
+
+    private func nextConnectionHandle() -> ConnectionHandle {
+        let handle = self.connectionHandle
+        self.connectionHandle.formNext()
+        return handle
+    }
 
     /// Creates a new ``QUICHandler`` and a ``QUICHandler/ConnectionMultiplexer``.
     ///
@@ -214,7 +218,8 @@ public final class QUICHandler {
             self.asyncVerifierRunner = .init(asyncVerifier: asyncVerifier)
         }
         self.authenticator = authenticator
-        self.connectionRegistry = [:]
+        self.connectionHandle = .initial
+        self.connectionRegistry = ConnectionRegistry()
     }
 
     /// Initialises a new ``QUICHandler``.
@@ -258,7 +263,8 @@ public final class QUICHandler {
             self.asyncVerifierRunner = .init(asyncVerifier: asyncVerifier)
         }
         self.authenticator = authenticator
-        self.connectionRegistry = [:]
+        self.connectionHandle = .initial
+        self.connectionRegistry = ConnectionRegistry()
     }
 
     /// Create a new outbound QUIC connection.
@@ -360,6 +366,7 @@ public final class QUICHandler {
                 return promise.fail(QUICError.noLocalAddress)
             }
             let sourceConnectionID = self.quicConnectionIDGenerator.next()
+
             let connectionLogger = {
                 var logger = logger
                 logger[metadataKey: LoggingKeys.connectionOriginalSCID] = "\("none")"
@@ -381,12 +388,13 @@ public final class QUICHandler {
                 logger: connectionLogger
             )
 
+            let handle = self.nextConnectionHandle()
             let channel = self.makeQUICConnectionChannel(
                 quicConnection: quicConnection,
-                sourceConnectionID: sourceConnectionID
+                handle: handle
             )
             let view = channel.transportView
-            self.connectionRegistry.updateValue(view, forKey: sourceConnectionID)
+            self.connectionRegistry.insert(view, forHandle: handle, connectionID: sourceConnectionID)
 
             let streamCreator = channel.makeStreamCreator(role: self.quicConfiguration.role)
             let activePromise = self.eventLoop.makePromise(of: Void.self)
@@ -401,13 +409,12 @@ public final class QUICHandler {
                     case .success:
                         promise.succeed((channel, streamCreator))
                     case .failure(let error):
-                        self.connectionRegistry.removeValue(forKey: view.registeredConnectionID)
                         promise.fail(error)
                     }
                 }
 
             channel.closeFuture.assumeIsolated().whenComplete { _ in
-                self.connectionDidClose(view, withID: sourceConnectionID)
+                self.connectionDidClose(handle)
             }
 
         case .shuttingDown:
@@ -442,16 +449,11 @@ public final class QUICHandler {
         self.metrics?.quicConnectionHandlerMetrics?.openConnections?.increment()
     }
 
-    private func connectionDidClose(
-        _ view: QUICConnectionChannel.TransportView,
-        withID connectionID: QUICConnectionID
-    ) {
+    private func connectionDidClose(_ handle: ConnectionHandle) {
         self.eventLoop.assertInEventLoop()
-        // Remove by the ID the connection is registered under now, not the one it was created
-        // with: the peer may since have retired that one, re-keying the connection.
-        self.connectionRegistry.removeValue(forKey: view.registeredConnectionID)
+        self.connectionRegistry.remove(handle)
 
-        let metrics = self.quicConnectionMetrics.removeValue(forKey: connectionID)
+        let metrics = self.quicConnectionMetrics.removeValue(forKey: handle)
         guard let metrics else { return }
 
         let connectionMetrics = metrics()
@@ -715,23 +717,24 @@ extension QUICHandler: ChannelInboundHandler {
             eventLoop: self.context!.eventLoop
         )
 
-        self.quicConnectionMetrics[newSourceConnectionID] = { quicConnection.currentMetrics() }
+        let handle = self.nextConnectionHandle()
+        self.quicConnectionMetrics[handle] = { quicConnection.currentMetrics() }
 
         switch self.multiplexerContinuation! {
         case .closure(let connectionInitializer, let inboundStreamInitializer, _, let role):
             let channel = self.makeQUICConnectionChannel(
                 quicConnection: quicConnection,
-                sourceConnectionID: newSourceConnectionID
+                handle: handle
             )
             channel.setInboundStreamInitializer(.closure(inboundStreamInitializer))
 
             let view = channel.transportView
-            self.connectionRegistry.updateValue(view, forKey: newSourceConnectionID)
+            self.connectionRegistry.insert(view, forHandle: handle, connectionID: newSourceConnectionID)
             // Keep track of the original DCID the peer used in case they retransmit or send
             // additional INITIAL packets.
             // TODO: Remove the DCID alias from multiplexing.
             if newSourceConnectionID != destinationConnectionID {
-                self.connectionRegistry.addAlias(destinationConnectionID, for: newSourceConnectionID)
+                self.connectionRegistry.associate(destinationConnectionID, with: handle)
             }
 
             let streamCreator = channel.makeStreamCreator(role: role)
@@ -747,26 +750,28 @@ extension QUICHandler: ChannelInboundHandler {
                 case .success:
                     self.deliverFirstPacket(addressedEnvelope.data, to: view)
                 case .failure:
-                    self.connectionRegistry.removeValue(forKey: view.registeredConnectionID)
+                    // Nothing to unwind: failing initialization closes the channel, so
+                    // 'connectionDidClose' does the teardown.
+                    ()
                 }
             }
 
             channel.closeFuture.assumeIsolated().whenComplete { _ in
-                self.connectionDidClose(view, withID: newSourceConnectionID)
+                self.connectionDidClose(handle)
             }
 
         case .connectionMultiplexerContinuation(let multiplexerContinuation):
             let channel = self.makeQUICConnectionChannel(
                 quicConnection: quicConnection,
-                sourceConnectionID: newSourceConnectionID
+                handle: handle
             )
             let view = channel.transportView
-            self.connectionRegistry.updateValue(view, forKey: newSourceConnectionID)
+            self.connectionRegistry.insert(view, forHandle: handle, connectionID: newSourceConnectionID)
             // Keep track of the original DCID the peer used in case they retransmit or send
             // additional INITIAL packets.
             // TODO: Remove the DCID alias from multiplexing.
             if newSourceConnectionID != destinationConnectionID {
-                self.connectionRegistry.addAlias(destinationConnectionID, for: newSourceConnectionID)
+                self.connectionRegistry.associate(destinationConnectionID, with: handle)
             }
 
             let outputPromise = self.eventLoop.makePromise(of: (any Sendable).self)
@@ -795,12 +800,14 @@ extension QUICHandler: ChannelInboundHandler {
                         multiplexerContinuation.yield(connection: output, channel: channel)
                         self.deliverFirstPacket(addressedEnvelope.data, to: view)
                     case .failure:
-                        self.connectionRegistry.removeValue(forKey: view.registeredConnectionID)
+                        // Nothing to unwind: failing initialization closes the channel, so
+                        // 'connectionDidClose' does the teardown.
+                        ()
                     }
                 }
 
             channel.closeFuture.assumeIsolated().whenComplete { _ in
-                self.connectionDidClose(view, withID: newSourceConnectionID)
+                self.connectionDidClose(handle)
             }
         }
     }
@@ -908,25 +915,20 @@ extension QUICHandler.ChildView: Sendable {}
 extension QUICHandler {
     struct RegistrarView: QUICConnectionIDRegistrar {
         private let handler: QUICHandler
+        private let handle: ConnectionHandle
 
-        init(_ handler: QUICHandler) {
+        init(_ handler: QUICHandler, handle: ConnectionHandle) {
             handler.eventLoop.assertInEventLoop()
             self.handler = handler
+            self.handle = handle
         }
 
-        func associate(_ newID: QUICConnectionID, with existingID: QUICConnectionID) -> Bool {
-            self.handler.connectionRegistry.addAlias(newID, for: existingID)
+        func associate(_ newID: QUICConnectionID) -> Bool {
+            self.handler.connectionRegistry.associate(newID, with: self.handle)
         }
 
-        func retire(_ connectionID: QUICConnectionID) -> OnRetireConnectionID {
-            switch self.handler.connectionRegistry.removeKey(connectionID) {
-            case .notFound:
-                return .notRegistered
-            case .removed:
-                return .retired
-            case .removedAndPromoted(let promoted):
-                return .retiredAndRekeyed(key: promoted)
-            }
+        func retire(_ connectionID: QUICConnectionID) -> Bool {
+            self.handler.connectionRegistry.retire(connectionID, from: self.handle)
         }
 
         func generateID() -> QUICConnectionID {
@@ -943,15 +945,37 @@ extension QUICHandler.RegistrarView: Sendable {}
 extension QUICHandler {
     private func makeQUICConnectionChannel(
         quicConnection: SwiftNetworkQUICConnection,
-        sourceConnectionID: QUICConnectionID
+        handle: ConnectionHandle
     ) -> QUICConnectionChannel {
         QUICConnectionChannel(
             udpChannel: self.udpChannel,
             connection: .live(quicConnection),
-            registrar: .live(QUICHandler.RegistrarView(self)),
+            registrar: .live(QUICHandler.RegistrarView(self, handle: handle)),
             transport: .live(QUICHandler.ChildView(self)),
-            isServer: quicConnection.role == .server,
-            sourceConnectionID: sourceConnectionID
+            isServer: quicConnection.role == .server
         )
+    }
+}
+
+/// An opaque, stable identity for a QUIC connection.
+struct ConnectionHandle: Hashable, Sendable {
+    private var rawValue: UInt64
+
+    static var initial: ConnectionHandle {
+        Self(rawValue: 0)
+    }
+
+    private init(rawValue: UInt64) {
+        self.rawValue = rawValue
+    }
+
+    fileprivate mutating func formNext() {
+        self.rawValue &+= 1
+    }
+
+    func next() -> Self {
+        var next = self
+        next.formNext()
+        return next
     }
 }

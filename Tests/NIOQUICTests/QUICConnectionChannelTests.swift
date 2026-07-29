@@ -28,7 +28,6 @@ private func makeChannel(
     connection: (any QUICConnectionProtocol)? = nil,
     registrar: any QUICConnectionIDRegistrar = RecordingRegistrar(),
     transport: any QUICTransport = RecordingTransport(),
-    sourceConnectionID: QUICConnectionID = .zero,
     initializer: ((any Channel) -> EventLoopFuture<Void>)? = nil
 ) throws -> QUICConnectionChannel {
     let connection = connection ?? NoOpConnection()
@@ -38,8 +37,7 @@ private func makeChannel(
         connection: .test(connection),
         registrar: .test(registrar),
         transport: .test(transport),
-        isServer: isServer,
-        sourceConnectionID: sourceConnectionID
+        isServer: isServer
     )
 
     if let initializer {
@@ -194,43 +192,80 @@ struct QUICConnectionChannelTests {
     // MARK: Connection view
 
     struct ConnectionView {
+        /// Records the SCID events `ConnectionView` fires into the channel's pipeline.
         @available(anyAppleOS 26, *)
-        @Test
-        func associateAndRetire() throws {
-            let registrar = RecordingRegistrar()
-            let channel = try makeChannel(registrar: registrar)
+        final class SCIDEventRecorder: ChannelInboundHandler, Sendable {
+            typealias InboundIn = Any
 
-            var generator = RandomQUICConnectionIDGenerator()
-            let id1 = generator.next()
-            let id2 = generator.next()
+            enum Event: Hashable, Sendable {
+                case associated(QUICConnectionID)
+                case retired(QUICConnectionID)
+            }
 
-            let view = channel.connectionView
-            #expect(view.associate(id1, with: id2))
-            #expect(view.retire(id1))
+            // Only store Event, we can't smuggle a non-Sendable Any out via Mutex.
+            private let _events: Mutex<[Event]> = Mutex([])
+            var events: [Event] { self._events.withLock { $0 } }
 
-            #expect(registrar.events == [.associated(id1, id2), .retired(id1)])
+            func userInboundEventTriggered(context: ChannelHandlerContext, event: Any) {
+                if let event = event as? QUICSCIDAssociatedEvent {
+                    self._events.withLock { $0.append(.associated(event.scid)) }
+                } else if let event = event as? QUICSCIDRetiredEvent {
+                    self._events.withLock { $0.append(.retired(event.scid)) }
+                }
+            }
         }
 
         @available(anyAppleOS 26, *)
         @Test
-        func retireRekeysTheConnection() throws {
-            var generator = RandomQUICConnectionIDGenerator()
-            let sourceConnectionID = generator.next()
-            let promoted = generator.next()
-
+        func associateAndRetire() throws {
             let registrar = RecordingRegistrar()
-            let channel = try makeChannel(registrar: registrar, sourceConnectionID: sourceConnectionID)
-            #expect(channel.transportView.registeredConnectionID == sourceConnectionID)
+            let recorder = SCIDEventRecorder()
+            let channel = try makeChannel(registrar: registrar) { $0.pipeline.addHandler(recorder) }
 
-            // Retiring an ID the connection isn't registered under doesn't re-key it.
-            #expect(channel.connectionView.retire(generator.next()))
-            #expect(channel.transportView.registeredConnectionID == sourceConnectionID)
+            var generator = RandomQUICConnectionIDGenerator()
+            let id1 = generator.next()
 
-            // Retiring the ID it is registered under promotes another of its IDs in its place;
-            // the transport must use the promoted ID to unregister the connection.
-            registrar.retireResult = .retiredAndRekeyed(key: promoted)
-            #expect(channel.connectionView.retire(sourceConnectionID))
-            #expect(channel.transportView.registeredConnectionID == promoted)
+            let view = channel.connectionView
+            #expect(view.associate(id1))
+            #expect(view.retire(id1))
+
+            #expect(registrar.events == [.associated(id1), .retired(id1)])
+            // Both succeeded, so both are reported to the pipeline.
+            #expect(recorder.events == [.associated(id1), .retired(id1)])
+        }
+
+        @available(anyAppleOS 26, *)
+        @Test
+        func associateFailureIsNotReportedToThePipeline() throws {
+            let registrar = RecordingRegistrar()
+            registrar.associateResult = false
+            let recorder = SCIDEventRecorder()
+            let channel = try makeChannel(registrar: registrar) { $0.pipeline.addHandler(recorder) }
+
+            var generator = RandomQUICConnectionIDGenerator()
+            let id = generator.next()
+
+            // The registrar rejected the association, so no event is fired.
+            #expect(channel.connectionView.associate(id) == false)
+            #expect(registrar.events == [.associated(id)])
+            #expect(recorder.events.isEmpty)
+        }
+
+        @available(anyAppleOS 26, *)
+        @Test
+        func retireFailureIsNotReportedToThePipeline() throws {
+            let registrar = RecordingRegistrar()
+            registrar.retireResult = false
+            let recorder = SCIDEventRecorder()
+            let channel = try makeChannel(registrar: registrar) { $0.pipeline.addHandler(recorder) }
+
+            var generator = RandomQUICConnectionIDGenerator()
+            let id = generator.next()
+
+            // The registrar rejected the retirement, so no event is fired.
+            #expect(channel.connectionView.retire(id) == false)
+            #expect(registrar.events == [.retired(id)])
+            #expect(recorder.events.isEmpty)
         }
 
         @available(anyAppleOS 26, *)
@@ -663,28 +698,32 @@ final class RecordingTransport: QUICTransport {
 @available(anyAppleOS 26, *)
 final class RecordingRegistrar: QUICConnectionIDRegistrar {
     enum Event: Hashable {
-        case associated(QUICConnectionID, QUICConnectionID)
+        case associated(QUICConnectionID)
         case retired(QUICConnectionID)
     }
 
     private(set) var events: [Event]
     private let generate: () -> QUICConnectionID
 
+    /// What `associate(_:)` returns.
+    var associateResult: Bool
+
     /// What `retire(_:)` returns.
-    var retireResult: OnRetireConnectionID
+    var retireResult: Bool
 
     init(_ generate: @escaping () -> QUICConnectionID = { .zero }) {
         self.events = []
         self.generate = generate
-        self.retireResult = .retired
+        self.associateResult = true
+        self.retireResult = true
     }
 
-    func associate(_ newID: QUICConnectionID, with existingID: QUICConnectionID) -> Bool {
-        self.events.append(.associated(newID, existingID))
-        return true
+    func associate(_ newID: QUICConnectionID) -> Bool {
+        self.events.append(.associated(newID))
+        return self.associateResult
     }
 
-    func retire(_ connectionID: QUICConnectionID) -> OnRetireConnectionID {
+    func retire(_ connectionID: QUICConnectionID) -> Bool {
         self.events.append(.retired(connectionID))
         return self.retireResult
     }

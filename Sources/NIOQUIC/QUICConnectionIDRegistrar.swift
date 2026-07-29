@@ -14,38 +14,27 @@
 
 @available(anyAppleOS 26, *)
 protocol QUICConnectionIDRegistrar {
-    /// Associate `newID` to the same connection as `existingID`.
+    /// Associate `newID` with the connection this registrar belongs to.
     ///
-    /// - Parameters:
-    ///   - newID: A connection ID to associate with an existing ID.
-    ///   - existingID: A connection ID which already exists.
-    /// - Returns: whether the association was made. Returns `false` if `existingID`
-    ///   doesn't exist (i.e. connection closed) or `newID` collides with an existing ID.
-    func associate(_ newID: QUICConnectionID, with existingID: QUICConnectionID) -> Bool
+    /// - Parameter newID: A connection ID to route to this connection.
+    /// - Returns: Whether the association was made. Returns `false` if the connection is no
+    ///   longer registered (i.e. it closed) or `newID` already routes to a connection.
+    func associate(_ newID: QUICConnectionID) -> Bool
 
-    /// Retires `connectionID`.
+    /// Retires `connectionID`, so packets carrying it are no longer routed to this connection.
+    ///
+    /// The connection itself is unaffected: its identity does not depend on any connection ID,
+    /// so retiring its last one leaves it live but unreachable by the peer.
     ///
     /// - Parameter connectionID: The ID to retire.
-    /// - Returns: The outcome of the retirement, including the replacement key if the connection
-    ///   was registered under `connectionID` and had to be re-keyed.
-    func retire(_ connectionID: QUICConnectionID) -> OnRetireConnectionID
+    /// - Returns: Whether the ID was retired. Returns `false` if it wasn't routing to this
+    ///   connection, so one connection cannot retire another's route.
+    func retire(_ connectionID: QUICConnectionID) -> Bool
 
     /// Generates a new connection ID.
     ///
     /// - Returns: A new connection ID.
     func generateID() -> QUICConnectionID
-}
-
-/// The outcome of retiring a connection ID from the routing table.
-@available(anyAppleOS 26, *)
-enum OnRetireConnectionID: Hashable {
-    /// The ID wasn't registered, nothing was retired.
-    case notRegistered
-    /// The ID was retired and the connection is still registered under the same key.
-    case retired
-    /// The ID was retired. It was the key the connection was registered under, so `key` was
-    /// promoted in its place: the connection must use `key` to unregister itself.
-    case retiredAndRekeyed(key: QUICConnectionID)
 }
 
 @available(anyAppleOS 26, *)
@@ -54,16 +43,16 @@ extension QUICConnectionChannel {
         case live(QUICHandler.RegistrarView)
         case test(any QUICConnectionIDRegistrar)
 
-        func associate(_ newID: QUICConnectionID, with existingID: QUICConnectionID) -> Bool {
+        func associate(_ newID: QUICConnectionID) -> Bool {
             switch self {
             case .live(let registrar):
-                return registrar.associate(newID, with: existingID)
+                return registrar.associate(newID)
             case .test(let registrar):
-                return registrar.associate(newID, with: existingID)
+                return registrar.associate(newID)
             }
         }
 
-        func retire(_ connectionID: QUICConnectionID) -> OnRetireConnectionID {
+        func retire(_ connectionID: QUICConnectionID) -> Bool {
             switch self {
             case .live(let registrar):
                 return registrar.retire(connectionID)

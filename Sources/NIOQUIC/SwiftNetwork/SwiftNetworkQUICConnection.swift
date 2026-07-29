@@ -1007,7 +1007,7 @@ extension SwiftNetworkQUICConnection {
         self.activeSCIDs.append(extraConnectionID)
 
         // Propagate the association to the QUIC handler.
-        let associated = channelView.associate(extraConnectionID, with: existingSCID)
+        let associated = channelView.associate(extraConnectionID)
 
         if associated {
             // Sometimes connection IDs are retired before new ones are added. Each connection requires at least one ID to refer

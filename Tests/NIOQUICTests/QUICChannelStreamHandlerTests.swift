@@ -472,8 +472,7 @@ extension QUICChannelStreamHandlerTests {
             connection: .live(connection),
             registrar: .test(NoOpConnectionIDRegistrar()),
             transport: .test(RecordingTransport()),
-            isServer: connection.role == .server,
-            sourceConnectionID: .zero
+            isServer: connection.role == .server
         )
 
         connection.registerConnectedStubStreamHandler(
@@ -495,8 +494,8 @@ extension QUICChannelStreamHandlerTests {
     /// association/retirement. Satisfies the `QUICConnectionChannel` init only.
     @available(anyAppleOS 26, *)
     private struct NoOpConnectionIDRegistrar: QUICConnectionIDRegistrar {
-        func associate(_ newID: NIOQUIC.QUICConnectionID, with existingID: NIOQUIC.QUICConnectionID) -> Bool { true }
-        func retire(_ connectionID: NIOQUIC.QUICConnectionID) -> OnRetireConnectionID { .retired }
+        func associate(_ newID: NIOQUIC.QUICConnectionID) -> Bool { true }
+        func retire(_ connectionID: NIOQUIC.QUICConnectionID) -> Bool { true }
         func generateID() -> NIOQUIC.QUICConnectionID {
             NIOQUIC.QUICConnectionID(bytes: InlineArray<20, UInt8>(repeating: 0), length: 8)
         }
