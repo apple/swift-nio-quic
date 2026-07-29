@@ -31,9 +31,3 @@ struct QUICStreamMessage: Hashable {
         self.fin = fin
     }
 }
-
-extension QUICStreamMessage: FlowControlledMessage {
-    var flowControlSize: Int {
-        self.data.readableBytes
-    }
-}
