@@ -534,6 +534,11 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
 
     /// Runs the outbound initializer for this stream, driving the per-stream pipeline state
     /// machine and succeeding `promise` with the stream once it is ready.
+    ///
+    /// - Note: If the stream's channel has already gone inactive by the time this is called (the
+    ///   stream connected but was reset, or the connection closed, before the creation callback
+    ///   ran) then the initializer can't be run at all and `promise` is failed rather than
+    ///   succeeded with a stream that has no pipeline.
     func initializeOutbound(
         streamID: QUICStreamID,
         initializer: @escaping (any Channel, QUICStreamID) -> EventLoopFuture<Void>,
@@ -563,11 +568,17 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
         case .ignore(let reason):
             switch consume reason {
             case .initializerComplete:
+                // Outbound streams get a fresh handler each time, so the pipeline can't already
+                // be initialized here. Surface it rather than dropping the promise on the floor.
+                assertionFailure("outbound initializer already ran for stream \(streamID)")
                 promise.succeed(self)
                 self.tryToAutoRead()
             case .channelInactive:
-                promise.succeed(self)
+                // The initializer never ran: the stream has no pipeline, so don't hand it back.
+                promise.fail(ChannelError.ioOnClosedChannel)
             case .initializerInProgress:
+                // As above: a fresh handler can't have an initializer in flight.
+                assertionFailure("outbound initializer already in flight for stream \(streamID)")
                 promise.succeed(self)
             }
         }
