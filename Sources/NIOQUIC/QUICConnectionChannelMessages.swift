@@ -28,4 +28,3 @@ struct QUICConnectionChannelOutboundMessage: Hashable {
     /// The message to send.
     var streamMessage: QUICStreamMessage
 }
-
