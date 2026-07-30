@@ -1,6 +1,3 @@
-@_spi(CustomByteBufferAllocator) import NIOCore
-@_spi(ProtocolProvider) @testable import NIOQUIC
-@_spi(ProtocolProvider) @testable import SwiftNetwork
 //===----------------------------------------------------------------------===//
 //
 // This source file is part of the SwiftNIO open source project
@@ -14,7 +11,12 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 //===----------------------------------------------------------------------===//
+
+@_spi(CustomByteBufferAllocator) import NIOCore
 import Testing
+
+@_spi(ProtocolProvider) @testable import NIOQUIC
+@_spi(ProtocolProvider) @testable import SwiftNetwork
 
 struct CustomFinalizerFrameOwnershipTests {
 
