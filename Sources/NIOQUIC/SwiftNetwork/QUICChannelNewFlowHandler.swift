@@ -62,6 +62,8 @@ final class QUICChannelNewFlowHandler: ProtocolInstanceContainer, InboundFlowHan
     private var connectionView: SwiftNetworkQUICConnection.NewFlowView!
     private var lowerProtocol = LowerProtocol(reference: .init())
 
+    private var datagramListener: DatagramListenerLinkage
+
     // Internal mutable state
     var keepAliveInterval: Duration?
 
@@ -75,6 +77,7 @@ final class QUICChannelNewFlowHandler: ProtocolInstanceContainer, InboundFlowHan
         localAddress: SocketAddress,
         role: Role,
         streamListenerProtocol: StreamListenerLinkage,
+        datagramListenerProtocol: DatagramListenerLinkage,
         keepAliveInterval: Duration? = nil
     ) {
         self.local = local
@@ -88,6 +91,7 @@ final class QUICChannelNewFlowHandler: ProtocolInstanceContainer, InboundFlowHan
         self.keepAliveInterval = keepAliveInterval
         self.logPrefix = "[\(self.role.description)][NewFlowHandler]"
         self.localAddress = localAddress
+        self.datagramListener = datagramListenerProtocol
         do throws(NetworkError) {
             self.lowerProtocol = try streamListenerProtocol.invokeAttachNewStreamFlowProtocol(
                 self.reference,
@@ -105,6 +109,12 @@ final class QUICChannelNewFlowHandler: ProtocolInstanceContainer, InboundFlowHan
     // Called once the connection child channel has been created.
     func setConnectionChannel(_ channel: any Channel) {
         self.connectionChannel = channel
+    }
+
+    // Drop the strong reference to the connection channel, breaking the channel <-> connection
+    // retain cycle once the channel has gone inactive.
+    func clearConnectionChannel() {
+        self.connectionChannel = nil
     }
 
     /// Local logging function to debug the datapath
@@ -299,6 +309,53 @@ extension QUICChannelNewFlowHandler: UpperProtocolHandler {
 
         self.fromExternal {
             self.lowerProtocol.invokeApplicationEvent(self.reference, event: event)
+        }
+    }
+}
+
+@available(anyAppleOS 26, *)
+extension QUICChannelNewFlowHandler {
+    /// Attach the datagram flow to the connection.
+    ///
+    /// Note: This must run after the peer's transport parameters are applied: SwiftNetwork computes the
+    /// flow's usable datagram size only at attach time (`updateUsableDatagramFrameSize`), from
+    /// `remoteMaxDatagramFrameSize`, which is `0` until the handshake completes. Attaching earlier
+    /// freezes the usable size at `0` and datagrams can never be sent.
+    ///
+    /// - Returns: The transport for the attached flow, or `nil` if it could not be attached.
+    func attachDatagramFlow() -> QUICDatagramTransport? {
+        do {
+            let transport = QUICDatagramTransport(
+                role: self.role,
+                logger: self.logger,
+                context: self.context
+            )
+
+            var swiftNetworkParameters = SwiftNetwork.Parameters()
+            swiftNetworkParameters.context = self.context
+            let swiftNetworkPath = SwiftNetwork.PathProperties(parameters: swiftNetworkParameters)
+            let quicOptions = QUICStreamProtocol.options()
+            guard let perProtocolOptions = quicOptions.perProtocolOptions else {
+                throw QUICError.invalidConfiguration
+            }
+            perProtocolOptions.isDatagram = true
+            quicOptions.setProtocolInstance(self.datagramListener.reference)
+            swiftNetworkParameters.defaultStack.prepend(applicationProtocol: quicOptions)
+
+            let linkage = try self.datagramListener.invokeAttachUpperDatagramProtocolToNewFlow(
+                transport.reference,
+                remote: nil,
+                local: nil,
+                parameters: swiftNetworkParameters,
+                path: swiftNetworkPath
+            )
+            transport.setFlowLinkage(linkage)
+            linkage.invokeConnect(transport.reference)
+
+            return transport
+        } catch {
+            self.logger.error("\(self.logPrefix) Failed to attach QUIC datagram flow: \(error)")
+            return nil
         }
     }
 }

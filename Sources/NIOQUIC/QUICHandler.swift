@@ -12,7 +12,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-import ChildChannelMultiplexer
 import Logging
 import NIOCore
 import X509
@@ -42,23 +41,14 @@ public final class QUICHandler {
     /// The channel this handler resides in.
     public let udpChannel: any Channel
 
-    /// The QUIC configuration used to accept connections.
+    /// The QUIC configuration.
     private let quicConfiguration: QUICConfiguration
-    /// The multiplexer used for multiplexing the connections.
-    private let connectionMultiplexer:
-        ChildChannelMultiplexer<
-            QUICConnectionID,
-            Never,
-            QUICConnectionChildChannelStateMachine,
-            WatermarkedChildChannelWritablityStrategy<QUICConnectionChannelOutboundMessage>,
-            AddressedEnvelope<ByteBuffer>,
-            AddressedEnvelope<ByteBuffer>,
-            QUICConnectionChannelInboundMessage,
-            QUICConnectionChannelOutboundMessage,
-            QUICConnectionChildChannelStateMachine.Task,
-            QUICHandler
-        >
-    /// The type erased connection multiplexer.
+
+    /// A registry of connections.
+    private var connectionRegistry: ConnectionRegistry<QUICConnectionChannel.TransportView>
+
+    /// How new connections are surfaced to the user: either a multiplexer continuation or a pair
+    /// of initializer closures.
     private var multiplexerContinuation: MultiplexerContinuation?
     /// The event loop of the channel we are added to.
     private let eventLoop: any EventLoop
@@ -74,14 +64,18 @@ public final class QUICHandler {
     private var expectingChannelReadComplete: Bool = false
     /// The context of the channel handler.
     private var context: ChannelHandlerContext?
-    /// The optional metrics to be recorded.
-    private var metrics: QUICMetrics?
-    /// A dictionary of QUIC connection IDs to QUIC connection metrics providers.
-    private var quicConnectionMetrics: [QUICConnectionID: () -> SwiftNetworkQUICConnection.Metrics]
+    /// The next connection handle to use. Don't use directly, use `nextConnectionHandle()` instead.
+    private var connectionHandle: ConnectionHandle
     /// Verifies the server identitfy.
     private var asyncVerifierRunner: AsyncVerifierRunner?
     /// Provide certificates and signature to authenticate.
     private var authenticator: Authenticator?
+
+    private func nextConnectionHandle() -> ConnectionHandle {
+        let handle = self.connectionHandle
+        self.connectionHandle.formNext()
+        return handle
+    }
 
     /// Creates a new ``QUICHandler`` and a ``QUICHandler/ConnectionMultiplexer``.
     ///
@@ -89,21 +83,18 @@ public final class QUICHandler {
     ///   - channel: The channel this handler resides in.
     ///   - QUICConfiguration: The quic configuration to use for this handler.
     ///   - logger: The logger.
-    ///   - metrics: The optional metrics to be recorded.
     ///   - inboundStreamChannelInitializer: A closure called for any new inbound stream.
     /// - Returns: The handler and the connection multiplexer.
     public static func makeHandlerAndConnectionMultiplexer<Output: Sendable>(
         channel: any Channel,
         quicConfiguration: QUICConfiguration,
         logger: Logger,
-        metrics: QUICMetrics? = nil,
         inboundStreamChannelInitializer: @Sendable @escaping (any Channel) -> EventLoopFuture<Output>
     ) throws -> (QUICHandler, QUICHandler.ConnectionMultiplexer<Output>) {
         try self.makeHandlerAndConnectionMultiplexer(
             channel: channel,
             quicConfiguration: quicConfiguration,
             logger: logger,
-            metrics: metrics,
             inboundStreamChannelInitializer: inboundStreamChannelInitializer,
             quicConnectionIDGenerator: RandomQUICConnectionIDGenerator()
         )
@@ -115,7 +106,6 @@ public final class QUICHandler {
     ///   - channel: The channel this handler resides in.
     ///   - QUICConfiguration: The quic configuration to use for this handler.
     ///   - logger: The logger.
-    ///   - metrics: The optional metrics to be recorded.
     ///   - inboundStreamChannelInitializer: A closure called for any new inbound stream.
     ///   - quicConnectionIDGenerator: The generator used for creating source connection IDs.
     /// - Returns: The handler and the connection multiplexer.
@@ -123,7 +113,6 @@ public final class QUICHandler {
         channel: any Channel,
         quicConfiguration: QUICConfiguration,
         logger: Logger,
-        metrics: QUICMetrics? = nil,
         inboundStreamChannelInitializer: @Sendable @escaping (any Channel) -> EventLoopFuture<Output>,
         quicConnectionIDGenerator: any QUICConnectionIDGenerator
     ) throws -> (QUICHandler, QUICHandler.ConnectionMultiplexer<Output>) {
@@ -176,7 +165,6 @@ public final class QUICHandler {
             asyncVerifier: asyncVerifier,
             authenticator: authenticator,
             logger: logger,
-            metrics: metrics,
             quicConnectionIDGenerator: quicConnectionIDGenerator
         )
 
@@ -199,28 +187,25 @@ public final class QUICHandler {
     ///   - quicConfiguration: The quic configuration to use for this handler.
     ///   - asyncVerifier: Callback provider for SwiftTLS certificate verification.
     ///   - logger: The logger.
-    ///   - metrics: The optional metrics to be recorded.
     init(
         channel: any Channel,
         quicConfiguration: QUICConfiguration,
         asyncVerifier: AsyncVerifier?,
         authenticator: Authenticator?,
         logger: Logger,
-        metrics: QUICMetrics? = nil,
         quicConnectionIDGenerator: any QUICConnectionIDGenerator = RandomQUICConnectionIDGenerator()
     ) {
         self.udpChannel = channel
         self.eventLoop = channel.eventLoop
-        self.connectionMultiplexer = .init(eventLoop: self.eventLoop, logger: logger)
         self.quicConfiguration = quicConfiguration
         self.logger = logger
-        self.metrics = metrics
-        self.quicConnectionMetrics = [:]
         self.quicConnectionIDGenerator = quicConnectionIDGenerator
         if let asyncVerifier {
             self.asyncVerifierRunner = .init(asyncVerifier: asyncVerifier)
         }
         self.authenticator = authenticator
+        self.connectionHandle = .initial
+        self.connectionRegistry = ConnectionRegistry()
     }
 
     /// Initialises a new ``QUICHandler``.
@@ -231,7 +216,6 @@ public final class QUICHandler {
     ///   - asyncVerifier: Callback provider for SwiftTLS certificate verification.
     ///   - authenticator: Authenticator for SwiftTLS certificate verification.
     ///   - logger: The logger.
-    ///   - metrics: The optional metrics to be recorded.
     ///   - inboundConnectionInitializer: Called for every incoming connection and allows you to add handlers.
     ///   - inboundStreamInitializer: Called for every incoming stream on inbound connections and allows you to add handlers. This isn't called for inbound streams on outbound connections.
     ///   - noMoreConnections: Called when this handler becomes inactive. After this, `inboundConnectionInitializer` won't be called again.
@@ -241,7 +225,6 @@ public final class QUICHandler {
         asyncVerifier: AsyncVerifier?,
         authenticator: Authenticator?,
         logger: Logger,
-        metrics: QUICMetrics? = nil,
         inboundConnectionInitializer: @escaping @Sendable (any Channel, QUICStreamCreator) -> EventLoopFuture<Void>,
         inboundStreamInitializer: @escaping @Sendable (any Channel) -> EventLoopFuture<Void>,
         noMoreConnections: @escaping @Sendable () -> Void,
@@ -249,11 +232,8 @@ public final class QUICHandler {
     ) {
         self.udpChannel = channel
         self.eventLoop = channel.eventLoop
-        self.connectionMultiplexer = .init(eventLoop: self.eventLoop, logger: logger)
         self.quicConfiguration = quicConfiguration
         self.logger = logger
-        self.metrics = metrics
-        self.quicConnectionMetrics = [:]
         self.quicConnectionIDGenerator = quicConnectionIDGenerator
         self.multiplexerContinuation = .closure(
             connectionInitializer: inboundConnectionInitializer,
@@ -265,6 +245,8 @@ public final class QUICHandler {
             self.asyncVerifierRunner = .init(asyncVerifier: asyncVerifier)
         }
         self.authenticator = authenticator
+        self.connectionHandle = .initial
+        self.connectionRegistry = ConnectionRegistry()
     }
 
     /// Create a new outbound QUIC connection.
@@ -272,60 +254,32 @@ public final class QUICHandler {
     ///   - serverName: The server to connect to.
     ///   - remoteAddress: The address to connect to.
     ///   - connectionInitializer: How to initialize the connection. This closure will be called with a channel and a stream creator.
-    ///   - inboundStreamInitializer: How to initialize any inbound streams on the new connection. This closure will be called with the stream channel.
-    ///     The returned channel is a QUIC connection channel. You can create streams on that channel by using the provided stream creator.
-    ///     You will receive inbound stream channels as inbound reads on the connection channel.
-    ///     You will likely want to use this closure to add a handler with an InboundIn = any Channel. Then in channelRead, you can initialize the stream channels.
-    /// - Returns: The initialized connection channel.
+    ///   - inboundStreamInitializer: How to initialize any inbound streams on the new connection. This closure is
+    ///     called with each new inbound stream channel; it is the only place inbound streams are surfaced. Add your per-stream handlers here.
+    /// - Returns: The initialized connection channel and a stream creator to open outbound streams
+    ///     on it with.
     public func createOutboundConnection(
         serverName: String,
         remoteAddress: SocketAddress,
         connectionInitializer: @escaping @Sendable (any Channel, QUICStreamCreator) -> EventLoopFuture<Void>,
         inboundStreamInitializer: @escaping @Sendable (any Channel) -> EventLoopFuture<Void>
-    ) -> EventLoopFuture<any Channel> {
-        let channelPromise = self.eventLoop.makePromise(of: (any Channel).self)
+    ) -> EventLoopFuture<(any Channel, QUICStreamCreator)> {
+        let promise = self.eventLoop.makePromise(of: (QUICConnectionChannel, QUICStreamCreator).self)
 
         do {
-            let role = self.quicConfiguration.role
             try self.createNewConnection(
-                promise: channelPromise,
+                promise: promise,
                 serverName: serverName,
                 remoteAddress: remoteAddress
-            ) { channel, connectionID, quicConnection, metrics, logger in
-                channel.eventLoop.makeCompletedFuture {
-                    let connectionChannelHandler =
-                        QUICConnectionChannelHandler(
-                            quicConnection: quicConnection,
-                            eventLoop: channel.eventLoop,
-                            role: role,
-                            logger: logger,
-                            metrics: metrics,
-                            inboundStreamInitializer: inboundStreamInitializer
-                        )
-
-                    try channel.pipeline.syncOperations.addHandler(connectionChannelHandler)
-
-                    if let connectionDurationTimer = metrics?.connectionCloseMetrics?.connectionDuration {
-                        let connectionDurationHandler = ChannelDurationHandler(
-                            durationTimer: connectionDurationTimer
-                        )
-                        try channel.pipeline.syncOperations.addHandler(connectionDurationHandler)
-                    }
-
-                    let errorCatchingHandler = ErrorCatchingHandler(logger: logger)
-                    try channel.pipeline.syncOperations.addHandler(errorCatchingHandler)
-                    metrics?.quicConnectionHandlerMetrics?.openConnections?.increment()
-
-                    return (channel, connectionChannelHandler.makeStreamCreator(role: .client))
-                }.flatMap { channel, streamCreator in
-                    connectionInitializer(channel, streamCreator)
-                }
+            ) { channel, streamCreator in
+                channel.setInboundStreamInitializer(.closure(inboundStreamInitializer))
+                return connectionInitializer(channel, streamCreator)
             }
         } catch {
-            channelPromise.fail(error)
+            promise.fail(error)
         }
 
-        return channelPromise.futureResult
+        return promise.futureResult.map { channel, streamCreator in (channel, streamCreator) }
     }
 
     /// Shuts the server down gracefully.
@@ -351,15 +305,18 @@ public final class QUICHandler {
             shutdownPromise.futureResult.cascade(to: promise)
         case .accepting:
             self.logger.trace("QUICHandler is trying to shut down gracefully")
-            let internalPromise = self.eventLoop.makePromise(of: Void.self)
-            internalPromise.futureResult.cascade(to: promise)
-            self.state = .shuttingDown(internalPromise)
+            let internalPromise = self.eventLoop.makePromise(of: Void.self).assumeIsolated()
+            internalPromise.futureResult.nonisolated().cascade(to: promise)
+            self.state = .shuttingDown(internalPromise.nonisolated())
 
-            internalPromise.futureResult.assumeIsolated().whenComplete { result in
+            internalPromise.futureResult.whenComplete { result in
                 self.didShutDown(result)
             }
 
-            self.connectionMultiplexer.shutdownGracefully(deadline: deadline, promise: internalPromise)
+            self.connectionRegistry.shutdownConnections(
+                deadline: deadline,
+                promise: internalPromise
+            )
         }
     }
 
@@ -376,12 +333,13 @@ public final class QUICHandler {
     }
 
     private func createNewConnection(
-        promise: EventLoopPromise<any Channel>,
+        promise: EventLoopPromise<(QUICConnectionChannel, QUICStreamCreator)>,
         serverName: String,
         remoteAddress: SocketAddress,
-        streamChannelInitializer:
+        connectionInitializer:
             @Sendable @escaping (
-                any Channel, QUICConnectionID, SwiftNetworkQUICConnection, QUICMetrics?, Logger
+                _ channel: QUICConnectionChannel,
+                _ streamCreator: QUICStreamCreator
             ) -> EventLoopFuture<Void>
     ) throws {
         switch self.state {
@@ -390,6 +348,7 @@ public final class QUICHandler {
                 return promise.fail(QUICError.noLocalAddress)
             }
             let sourceConnectionID = self.quicConnectionIDGenerator.next()
+
             let connectionLogger = {
                 var logger = logger
                 logger[metadataKey: LoggingKeys.connectionOriginalSCID] = "\("none")"
@@ -400,52 +359,44 @@ public final class QUICHandler {
                 return logger
             }()
             // The context is set when the channel becomes active so force unwrapping is okay here
-            let quicConnection = try SwiftNetworkQUICConnection(
+            let quicConnection = try SwiftNetworkQUICConnection.client(
                 configuration: self.quicConfiguration,
                 sourceConnectionID: sourceConnectionID,
                 serverName: serverName,
                 asyncVerifier: asyncVerifierRunner?.asyncVerifier,
                 localAddress: localAddress,
                 remoteAddress: remoteAddress,
-                logger: connectionLogger,
-                eventLoop: self.context!.eventLoop
-            )
-
-            // Register callback for handling new inbound connection IDs
-            quicConnection.associateConnectionID = self.makeAssociateConnectionIDCallback(
+                eventLoop: self.context!.eventLoop,
                 logger: connectionLogger
             )
-            quicConnection.retireConnectionID = self.makeRetireConnectionIDCallback(
-                logger: connectionLogger
-            )
-            quicConnection.generateConnectionID = self.makeGenerateConnectionIDCallback()
 
-            let stateMachine = QUICConnectionChildChannelStateMachine(
+            let handle = self.nextConnectionHandle()
+            let channel = self.makeQUICConnectionChannel(
                 quicConnection: quicConnection,
-                localAddress: localAddress,
-                remoteAddress: remoteAddress,
-                allocator: self.udpChannel.allocator,
-                logger: connectionLogger
+                handle: handle
             )
+            let view = channel.transportView
+            self.connectionRegistry.insert(view, forHandle: handle, connectionID: sourceConnectionID)
 
-            self.connectionMultiplexer.createChildChannel(
-                promise: promise,
-                newChannelID: .channelID(sourceConnectionID),
-                stateMachine: stateMachine,
-                // We default to an 32kB outbound buffer size: this is a good trade off for avoiding excessive buffering while ensuring that decent
-                // throughput can be maintained. We use 4kB as the low water mark.
-                writabilityStrategy: .init(highWatermark: 32768, lowWatermark: 4096),
-                localAddress: localAddress,
-                remoteAddress: remoteAddress
-            ) { channel, _ in
-                quicConnection.setConnectionChannel(channel)
-                return streamChannelInitializer(
-                    channel,
-                    sourceConnectionID,
-                    quicConnection,
-                    self.metrics,
-                    connectionLogger
-                )
+            let streamCreator = channel.makeStreamCreator(role: self.quicConfiguration.role)
+            let activePromise = self.eventLoop.makePromise(of: Void.self)
+            view.initialize(promise: activePromise) { channel in
+                connectionInitializer(channel, streamCreator)
+            }
+
+            activePromise.futureResult
+                .assumeIsolated()
+                .whenComplete { result in
+                    switch result {
+                    case .success:
+                        promise.succeed((channel, streamCreator))
+                    case .failure(let error):
+                        promise.fail(error)
+                    }
+                }
+
+            channel.closeFuture.assumeIsolated().whenComplete { _ in
+                self.connectionDidClose(handle)
             }
 
         case .shuttingDown:
@@ -456,101 +407,29 @@ public final class QUICHandler {
         }
     }
 
-    private func updateMetricsForCreatedConnection() {
-        self.metrics?.quicConnectionHandlerMetrics?.openConnections?.increment()
-    }
+    /// Hands the packet which created a connection to its channel once the connection has been
+    /// initialized.
+    ///
+    /// The connection only queues the packet: it consumes its queue when the parent channel's read
+    /// loop ends. If the connection initializer completed asynchronously then that read loop has
+    /// already ended and no 'channelReadComplete' is coming for this packet, so the end of the read
+    /// loop is signalled here instead. Without it the packet — an INITIAL, so the whole handshake —
+    /// waits for the peer to retransmit.
+    private func deliverFirstPacket(
+        _ packet: ByteBuffer,
+        to view: QUICConnectionChannel.TransportView
+    ) {
+        self.eventLoop.assertInEventLoop()
+        view.parentChannelRead(packet)
 
-    /// Creates a closure for registering new inbound connection IDs. This method returns a closure that can be safely stored and called.
-    private func makeAssociateConnectionIDCallback(
-        logger: Logger
-    )
-        -> @Sendable (_ existingConnectionID: QUICConnectionID, _ extraConnectionID: QUICConnectionID) ->
-        EventLoopFuture<Void>
-    {
-        // Use NIOLoopBound to safely capture the multiplexer for use on the event loop
-        let loopBoundMultiplexer = NIOLoopBound(self, eventLoop: self.eventLoop)
-
-        return { existingConnectionID, extraConnectionID in
-            // Ensure we're running on the correct event loop.
-            let promise = loopBoundMultiplexer.eventLoop.makePromise(of: Void.self)
-            loopBoundMultiplexer.eventLoop.execute {
-                do {
-                    try loopBoundMultiplexer.value.connectionMultiplexer.addExtraChannelID(
-                        existingChannelID: existingConnectionID,
-                        extraChannelID: extraConnectionID
-                    )
-
-                    logger.trace(
-                        "Registered new inbound connection ID",
-                        metadata: [
-                            LoggingKeys.connectionSCID: "\(existingConnectionID)",
-                            "extraSCID": "\(extraConnectionID)",
-                        ]
-                    )
-
-                    promise.succeed()
-                } catch {
-                    logger.error(
-                        "Failed to register new inbound connection ID",
-                        metadata: [
-                            LoggingKeys.connectionSCID: "\(existingConnectionID)",
-                            "extraSCID": "\(extraConnectionID)",
-                            "error": "\(error)",
-                        ]
-                    )
-                    promise.fail(QUICError.failedToAssociateConnectionID)
-                }
-            }
-            return promise.futureResult
+        if !self.expectingChannelReadComplete {
+            view.parentChannelReadComplete()
         }
     }
 
-    /// Creates a closure for retiring inbound connection IDs. This method returns a closure that can be safely stored and called.
-    private func makeRetireConnectionIDCallback(
-        logger: Logger
-    ) -> @Sendable (QUICConnectionID) -> EventLoopFuture<Void> {
-        // Use NIOLoopBound to safely capture the multiplexer for use on the event loop
-        let loopBoundMultiplexer = NIOLoopBound(self, eventLoop: self.eventLoop)
-
-        return { retiredConnectionID in
-            // Ensure we're running on the correct event loop.
-            let promise = loopBoundMultiplexer.eventLoop.makePromise(of: Void.self)
-            loopBoundMultiplexer.eventLoop.execute {
-                do {
-                    try loopBoundMultiplexer.value.connectionMultiplexer.removeChannelID(
-                        retiredConnectionID
-                    )
-
-                    logger.trace(
-                        "Retired inbound connection ID",
-                        metadata: [
-                            "retiredSCID": "\(retiredConnectionID)"
-                        ]
-                    )
-
-                    promise.succeed()
-                } catch {
-                    logger.error(
-                        "Failed to retire inbound connection ID",
-                        metadata: [
-                            "retiredSCID": "\(retiredConnectionID)",
-                            "error": "\(error)",
-                        ]
-                    )
-                    promise.fail(QUICError.failedToRetireConnectionID)
-                }
-            }
-            return promise.futureResult
-        }
-    }
-
-    /// Creates a closure for generating new connection IDs. This method returns a closure that can be safely stored and called.
-    private func makeGenerateConnectionIDCallback() -> @Sendable () -> QUICConnectionID {
-        let loopBoundHandler = NIOLoopBound(self, eventLoop: self.eventLoop)
-
-        return {
-            loopBoundHandler.value.quicConnectionIDGenerator.next()
-        }
+    private func connectionDidClose(_ handle: ConnectionHandle) {
+        self.eventLoop.assertInEventLoop()
+        self.connectionRegistry.remove(handle)
     }
 }
 
@@ -565,19 +444,20 @@ extension QUICHandler: ChannelInboundHandler {
     public func handlerAdded(context: ChannelHandlerContext) {
         self.logger.trace("QUICHandler added to channel pipeline")
         self.context = context
-        self.connectionMultiplexer.start(with: self)
     }
 
     public func handlerRemoved(context: ChannelHandlerContext) {
         self.logger.trace("QUICHandler removed from channel pipeline")
         self.context = nil
-        self.connectionMultiplexer.shutdownGracefully(deadline: .now(), promise: nil)
+        self.connectionRegistry.shutdownConnections(deadline: .now(), promise: nil)
     }
 
     public func channelInactive(context: ChannelHandlerContext) {
         self.logger.trace("QUICHandlers' parent channel became inactive")
         asyncVerifierRunner?.terminate()
-        self.connectionMultiplexer.parentChannelInactive()
+
+        self.connectionRegistry.notifyParentChannelInactive()
+
         switch self.multiplexerContinuation {
         case .none:
             break
@@ -586,6 +466,7 @@ extension QUICHandler: ChannelInboundHandler {
         case .connectionMultiplexerContinuation(let cont):
             cont.finish()
         }
+
         if let asyncVerifierRunner = self.asyncVerifierRunner {
             context.eventLoop.makeFutureWithTask {
                 await asyncVerifierRunner.join()
@@ -604,7 +485,9 @@ extension QUICHandler: ChannelInboundHandler {
                 LoggingKeys.channelWritability: "\(context.channel.isWritable)"
             ]
         )
-        self.connectionMultiplexer.parentChannelWritabilityChanged(newValue: context.channel.isWritable)
+
+        let isWritable = context.channel.isWritable
+        self.connectionRegistry.notifyParentChannelWritabilityChanged(isWritable)
     }
 
     public func channelRead(context: ChannelHandlerContext, data: NIOAny) {
@@ -640,25 +523,21 @@ extension QUICHandler: ChannelInboundHandler {
 
             switch self.state {
             case .accepting:
-                if self.connectionMultiplexer.hasChannel(with: header.destinationConnectionID) {
-                    self.logger.trace(
-                        "QUICHandler forwarding read to multiplexer",
-                        metadata: {
-                            [
-                                LoggingKeys.addressRemote: "\(addressedEnvelope.remoteAddress)",
-                                LoggingKeys.connectionSCID: "\(header.sourceConnectionID?.description ?? "none")",
-                                LoggingKeys.connectionDCID: "\(header.destinationConnectionID)",
-                            ]
-                        }()
-                    )
-                    try self.connectionMultiplexer.parentChannelRead(
-                        addressedEnvelope,
-                        for: header.destinationConnectionID
-                    )
+                if let view = self.connectionRegistry[header.destinationConnectionID] {
+                    view.parentChannelRead(addressedEnvelope.data)
                 } else if self.quicConfiguration.role == .server {
-                    guard header.type == .initial || header.type == .versionNegotiation else {
-                        // Only INITIAL packets can create new connections. However, we do need to pass packets with
-                        // unknown versions to Swift QUIC to initiate version negotation.
+                    // Only INITIAL packets can create new connections. However, we do need to
+                    // pass packets with unknown versions to Swift QUIC to initiate version
+                    // negotation.
+                    if header.type == .initial || header.type == .versionNegotiation {
+                        try self.acceptNewConnection(
+                            for: addressedEnvelope,
+                            sourceConnectionID: header.sourceConnectionID,
+                            destinationConnectionID: header.destinationConnectionID,
+                            // This force unwrap is fine. We really need to have a local address at this point
+                            localAddress: context.localAddress!
+                        )
+                    } else {
                         self.logger.trace(
                             "QUICHandler dropping non-INITIAL packet without a connection",
                             metadata: {
@@ -671,15 +550,7 @@ extension QUICHandler: ChannelInboundHandler {
                                 ]
                             }()
                         )
-                        return
                     }
-                    try self.acceptNewConnection(
-                        for: addressedEnvelope,
-                        sourceConnectionID: header.sourceConnectionID,
-                        destinationConnectionID: header.destinationConnectionID,
-                        // This force unwrap is fine. We really need to have a local address at this point
-                        localAddress: context.localAddress!
-                    )
                 } else {
                     self.logger.warning(
                         "QUICHandler dropping packet",
@@ -692,7 +563,7 @@ extension QUICHandler: ChannelInboundHandler {
                 }
             case .shuttingDown:
                 // We still need to forward packets to open connections but not accept new ones.
-                guard self.connectionMultiplexer.hasChannel(with: header.destinationConnectionID) else {
+                guard let view = self.connectionRegistry[header.destinationConnectionID] else {
                     self.logger.warning(
                         "QUICHandler dropping packet since the server is shutting down and not accepting new connections",
                         metadata: [
@@ -712,7 +583,9 @@ extension QUICHandler: ChannelInboundHandler {
                         LoggingKeys.connectionDCID: "\(header.destinationConnectionID)",
                     ]
                 )
-                try self.connectionMultiplexer.parentChannelRead(addressedEnvelope, for: header.destinationConnectionID)
+
+                view.parentChannelRead(addressedEnvelope.data)
+
             case .shutdown:
                 self.logger.warning(
                     "QUICHandler dropping packet since the server is shutdown",
@@ -732,7 +605,8 @@ extension QUICHandler: ChannelInboundHandler {
 
     public func channelReadComplete(context: ChannelHandlerContext) {
         self.logger.trace("QUICHandler read complete")
-        self.connectionMultiplexer.parentChannelReadComplete()
+
+        self.connectionRegistry.notifyParentChannelReadComplete()
         self.expectingChannelReadComplete = false
 
         if self.didWrite {
@@ -746,14 +620,18 @@ extension QUICHandler: ChannelInboundHandler {
     public func userInboundEventTriggered(context: ChannelHandlerContext, event: Any) {
         switch event {
         case is ChannelShouldQuiesceEvent:
-            let promise = context.eventLoop.makePromise(of: Void.self)
-            promise.futureResult.assumeIsolated().whenComplete { _ in
+            let promise = context.eventLoop.makePromise(of: Void.self).assumeIsolated()
+            promise.futureResult.whenComplete { _ in
                 context.close(promise: nil)
             }
-            self.connectionMultiplexer.shutdownGracefully(deadline: .now() + .minutes(1), promise: promise)
+
+            self.connectionRegistry.shutdownConnections(
+                deadline: .now() + .minutes(1),
+                promise: promise
+            )
 
         default:
-            self.connectionMultiplexer.parentChannelUserInboundEventTriggered(event)
+            self.connectionRegistry.notifyParentChannelUserInboundEventTriggered(event)
         }
     }
 
@@ -788,7 +666,7 @@ extension QUICHandler: ChannelInboundHandler {
 
         connectionLogger.trace("QUICHandler accepting new connection")
         // The context is set when the channel becomes active so force unwrapping is okay here
-        let quicConnection = try SwiftNetworkQUICConnection(
+        let quicConnection = try SwiftNetworkQUICConnection.server(
             configuration: self.quicConfiguration,
             sourceConnectionID: newSourceConnectionID,
             authenticator: self.authenticator,
@@ -798,217 +676,95 @@ extension QUICHandler: ChannelInboundHandler {
             eventLoop: self.context!.eventLoop
         )
 
-        // Register callback for handling new inbound connection IDs
-        quicConnection.associateConnectionID = self.makeAssociateConnectionIDCallback(
-            logger: connectionLogger
-        )
-        // Register callback for handling retired connection IDs
-        quicConnection.retireConnectionID = self.makeRetireConnectionIDCallback(
-            logger: connectionLogger
-        )
-        quicConnection.generateConnectionID = self.makeGenerateConnectionIDCallback()
-
-        self.quicConnectionMetrics[newSourceConnectionID] = { quicConnection.currentMetrics() }
-
-        let stateMachine = QUICConnectionChildChannelStateMachine(
-            quicConnection: quicConnection,
-            localAddress: localAddress,
-            remoteAddress: addressedEnvelope.remoteAddress,
-            allocator: self.udpChannel.allocator,
-            logger: connectionLogger
-        )
+        let handle = self.nextConnectionHandle()
 
         switch self.multiplexerContinuation! {
         case .closure(let connectionInitializer, let inboundStreamInitializer, _, let role):
-            self.connectionMultiplexer.createChildChannel(
-                promise: nil,
-                newChannelID: .channelID(newSourceConnectionID),
-                stateMachine: stateMachine,
-                // We default to an 32kB outbound buffer size: this is a good trade off for avoiding excessive buffering while ensuring that decent
-                // throughput can be maintained. We use 4kB as the low water mark.
-                writabilityStrategy: .init(highWatermark: 32768, lowWatermark: 4096),
-                localAddress: localAddress,
-                remoteAddress: addressedEnvelope.remoteAddress
-            ) { channel, _ in
-                quicConnection.setConnectionChannel(channel)
-                let connectionChannelHandler = QUICConnectionChannelHandler(
-                    quicConnection: quicConnection,
-                    eventLoop: channel.eventLoop,
-                    role: role,
-                    logger: self.logger,
-                    metrics: self.metrics,
-                    inboundStreamInitializer: inboundStreamInitializer
-                )
-                let streamCreator = connectionChannelHandler.makeStreamCreator(role: role)
+            let channel = self.makeQUICConnectionChannel(
+                quicConnection: quicConnection,
+                handle: handle
+            )
+            channel.setInboundStreamInitializer(.closure(inboundStreamInitializer))
 
-                return channel.eventLoop.makeCompletedFuture {
-                    try channel.pipeline.syncOperations.addHandler(connectionChannelHandler)
-
-                    if let connectionDurationTimer = self.metrics?.connectionCloseMetrics?.connectionDuration {
-                        let connectionDurationHandler = ChannelDurationHandler(durationTimer: connectionDurationTimer)
-                        try channel.pipeline.syncOperations.addHandler(connectionDurationHandler)
-                    }
-
-                    let errorCatchingHandler = ErrorCatchingHandler(logger: self.logger)
-                    try channel.pipeline.syncOperations.addHandler(errorCatchingHandler)
-                    self.metrics?.quicConnectionHandlerMetrics?.openConnections?.increment()
-
-                    return channel
-                }.flatMap { (channel: any Channel) -> EventLoopFuture<Void> in
-                    connectionInitializer(channel, streamCreator)
-                }
-            }
-
-            // We keep track of the original DCID the peer used in case they retransmit or send additional INITIAL packets.
-            // TODO: Remmove dcid from multiplexing.
-            // Do we need to retire the destination connection ID chosen by the client at some point? We need to keep it
-            // for a while because the Initial packet might be fragemented, but once we are past the handshake it should
-            // no longer be used.
+            let view = channel.transportView
+            self.connectionRegistry.insert(view, forHandle: handle, connectionID: newSourceConnectionID)
+            // Keep track of the original DCID the peer used in case they retransmit or send
+            // additional INITIAL packets.
+            // TODO: Remove the DCID alias from multiplexing.
             if newSourceConnectionID != destinationConnectionID {
-                try self.connectionMultiplexer.addExtraChannelID(
-                    existingChannelID: newSourceConnectionID,
-                    extraChannelID: destinationConnectionID
-                )
+                self.connectionRegistry.associate(destinationConnectionID, with: handle)
             }
 
-            connectionLogger.trace("QUICHandler forwarding read to multiplexer")
-            try self.connectionMultiplexer.parentChannelRead(addressedEnvelope, for: newSourceConnectionID)
-        case .connectionMultiplexerContinuation(let multiplexerContinuation):
-            let channelPromise = self.eventLoop.makePromise(of: (any Channel).self)
-            let outputPromise = self.eventLoop.makePromise(of: (any Sendable).self)
-            channelPromise.futureResult.cascadeFailure(to: outputPromise)
+            let streamCreator = channel.makeStreamCreator(role: role)
+            let initPromise = self.eventLoop.makePromise(of: Void.self)
+            view.initialize(promise: initPromise) { ch in
+                connectionInitializer(ch, streamCreator)
+            }
 
-            self.connectionMultiplexer.createChildChannel(
-                promise: channelPromise,
-                newChannelID: .channelID(newSourceConnectionID),
-                stateMachine: stateMachine,
-                // We default to an 32kB outbound buffer size: this is a good trade off for avoiding excessive buffering while ensuring that decent
-                // throughput can be maintained. We use 4kB as the low water mark.
-                writabilityStrategy: .init(highWatermark: 32768, lowWatermark: 4096),
-                localAddress: localAddress,
-                remoteAddress: addressedEnvelope.remoteAddress
-            ) { channel, _ in
-                quicConnection.setConnectionChannel(channel)
-                return multiplexerContinuation.initialize(
-                    channel: channel,
-                    connectionID: newSourceConnectionID,
-                    quicConnection: quicConnection,
-                    metrics: self.metrics,
-                    logger: connectionLogger
-                )
-                .flatMapErrorThrowing { error in
-                    outputPromise.fail(error)
-                    throw error
+            initPromise.futureResult.assumeIsolated().whenComplete { result in
+                switch result {
+                case .success:
+                    self.deliverFirstPacket(addressedEnvelope.data, to: view)
+                case .failure:
+                    // Nothing to unwind: failing initialization closes the channel, so
+                    // 'connectionDidClose' does the teardown.
+                    ()
                 }
-                .map {
-                    outputPromise.succeed($0)
+            }
+
+            channel.closeFuture.assumeIsolated().whenComplete { _ in
+                self.connectionDidClose(handle)
+            }
+
+        case .connectionMultiplexerContinuation(let multiplexerContinuation):
+            let channel = self.makeQUICConnectionChannel(
+                quicConnection: quicConnection,
+                handle: handle
+            )
+            let view = channel.transportView
+            self.connectionRegistry.insert(view, forHandle: handle, connectionID: newSourceConnectionID)
+            // Keep track of the original DCID the peer used in case they retransmit or send
+            // additional INITIAL packets.
+            // TODO: Remove the DCID alias from multiplexing.
+            if newSourceConnectionID != destinationConnectionID {
+                self.connectionRegistry.associate(destinationConnectionID, with: handle)
+            }
+
+            let outputPromise = self.eventLoop.makePromise(of: (any Sendable).self)
+            let initPromise = self.eventLoop.makePromise(of: Void.self)
+            initPromise.futureResult.cascadeFailure(to: outputPromise)
+
+            view.initialize(promise: initPromise) { _ in
+                multiplexerContinuation.initialize(
+                    channel: channel,
+                    logger: connectionLogger
+                ).map { output in
+                    outputPromise.succeed(output)
                     return ()
                 }
             }
 
-            // We have to await both futures here because of two reasons:
-            // 1. The channelPromise future is indicating if creating the channel actually succeeded.
-            //    We have to await this to know if we actually created a new child channel.
-            // 2. While the outputPromise might succeed the channelPromise can still fail for unrelated
-            //    reasons.
-            channelPromise.futureResult
-                .flatMap { channel -> EventLoopFuture<(any Channel, any Sendable)> in
-                    outputPromise.futureResult.map { (channel, $0) }
+            initPromise.futureResult
+                .and(outputPromise.futureResult)
+                .assumeIsolated()
+                .whenComplete { result in
+                    switch result {
+                    case .success(let (_, output)):
+                        connectionLogger.trace("QUICHandler yielding output to multiplexer")
+                        multiplexerContinuation.yield(connection: output)
+                        self.deliverFirstPacket(addressedEnvelope.data, to: view)
+                    case .failure:
+                        // Nothing to unwind: failing initialization closes the channel, so
+                        // 'connectionDidClose' does the teardown.
+                        ()
+                    }
                 }
-                .whenSuccess { [multiplexerContinuation] channel, output in
-                    connectionLogger.trace("QUICHandler yielding output to multiplexer")
-                    multiplexerContinuation.yield(connection: output, channel: channel)
-                }
 
-            // We keep track of the original DCID the peer used in case they retransmit or send additional INITIAL packets.
-            if newSourceConnectionID != destinationConnectionID {
-                try self.connectionMultiplexer.addExtraChannelID(
-                    existingChannelID: newSourceConnectionID,
-                    extraChannelID: destinationConnectionID
-                )
-            }
-
-            connectionLogger.trace("QUICHandler forwarding read to multiplexer")
-            try self.connectionMultiplexer.parentChannelRead(addressedEnvelope, for: newSourceConnectionID)
-        }
-    }
-}
-
-@available(anyAppleOS 26, *)
-extension QUICHandler: ChildChannelMultiplexerDelegate {
-    public typealias ChildChannelID = QUICConnectionID
-    public typealias ChildChannelIDProperties = Never
-    public typealias ParentChannelMessage = AddressedEnvelope<ByteBuffer>
-
-    /// The parent channel of accepted connections.
-    public var parent: any Channel {
-        self.udpChannel
-    }
-
-    public func writeFromChildChannel(
-        childChannelID: ChildChannelID,
-        message: AddressedEnvelope<ByteBuffer>,
-        promise: EventLoopPromise<Void>?
-    ) {
-        guard let context = self.context else {
-            promise?.fail(ChannelError.ioOnClosedChannel)
-            return
-        }
-
-        self.logger.trace(
-            "QUICHandler writing outbound data",
-            metadata: [
-                LoggingKeys.addressRemote: "\(message.remoteAddress)",
-                LoggingKeys.channelOutboundBytes: "\(message.data.readableBytes)",
-            ]
-        )
-        self.didWrite = true
-        context.write(self.wrapOutboundOut(message), promise: promise)
-    }
-
-    public func flushFromChildChannel(childChannelID: ChildChannelID) {
-        // If a child channel flushes and we aren't in a channelReadComplete loop, we need to flush. Otherwise
-        // we can just wait.
-        if self.didWrite && !self.expectingChannelReadComplete {
-            self.logger.trace("QUICHandler flushing")
-            self.didWrite = false
-            self.context?.flush()
-        }
-    }
-
-    public func readFromChildChannel(childChannelID: ChildChannelID) {
-        // The child channel is still able to issue new reads when the parent channel
-        // already became inactive. We tolerate these reads because nothing will happen.
-        self.logger.trace("QUICHandler read from child channel")
-        self.context?.read()
-    }
-
-    public func childChannelClosed(childChannelIDOrProperties: ChildChannelIDOrProperties<QUICConnectionID, Never>) {
-        if case ChildChannelIDOrProperties.childChannelID(let connectionID) = childChannelIDOrProperties {
-            if let closedConnectionMetricsProvider = self.quicConnectionMetrics.removeValue(forKey: connectionID) {
-                let connectionMetrics = closedConnectionMetricsProvider()
-                if let connectionCloseMetrics = self.metrics?.connectionCloseMetrics {
-                    connectionCloseMetrics.receivedPackets?.record(connectionMetrics.receivedPackets)
-                    connectionCloseMetrics.sentPackets?.record(connectionMetrics.sentPackets)
-                    connectionCloseMetrics.lostPackets?.record(connectionMetrics.lostPackets)
-                    connectionCloseMetrics.roundTripTimeInNanoseconds?.record(
-                        .nanoseconds(connectionMetrics.roundTripTimeInNanoseconds)
-                    )
-                    connectionCloseMetrics.congestionWindowInBytes?.record(connectionMetrics.congestionWindowInBytes)
-                    connectionCloseMetrics.deliveryRateInBytesPerSecond?.record(
-                        connectionMetrics.deliveryRateInBytesPerSecond
-                    )
-                }
-                if let quicConnectionHandlerMetrics = self.metrics?.quicConnectionHandlerMetrics {
-                    quicConnectionHandlerMetrics.openConnections?.decrement()
-                }
+            channel.closeFuture.assumeIsolated().whenComplete { _ in
+                self.connectionDidClose(handle)
             }
         }
     }
-}
-
-extension ByteBuffer {
-    fileprivate static let maxDatagramSize = 1350
 }
 
 @available(anyAppleOS 26, *)
@@ -1076,7 +832,7 @@ extension QUICHandler {
 
 @available(anyAppleOS 26, *)
 extension QUICHandler {
-    struct ChildView {
+    struct ChildView: QUICTransport {
         private let handler: QUICHandler
 
         init(_ handler: QUICHandler) {
@@ -1098,5 +854,78 @@ extension QUICHandler {
         func read() {
             self.handler.read()
         }
+    }
+}
+
+@available(anyAppleOS 26, *)
+@available(*, unavailable)
+extension QUICHandler.ChildView: Sendable {}
+
+@available(anyAppleOS 26, *)
+extension QUICHandler {
+    struct RegistrarView: QUICConnectionIDRegistrar {
+        private let handler: QUICHandler
+        private let handle: ConnectionHandle
+
+        init(_ handler: QUICHandler, handle: ConnectionHandle) {
+            handler.eventLoop.assertInEventLoop()
+            self.handler = handler
+            self.handle = handle
+        }
+
+        func associate(_ newID: QUICConnectionID) -> Bool {
+            self.handler.connectionRegistry.associate(newID, with: self.handle)
+        }
+
+        func retire(_ connectionID: QUICConnectionID) -> Bool {
+            self.handler.connectionRegistry.retire(connectionID, from: self.handle)
+        }
+
+        func generateID() -> QUICConnectionID {
+            self.handler.quicConnectionIDGenerator.next()
+        }
+    }
+}
+
+@available(anyAppleOS 26, *)
+@available(*, unavailable)
+extension QUICHandler.RegistrarView: Sendable {}
+
+@available(anyAppleOS 26, *)
+extension QUICHandler {
+    private func makeQUICConnectionChannel(
+        quicConnection: SwiftNetworkQUICConnection,
+        handle: ConnectionHandle
+    ) -> QUICConnectionChannel {
+        QUICConnectionChannel(
+            udpChannel: self.udpChannel,
+            connection: .live(quicConnection),
+            registrar: .live(QUICHandler.RegistrarView(self, handle: handle)),
+            transport: .live(QUICHandler.ChildView(self)),
+            isServer: quicConnection.role == .server
+        )
+    }
+}
+
+/// An opaque, stable identity for a QUIC connection.
+struct ConnectionHandle: Hashable, Sendable {
+    private var rawValue: UInt64
+
+    static var initial: ConnectionHandle {
+        Self(rawValue: 0)
+    }
+
+    private init(rawValue: UInt64) {
+        self.rawValue = rawValue
+    }
+
+    fileprivate mutating func formNext() {
+        self.rawValue &+= 1
+    }
+
+    func next() -> Self {
+        var next = self
+        next.formNext()
+        return next
     }
 }

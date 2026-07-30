@@ -17,12 +17,12 @@ import NIOCore
 import NIOQUICHelpers
 
 /// Internal type to abstract away the `Output` type of the multiplexer. This means we are going through an existential
-/// in the `QUICConnectionChannelHandler` when yielding a new `Channel`. However, this is okay for now otherwise
+/// in the `QUICChannelStreamHandler` when yielding a new `Channel`. However, this is okay for now otherwise
 /// we would need to make the handler generic as well.
 protocol StreamMultiplexerContinuation: Sendable {
     /// We have to do a bit of an awkward dance here to carry the `Output` between the initializer and the continuation where
     /// we yield to. That's why we are using `Any` here to avoid making the handler generic.
-    func initialize(channel: any Channel, streamID: QUICStreamID) -> EventLoopFuture<any Sendable>
+    func initialize(channel: any Channel) -> EventLoopFuture<any Sendable>
     /// Put the output (from calling the intializer) into the inbound streams AsyncSequence. If the yield fails, the corresponding channel will be closed.
     func yield(output: any Sendable, channel: any Channel)
     func finish()
@@ -54,7 +54,7 @@ public struct QUICConnection<Output: Sendable>: Sendable, StreamMultiplexerConti
         self.inboundStreamsContinuation = continuation
     }
 
-    func initialize(channel: any Channel, streamID: QUICStreamID) -> EventLoopFuture<any Sendable> {
+    func initialize(channel: any Channel) -> EventLoopFuture<any Sendable> {
         self.inboundStreamInitializer(channel).map { $0 }
     }
 

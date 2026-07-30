@@ -36,6 +36,9 @@ public struct QUICError: Error, Hashable, Sendable {
         case failedToRetireConnectionID
         case streamWriteFailed
         case streamHandlerNotFound
+        case datagramTooLarge
+        case datagramWriteFailed
+        case peerDoesNotAcceptDatagrams
         case unknownError(Int)
     }
 
@@ -107,6 +110,21 @@ public struct QUICError: Error, Hashable, Sendable {
 
     /// Indicates that the transport rejected a stream write.
     public static let streamWriteFailed: Self = .init(code: .streamWriteFailed)
+
+    /// Indicates that a datagram exceeded the peer's advertised `max_datagram_frame_size`.
+    ///
+    /// - Warning: This is based on an estimate. The check compares only the datagram payload length
+    ///   against the advertised limit and does not account for DATAGRAM frame overhead (frame type
+    ///   and length fields), so a datagram that passes the check may still be too large once framed.
+    ///   The transport enforces the exact on-the-wire size.
+    public static let datagramTooLarge: Self = .init(code: .datagramTooLarge)
+
+    /// Indicates that the transport failed to write a datagram, e.g. because it exceeded a
+    /// size constraint enforced by the transport.
+    public static let datagramWriteFailed: Self = .init(code: .datagramWriteFailed)
+
+    /// Inidicates that the peer advertised a maximum datagram size of 0.
+    public static let peerDoesNotAcceptDatagrams: Self = .init(code: .peerDoesNotAcceptDatagrams)
 
     /// Indicates an unknown error
     public static func unknownError(_ code: Int) -> Self { .init(code: .unknownError(code)) }

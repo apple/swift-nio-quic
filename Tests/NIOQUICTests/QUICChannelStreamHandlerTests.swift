@@ -390,7 +390,7 @@ struct QUICChannelStreamHandlerTests {
             let isActiveAfterImmediately = streamChannel.isActive
             #expect(
                 !isActiveAfterImmediately,
-                "handleDisconnectedEvent must flip _isActive synchronously to resolve _closePromise on the same tick as ChildChannelMultiplexer.removeHandlers"
+                "handleDisconnectedEvent must flip _isActive synchronously to resolve _closePromise on the same tick as the stream handler is detached"
             )
 
             // Drain the deferred pipeline body.
@@ -431,9 +431,9 @@ struct QUICChannelStreamHandlerTests {
         }
     }
 
-    /// Peer RESET_STREAM can arrive between `startInitializer` and
-    /// `markInitializerComplete`; under `autoRead == false` the app never
-    /// drives a read so the reset has to surface at init-complete instead.
+    /// Peer RESET_STREAM can arrive while the pipeline initializer is still in
+    /// flight; under `autoRead == false` the app never drives a read so the
+    /// reset has to surface at init-complete instead.
     @available(anyAppleOS 26, *)
     @Test("RESET_STREAM stashed during init surfaces at init-complete under autoRead off")
     func resetDuringInitSurfacesAtInitCompleteWithAutoReadOff() throws {
@@ -441,34 +441,33 @@ struct QUICChannelStreamHandlerTests {
             let recorder = ErrorRecordingHandler()
             try streamChannel.pipeline.syncOperations.addHandler(recorder)
 
-            switch streamChannel.pipelineStateMachine.startInitializer(channelActive: true) {
-            case .runInitializer:
-                break
-            case .ignore:
-                Issue.record("Expected runInitializer, got ignore")
+            let initializerFinished = streamChannel.eventLoop.makePromise(of: Void.self)
+            // The inbound path only runs an initializer while the stream channel is active;
+            // the stub handler never saw `handleConnectedEvent`, so activate it by hand.
+            streamChannel._isActive.store(true, ordering: .sequentiallyConsistent)
+            guard
+                streamChannel.initializeInbound(
+                    streamID: QUICStreamID(rawValue: 0),
+                    initializer: .closure { _ in initializerFinished.futureResult }
+                ) != nil
+            else {
+                Issue.record("initializeInbound skipped the initializer; the pre-init window wasn't exercised")
                 return
             }
 
-            let appCode: Int64 = 42
-            let resetError = NetworkError(quicApplicationError: appCode, reason: nil)
-            streamChannel.handleInboundAbortedEvent(.init(), error: resetError)
+            // The peer resets while the initializer is still in flight.
+            let appCode: UInt64 = 42
+            streamChannel.handleInboundAbortedEvent(
+                .init(),
+                error: NetworkError(quicApplicationError: appCode)
+            )
 
-            switch streamChannel.pipelineStateMachine.markInitializerComplete() {
-            case .surfaceInitializedStream:
-                break
-            case .ignoreAlreadyComplete:
-                Issue.record("Expected surfaceInitializedStream")
-                return
-            }
-
-            // Mirror the production `initialize(...)` post-init ordering.
-            streamChannel.surfaceDeferredResetAfterInit()
-            streamChannel.tryToAutoRead()
+            initializerFinished.succeed(())
             (streamChannel.eventLoop as! EmbeddedEventLoop).run()
 
             let observed = recorder.resetErrors.map(\.code.rawValue)
             #expect(
-                observed == [UInt64(appCode)],
+                observed == [appCode],
                 "RESET_STREAM should have surfaced as errorCaught(QUICStreamResetError(code: \(appCode))) after init completed; observed codes: \(observed)"
             )
         }
@@ -484,33 +483,30 @@ struct QUICChannelStreamHandlerTests {
             let recorder = ErrorRecordingHandler()
             try streamChannel.pipeline.syncOperations.addHandler(recorder)
 
-            switch streamChannel.pipelineStateMachine.startInitializer(channelActive: true) {
-            case .runInitializer:
-                break
-            case .ignore:
-                Issue.record("Expected runInitializer")
+            let initializerFinished = streamChannel.eventLoop.makePromise(of: Void.self)
+            streamChannel._isActive.store(true, ordering: .sequentiallyConsistent)
+            guard
+                streamChannel.initializeInbound(
+                    streamID: QUICStreamID(rawValue: 0),
+                    initializer: .closure { _ in initializerFinished.futureResult }
+                ) != nil
+            else {
+                Issue.record("initializeInbound skipped the initializer; the pre-init window wasn't exercised")
                 return
             }
 
-            let appCode: Int64 = 7
-            let resetError = NetworkError(quicApplicationError: appCode, reason: nil)
-            streamChannel.handleInboundAbortedEvent(.init(), error: resetError)
+            let appCode: UInt64 = 7
+            streamChannel.handleInboundAbortedEvent(
+                .init(),
+                error: NetworkError(quicApplicationError: appCode)
+            )
 
-            switch streamChannel.pipelineStateMachine.markInitializerComplete() {
-            case .surfaceInitializedStream:
-                break
-            case .ignoreAlreadyComplete:
-                Issue.record("Expected surfaceInitializedStream")
-                return
-            }
-
-            streamChannel.surfaceDeferredResetAfterInit()
-            streamChannel.tryToAutoRead()
+            initializerFinished.succeed(())
             (streamChannel.eventLoop as! EmbeddedEventLoop).run()
 
             let observed = recorder.resetErrors.map(\.code.rawValue)
             #expect(
-                observed == [UInt64(appCode)],
+                observed == [appCode],
                 "RESET_STREAM should have surfaced as errorCaught exactly once; observed codes: \(observed)"
             )
         }
@@ -532,9 +528,8 @@ extension QUICChannelStreamHandlerTests {
 
         let eventLoop = EmbeddedEventLoop()
         let udpChannel = EmbeddedChannel(loop: eventLoop)
-        let connectionChannel = EmbeddedChannel(loop: eventLoop)
 
-        let connection = try SwiftNetworkQUICConnection(
+        let connection = try SwiftNetworkQUICConnection.server(
             configuration: .server(
                 serverName: "quic-test.local",
                 authenticationConfiguration: .rawPublicKeys(
@@ -551,7 +546,15 @@ extension QUICChannelStreamHandlerTests {
             eventLoop: eventLoop
         )
 
-        connection.setConnectionChannel(connectionChannel)
+        // Constructing the channel wires it into the connection via setDriver, which
+        // registerConnectedStubStreamHandler relies on through the connection's back-ref.
+        _ = QUICConnectionChannel(
+            udpChannel: udpChannel,
+            connection: .live(connection),
+            registrar: .test(NoOpConnectionIDRegistrar()),
+            transport: .test(RecordingTransport()),
+            isServer: connection.role == .server
+        )
 
         connection.registerConnectedStubStreamHandler(
             for: QUICStreamID(rawValue: streamID),
@@ -564,11 +567,21 @@ extension QUICChannelStreamHandlerTests {
         try body(streamChannel)
 
         try udpChannel.close().wait()
-        try connectionChannel.close().wait()
     }
 }
 
 extension QUICChannelStreamHandlerTests {
+    /// A no-op registrar for stream-handler tests, which never exercise connection-ID
+    /// association/retirement. Satisfies the `QUICConnectionChannel` init only.
+    @available(anyAppleOS 26, *)
+    private struct NoOpConnectionIDRegistrar: QUICConnectionIDRegistrar {
+        func associate(_ newID: NIOQUIC.QUICConnectionID) -> Bool { true }
+        func retire(_ connectionID: NIOQUIC.QUICConnectionID) -> Bool { true }
+        func generateID() -> NIOQUIC.QUICConnectionID {
+            NIOQUIC.QUICConnectionID(bytes: InlineArray<20, UInt8>(repeating: 0), length: 8)
+        }
+    }
+
     // Records events from the parent channel.
     private final class RecordingHandler: ChannelDuplexHandler {
         typealias OutboundIn = ByteBuffer

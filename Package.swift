@@ -44,14 +44,13 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/apple/swift-nio", from: "2.92.0"),
         .package(url: "https://github.com/apple/swift-log", from: "1.12.1"),
-        .package(url: "https://github.com/apple/swift-metrics", from: "2.4.1"),
         .package(url: "https://github.com/apple/swift-certificates.git", from: "1.19.3"),
         .package(url: "https://github.com/apple/swift-collections.git", from: "1.4.1"),
         .package(url: "https://github.com/apple/swift-crypto.git", exact: "5.0.0-beta.2"),
         .package(url: "https://github.com/apple/swift-nio-quic-helpers.git", .upToNextMinor(from: "0.1.0")),
         .package(
             url: "https://github.com/apple/swift-network-evolution",
-            .upToNextMinor(from: "0.1.0"),
+            .upToNextMinor(from: "0.1.1"),
             traits: swiftNetworkTraits
         ),
         .package(url: "https://github.com/apple/swift-tls", .upToNextMinor(from: "0.1.0")),
@@ -63,7 +62,6 @@ let package = Package(
                 .product(name: "NIOCore", package: "swift-nio"),
                 .product(name: "NIOPosix", package: "swift-nio"),
                 .product(name: "Logging", package: "swift-log"),
-                .product(name: "Metrics", package: "swift-metrics"),
                 .target(name: "NIOQUIC"),
             ],
             swiftSettings: swiftSettings
@@ -74,23 +72,13 @@ let package = Package(
                 .product(name: "NIOCore", package: "swift-nio"),
                 .product(name: "NIOQUICHelpers", package: "swift-nio-quic-helpers"),
                 .product(name: "Logging", package: "swift-log"),
-                .product(name: "Metrics", package: "swift-metrics"),
                 .product(name: "Crypto", package: "swift-crypto"),
                 .product(name: "X509", package: "swift-certificates"),
                 .product(name: "SwiftTLS", package: "swift-tls"),
                 .product(name: "SwiftNetwork", package: "swift-network-evolution"),
                 .product(name: "DequeModule", package: "swift-collections"),
-                .target(name: "ChildChannelMultiplexer"),
             ],
             swiftSettings: swiftSettings
-        ),
-        .target(
-            name: "ChildChannelMultiplexer",
-            dependencies: [
-                .product(name: "NIOCore", package: "swift-nio"),
-                .product(name: "Logging", package: "swift-log"),
-                .product(name: "HeapModule", package: "swift-collections"),
-            ]
         ),
         .testTarget(
             name: "NIOQUICTests",
@@ -117,7 +105,6 @@ let package = Package(
                 .product(name: "NIOPosix", package: "swift-nio"),
                 .product(name: "NIOEmbedded", package: "swift-nio"),
                 .product(name: "Logging", package: "swift-log"),
-                .product(name: "Metrics", package: "swift-metrics"),
                 .product(name: "NIOQUICHelpers", package: "swift-nio-quic-helpers"),
             ],
             resources: [

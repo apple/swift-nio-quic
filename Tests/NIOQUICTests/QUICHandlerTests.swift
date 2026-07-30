@@ -171,7 +171,7 @@ final class QUICHandlerTests: XCTestCase {
             remoteAddress: address,
             data: .init()
         )
-        self.serverHandler.writeFromChildChannel(childChannelID: .zero, message: message, promise: nil)
+        self.serverHandler.writeDatagram(message, promise: nil)
 
         self.channel.pipeline.fireChannelReadComplete()
 
@@ -185,8 +185,8 @@ final class QUICHandlerTests: XCTestCase {
             remoteAddress: address,
             data: .init()
         )
-        self.serverHandler.writeFromChildChannel(childChannelID: .zero, message: message, promise: nil)
-        self.serverHandler.flushFromChildChannel(childChannelID: .zero)
+        self.serverHandler.writeDatagram(message, promise: nil)
+        self.serverHandler.flush()
 
         var outbound = try self.channel.readOutbound(as: AddressedEnvelope<ByteBuffer>.self)
         XCTAssertEqual(outbound, message)
@@ -204,7 +204,7 @@ final class QUICHandlerTests: XCTestCase {
             data: .init()
         )
 
-        self.serverHandler.writeFromChildChannel(childChannelID: .zero, message: message, promise: nil)
+        self.serverHandler.writeDatagram(message, promise: nil)
         self.channel.flush()
 
         let outbound = try self.channel.readOutbound(as: AddressedEnvelope<ByteBuffer>.self)
@@ -217,9 +217,9 @@ final class QUICHandlerTests: XCTestCase {
             remoteAddress: address,
             data: .init()
         )
-        self.serverHandler.writeFromChildChannel(childChannelID: .zero, message: message, promise: nil)
+        self.serverHandler.writeDatagram(message, promise: nil)
 
-        self.serverHandler.flushFromChildChannel(childChannelID: .zero)
+        self.serverHandler.flush()
 
         let outbound = try self.channel.readOutbound(as: AddressedEnvelope<ByteBuffer>.self)
         XCTAssertEqual(outbound, message)
@@ -240,7 +240,7 @@ final class QUICHandlerTests: XCTestCase {
         )
         self.channel.pipeline.fireChannelRead(data)
 
-        self.serverHandler.flushFromChildChannel(childChannelID: .zero)
+        self.serverHandler.flush()
 
         let outbound = try self.channel.readOutbound(as: AddressedEnvelope<ByteBuffer>.self)
         XCTAssertNil(outbound)

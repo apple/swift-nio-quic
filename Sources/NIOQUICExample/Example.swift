@@ -97,7 +97,6 @@ struct Example {
                         channel: channel,
                         quicConfiguration: quicConfiguration,
                         logger: logger,
-                        metrics: nil,
                         inboundStreamChannelInitializer: { streamChannel in
                             streamChannel.eventLoop.makeCompletedFuture {
                                 try NIOAsyncChannel(
@@ -162,7 +161,6 @@ struct Example {
                     channel: channel,
                     quicConfiguration: quicConfiguration,
                     logger: logger,
-                    metrics: nil,
                     inboundStreamChannelInitializer: { channel -> EventLoopFuture<Never> in
                         channel.eventLoop.makeCompletedFuture { fatalError() }
                     }
