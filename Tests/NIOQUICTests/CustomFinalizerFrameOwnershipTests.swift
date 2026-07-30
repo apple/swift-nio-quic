@@ -1,3 +1,6 @@
+@_spi(CustomByteBufferAllocator) import NIOCore
+@_spi(ProtocolProvider) @testable import NIOQUIC
+@_spi(ProtocolProvider) @testable import SwiftNetwork
 //===----------------------------------------------------------------------===//
 //
 // This source file is part of the SwiftNIO open source project
@@ -12,10 +15,6 @@
 //
 //===----------------------------------------------------------------------===//
 import Testing
-
-@_spi(CustomByteBufferAllocator) import NIOCore
-@_spi(ProtocolProvider) @testable import NIOQUIC
-@_spi(ProtocolProvider) @testable import SwiftNetwork
 
 struct CustomFinalizerFrameOwnershipTests {
 
