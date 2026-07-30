@@ -1310,7 +1310,7 @@ struct QUICStreamStateMachineTests {
             pipelineInitialized: false
         )
 
-        let action = try sm.surfaceDeferredResetAfterInit()
+        let action = sm.surfaceDeferredResetAfterInit()
         guard case .fireReset(applicationErrorCode: let code) = action else {
             Issue.record("Expected .fireReset")
             return
@@ -1328,14 +1328,14 @@ struct QUICStreamStateMachineTests {
     /// The helper is called from every `initialize(...)` overload, so a
     /// fresh SM must be a safe no-op.
     @available(anyAppleOS 26, *)
-    @Test("surfaceDeferredResetAfterInit on a fresh SM returns .nothing")
-    func surfaceDeferredResetAfterInitOnFreshSMReturnsNothing() throws {
+    @Test("surfaceDeferredResetAfterInit on a fresh SM returns .doNothing")
+    func surfaceDeferredResetAfterInitOnFreshSMReturnsDoNothing() {
         var sm = QUICStreamStateMachine()
         _ = sm.streamConnected(direction: .bidirectional)
 
-        let action = try sm.surfaceDeferredResetAfterInit()
-        guard case .nothing = action else {
-            Issue.record("Expected .nothing")
+        let action = sm.surfaceDeferredResetAfterInit()
+        guard case .doNothing = action else {
+            Issue.record("Expected .doNothing")
             return
         }
     }

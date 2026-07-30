@@ -456,10 +456,10 @@ struct QUICChannelStreamHandlerTests {
             }
 
             // The peer resets while the initializer is still in flight.
-            let appCode: UInt64 = 42
+            let applicationErrorCode: UInt64 = 42
             streamChannel.handleInboundAbortedEvent(
                 .init(),
-                error: NetworkError(quicApplicationError: appCode)
+                error: NetworkError(quicApplicationError: applicationErrorCode)
             )
 
             initializerFinished.succeed(())
@@ -467,8 +467,8 @@ struct QUICChannelStreamHandlerTests {
 
             let observed = recorder.resetErrors.map(\.code.rawValue)
             #expect(
-                observed == [appCode],
-                "RESET_STREAM should have surfaced as errorCaught(QUICStreamResetError(code: \(appCode))) after init completed; observed codes: \(observed)"
+                observed == [applicationErrorCode],
+                "RESET_STREAM should have surfaced as errorCaught(QUICStreamResetError(code: \(applicationErrorCode))) after init completed; observed codes: \(observed)"
             )
         }
     }
@@ -495,10 +495,10 @@ struct QUICChannelStreamHandlerTests {
                 return
             }
 
-            let appCode: UInt64 = 7
+            let applicationErrorCode: UInt64 = 7
             streamChannel.handleInboundAbortedEvent(
                 .init(),
-                error: NetworkError(quicApplicationError: appCode)
+                error: NetworkError(quicApplicationError: applicationErrorCode)
             )
 
             initializerFinished.succeed(())
@@ -506,9 +506,53 @@ struct QUICChannelStreamHandlerTests {
 
             let observed = recorder.resetErrors.map(\.code.rawValue)
             #expect(
-                observed == [appCode],
+                observed == [applicationErrorCode],
                 "RESET_STREAM should have surfaced as errorCaught exactly once; observed codes: \(observed)"
             )
+        }
+    }
+
+    /// The creation promise must resolve *before* a stashed reset is fired; otherwise
+    /// `errorCaught` reaches the pipeline before the application has been handed the
+    /// stream that pipeline belongs to.
+    @available(anyAppleOS 26, *)
+    @Test("Deferred reset surfaces after the outbound stream promise resolves")
+    func deferredResetSurfacesAfterOutboundPromiseResolves() throws {
+        enum StreamHandbackEvent {
+            case streamHandedBack
+            case resetSurfaced
+        }
+
+        try Self.withServerStream(autoRead: false) { streamChannel in
+            let events = NIOLoopBoundBox<[StreamHandbackEvent]>([], eventLoop: streamChannel.eventLoop)
+
+            let recorder = ErrorRecordingHandler { events.value.append(.resetSurfaced) }
+            try streamChannel.pipeline.syncOperations.addHandler(recorder)
+
+            let streamPromise = streamChannel.eventLoop.makePromise(of: (any Channel).self)
+            streamPromise.futureResult.assumeIsolated().whenComplete { _ in
+                events.value.append(.streamHandedBack)
+            }
+
+            let initializerFinished = streamChannel.eventLoop.makePromise(of: Void.self)
+            streamChannel._isActive.store(true, ordering: .sequentiallyConsistent)
+            streamChannel.initializeOutbound(
+                streamID: QUICStreamID(rawValue: 0),
+                initializer: { _, _ in initializerFinished.futureResult },
+                promise: streamPromise
+            )
+
+            let applicationErrorCode: UInt64 = 42
+            streamChannel.handleInboundAbortedEvent(
+                .init(),
+                error: NetworkError(quicApplicationError: applicationErrorCode)
+            )
+
+            initializerFinished.succeed(())
+            (streamChannel.eventLoop as! EmbeddedEventLoop).run()
+
+            #expect(events.value == [.streamHandedBack, .resetSurfaced])
+            #expect(recorder.resetErrors.map(\.code.rawValue) == [applicationErrorCode])
         }
     }
 }
@@ -671,17 +715,23 @@ extension QUICChannelStreamHandlerTests {
         }
     }
 
-    /// Captures any `QUICStreamResetError` values seen via `errorCaught` on
-    /// the inbound pipeline. Used to assert whether a peer RESET surfaced
-    /// to the application or was lost.
     private final class ErrorRecordingHandler: ChannelInboundHandler {
         typealias InboundIn = ByteBuffer
 
         private(set) var resetErrors: [NIOQUICHelpers.QUICStreamResetError] = []
 
+        /// Called for each recorded reset, so a test can interleave resets with other
+        /// events it observes and assert on their relative order.
+        private let onResetError: (() -> Void)?
+
+        init(onResetError: (() -> Void)? = nil) {
+            self.onResetError = onResetError
+        }
+
         func errorCaught(context: ChannelHandlerContext, error: any Error) {
             if let resetError = error as? NIOQUICHelpers.QUICStreamResetError {
                 self.resetErrors.append(resetError)
+                self.onResetError?()
             }
             context.fireErrorCaught(error)
         }

@@ -24,7 +24,7 @@ import Darwin
 #endif
 
 enum WrappedStreamStateCriticalError {
-    case stopSending(QUICStopSendingError)
+    case stopSending(NIOQUICHelpers.QUICStopSendingError)
     case resetStream(QUICStreamResetError)
 }
 
@@ -514,12 +514,12 @@ struct QUICStreamStateMachine: ~Copyable {
         switch innerAction {
         case .sendReset:
             let error: WrappedStreamStateCriticalError = .stopSending(
-                QUICStopSendingError(code: applicationErrorCode)
+                NIOQUICHelpers.QUICStopSendingError(code: applicationErrorCode)
             )
             return .sendReset(error)
         case .sendResetAndCloseStream:
             let error: WrappedStreamStateCriticalError = .stopSending(
-                QUICStopSendingError(code: applicationErrorCode)
+                NIOQUICHelpers.QUICStopSendingError(code: applicationErrorCode)
             )
             return .sendResetAndCloseStream(error)
         case .ignore(.alreadyFinished):
@@ -697,7 +697,7 @@ struct QUICStreamStateMachine: ~Copyable {
     enum SurfaceDeferredResetAction: ~Copyable {
         /// Caller should fire `errorCaught(QUICStreamResetError(code:))`.
         case fireReset(applicationErrorCode: QUICApplicationErrorCode)
-        case nothing
+        case doNothing
     }
 
     /// Surface a peer reset that was captured while the pipeline was
@@ -710,15 +710,15 @@ struct QUICStreamStateMachine: ~Copyable {
         // in the receive sub-SM, but its surface path requires the caller
         // to drain data first and is intentionally not covered here.
         guard self.hasReceivedReset else {
-            return .nothing
+            return .doNothing
         }
         switch self.consumeFinOrReset() {
         case .reportPeerReset(let code):
             return .fireReset(applicationErrorCode: code)
         case .reportFin:
-            return .nothing
+            return .doNothing
         case .nothingToReport:
-            return .nothing
+            return .doNothing
         }
     }
 

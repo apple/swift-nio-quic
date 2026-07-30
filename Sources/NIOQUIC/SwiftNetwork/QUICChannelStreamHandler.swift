@@ -766,18 +766,17 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
         }
     }
 
-    /// Drain any peer RESET the stream SM captured
-    /// while the pipeline was uninitialized.
+    /// Drain any peer RESET the stream SM captured while the pipeline was uninitialized.
     internal func surfaceDeferredResetAfterInit() {
         self.eventLoop.preconditionInEventLoop()
         switch self.streamStateMachine.surfaceDeferredResetAfterInit() {
         case .fireReset(let code):
-            self.log("surfaceDeferredReset: firing stashed reset code=\(code)")
+            self.log("surfaceDeferredReset", metadata: ["applicationErrorCode": "\(code)"])
             self.pipeline.fireErrorCaught(
                 NIOQUICHelpers.QUICStreamResetError(code: code)
             )
             self.fireChannelReadComplete()
-        case .nothing:
+        case .doNothing:
             break
         }
     }
