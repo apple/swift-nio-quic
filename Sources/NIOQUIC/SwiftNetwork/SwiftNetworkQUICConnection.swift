@@ -83,6 +83,17 @@ final class SwiftNetworkQUICConnection {
     /// finalizes frames outside any drain bracket initiated by the channel.
     internal var channelView: QUICConnectionChannel.ConnectionView?
 
+    /// Whether the connection is in a read-loop.
+    ///
+    /// While this is `true`, outbound writes should not be emitted. Entering the read loop is
+    /// implicit from a call to `receivePacket()`, exiting the loop is explicit via a call to
+    /// `exitReadLoop()`.
+    private var inReadLoop: Bool
+
+    internal func exitReadLoop() {
+        self.inReadLoop = false
+    }
+
     /// Sets the connection channel and propagates it as the parent channel for inbound streams
     /// (via the new flow handler) and any pre-created outbound stream (the initial client stream).
     ///
@@ -241,7 +252,6 @@ final class SwiftNetworkQUICConnection {
         self.logger = logger
         self.localAddress = localAddress
         self.remoteAddress = remoteAddress
-        self.finalizedOutput.reserveCapacity(100)
 
         self.activeSCIDs = [sourceConnectionID]
 
@@ -360,6 +370,7 @@ final class SwiftNetworkQUICConnection {
             context: swiftNetworkParameters.context
         )
 
+        self.inReadLoop = false
         self.start(
             localEndpoint: localEndpoint,
             remoteEndpoint: remoteEndpoint,
@@ -848,6 +859,7 @@ final class SwiftNetworkQUICConnection {
     @discardableResult
     @inlinable
     func receivePacket(_ packet: NIOCore.ByteBuffer) -> Int {
+        self.inReadLoop = true
         var packet = packet
         log("receivePacket called with \(packet.readableBytes) bytes")
         packet.withUnsafeMutableReadableBytesWithStorageManagement2 { buffer, owner in
@@ -1327,7 +1339,6 @@ extension SwiftNetworkQUICConnection {
 // Callbacks coming from QUICChannelOutputHandler
 @available(anyAppleOS 26, *)
 extension SwiftNetworkQUICConnection {
-
     /// Consumes the inputPacketQueue and transforms the ByteBuffers from receivePacket to frames.
     ///
     /// These frames are to be consumed by the QUIC stack when invokeInputAvailable is called.
@@ -1371,7 +1382,7 @@ extension SwiftNetworkQUICConnection {
             return true
         }
 
-        if didFinalizeFrames {
+        if !self.inReadLoop && didFinalizeFrames {
             self.triggerOutOfBandWriteEvent()
         }
     }
