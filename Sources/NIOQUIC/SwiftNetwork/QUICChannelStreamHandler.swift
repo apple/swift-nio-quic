@@ -32,7 +32,7 @@ enum StreamClosureState {
     case disconnectOnly  // Calls stop and detach only, could result in disconnect event as well
 }
 
-fileprivate enum LogLevel {
+private enum LogLevel {
     case trace
     case warning
     case error
