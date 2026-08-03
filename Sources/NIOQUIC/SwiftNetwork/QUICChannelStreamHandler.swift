@@ -139,7 +139,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
         self._localAddress = localAddress
         self.context = parameters.context
         if let keepAlive = keepAliveInterval {
-            self._keepAliveInterval = UInt16(truncatingIfNeeded: keepAlive.components.seconds)
+            self._keepAliveInterval = UInt16(clamping: keepAlive.components.seconds)
         }
         #if DEBUG
         self.logPrefix = "[\(self.role.description)][S\(streamID == nil ? "?" : String(streamID!.rawValue))]"
@@ -181,7 +181,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
         self._localAddress = localAddress
         self.context = parameters.context
         if let keepAlive = keepAliveInterval {
-            self._keepAliveInterval = UInt16(truncatingIfNeeded: keepAlive.components.seconds)
+            self._keepAliveInterval = UInt16(clamping: keepAlive.components.seconds)
         }
         #if DEBUG
         self.logPrefix = "[\(self.role.description)][S\(streamID == nil ? "?" : String(streamID!.rawValue))]"
