@@ -1167,6 +1167,16 @@ extension QUICChannelStreamHandler: UpperProtocolHandler {
     }
 }
 
+@available(anyAppleOS 26, *)
+extension QUICChannelStreamHandler {
+    func attachLowerStreamProtocolToExistingFlow(
+        listener: StreamListenerLinkage,
+        flowReference: ProtocolInstanceReference
+    ) throws(NetworkError) {
+        throw NetworkError.posix(ENOTSUP)
+    }
+}
+
 // MARK: - `Channel` and `ChannelCore` conformance
 
 @available(anyAppleOS 26, *)
