@@ -32,7 +32,7 @@ enum StreamClosureState {
     case disconnectOnly  // Calls stop and detach only, could result in disconnect event as well
 }
 
-enum LogLevel: Int {
+fileprivate enum LogLevel {
     case trace
     case warning
     case error
@@ -264,7 +264,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
     ///
     /// - Parameters:
     ///     - logMessage: The logMessage that is fetched by an autoclosure.  For performance reasons we could gate this behind a flag.
-    func log(
+    fileprivate func log(
         _ logMessage: @autoclosure () -> String,
         metadata: @autoclosure () -> Logger.Metadata? = nil,
         logLevel: LogLevel = .trace
