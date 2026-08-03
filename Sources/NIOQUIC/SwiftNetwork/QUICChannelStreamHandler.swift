@@ -1142,7 +1142,7 @@ extension QUICChannelStreamHandler: UpperProtocolHandler {
 }
 
 @available(anyAppleOS 26, *)
-extension QUICChannelStreamHandler: InboundStreamHandler {
+extension QUICChannelStreamHandler {
     func attachLowerStreamProtocolToExistingFlow(
         listener: StreamListenerLinkage,
         flowReference: ProtocolInstanceReference
