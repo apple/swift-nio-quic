@@ -828,6 +828,7 @@ final class SwiftNetworkQUICConnection {
         let futures = streamInputHandlers.values.map { $0.closeFuture }
         for stream in streamInputHandlers.values {
             stream.stop(detachFromLowerProtocol: true)
+            stream.closeIfNeeded()
         }
         return futures
     }
