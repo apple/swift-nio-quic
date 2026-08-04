@@ -19,6 +19,7 @@ import NIOCore
 import NIOEmbedded
 import NIOQUICHelpers
 @_spi(ProtocolProvider) import SwiftNetwork
+import Synchronization
 import Testing
 
 @testable import NIOQUIC
@@ -398,6 +399,37 @@ struct QUICChannelStreamHandlerTests {
         }
     }
 
+    @available(anyAppleOS 26, *)
+    @Test("closeAllStreams resolves the close future of a stream", arguments: [true, false])
+    func closeAllStreamsResolvesCloseFuture(active: Bool) throws {
+        try Self.withServerConnectionAndStream { connection, streamChannel in
+            streamChannel._isActive.store(active, ordering: .sequentiallyConsistent)
+
+            let recorder = RecordingHandler()
+            try streamChannel.pipeline.syncOperations.addHandler(recorder)
+
+            let closeFutureCompleted = Mutex(false)
+            streamChannel.closeFuture.whenComplete { _ in
+                closeFutureCompleted.withLock { $0 = true }
+            }
+
+            let futures = connection.closeAllStreams()
+            #expect(futures.count == 1)
+
+            // `_close` defers completing the promise to the next event-loop tick; flush.
+            (streamChannel.eventLoop as! EmbeddedEventLoop).run()
+
+            #expect(closeFutureCompleted.withLock { $0 })
+            #expect(!streamChannel.isActive)
+
+            if active {
+                #expect(recorder.events == [.channelInactive, .channelUnregistered])
+            } else {
+                #expect(recorder.events == [])
+            }
+        }
+    }
+
     /// `invoke*` wrappers must release their borrow on `swiftNetworkStreamHandle` before the linkage call;
     /// SwiftNetwork's synchronous drain otherwise re-enters `invokeDetach` on a live read borrow and traps.
     @available(anyAppleOS 26, *)
@@ -439,6 +471,21 @@ extension QUICChannelStreamHandlerTests {
         direction: QUICStreamDirection = .bidirectional,
         autoRead: Bool = true,
         body: (QUICChannelStreamHandler) throws -> Void
+    ) throws {
+        try Self.withServerConnectionAndStream(
+            streamID: streamID,
+            direction: direction,
+            autoRead: autoRead
+        ) { _, streamChannel in
+            try body(streamChannel)
+        }
+    }
+
+    static func withServerConnectionAndStream(
+        streamID: UInt64 = 0,
+        direction: QUICStreamDirection = .bidirectional,
+        autoRead: Bool = true,
+        body: (SwiftNetworkQUICConnection, QUICChannelStreamHandler) throws -> Void
     ) throws {
         let testPrivateKeyPath = Bundle.module.url(forResource: "privateKey", withExtension: "der")!.path
         let testPublicKeyPath = Bundle.module.url(forResource: "publicKey", withExtension: "der")!.path
@@ -483,7 +530,7 @@ extension QUICChannelStreamHandlerTests {
 
         try streamChannel.syncOptions!.setOption(.autoRead, value: autoRead)
 
-        try body(streamChannel)
+        try body(connection, streamChannel)
 
         try udpChannel.close().wait()
     }
@@ -511,6 +558,8 @@ extension QUICChannelStreamHandlerTests {
             case channelRead(ByteBuffer)
             case channelReadComplete
             case inputClosedEvent
+            case channelInactive
+            case channelUnregistered
         }
 
         var events: [Event] = []
@@ -548,6 +597,16 @@ extension QUICChannelStreamHandlerTests {
         func channelReadComplete(context: ChannelHandlerContext) {
             self.events.append(.channelReadComplete)
             context.fireChannelReadComplete()
+        }
+
+        func channelInactive(context: ChannelHandlerContext) {
+            self.events.append(.channelInactive)
+            context.fireChannelInactive()
+        }
+
+        func channelUnregistered(context: ChannelHandlerContext) {
+            self.events.append(.channelUnregistered)
+            context.fireChannelUnregistered()
         }
 
         func userInboundEventTriggered(context: ChannelHandlerContext, event: Any) {
