@@ -76,13 +76,13 @@ struct GSOCoalescer: ~Copyable {
     private mutating func datagram(from frame: consuming Frame) -> AddressedEnvelope<ByteBuffer> {
         let buffer: ByteBuffer
 
-        if let config = frame.takeOwnershipOfCustomFinalizerBuffer() {
+        if let frameInternals = frame.takeOwnershipOfCustomFinalizerBuffer() {
             frame.finalize(success: true)
             buffer = ByteBuffer(
-                takingOwnershipOf: config.bufferPointer,
+                takingOwnershipOf: frameInternals.bufferPointer,
                 allocator: FrameMemory.allocator,
-                readerIndex: config.readerOffset,
-                writerIndex: config.writerOffset
+                readerIndex: frameInternals.readerOffset,
+                writerIndex: frameInternals.writerOffset
             )
         } else {
             var buf = ByteBuffer()
