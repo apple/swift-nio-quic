@@ -333,6 +333,39 @@ struct QUICConnectionChannelTests {
             channel.embeddedEventLoop.run()
             try channel.closeFuture.wait()
         }
+
+        @available(anyAppleOS 26, *)
+        @Test
+        func closeErrorIsFiredBeforeStreamsAreClosed() throws {
+            let connection = RecordingConnection()
+            let recorder = LifecycleRecorder()
+            let channel = try makeChannel(connection: connection) {
+                $0.pipeline.addHandler(recorder)
+            }
+
+            // Hold up channelInactive on an outstanding stream-close future to make the window
+            // between firing the error and firing inactive observable.
+            let streamClose = channel.eventLoop.makePromise(of: Void.self)
+            connection.streamCloseFutures = [streamClose.futureResult]
+
+            struct Boom: Error {}
+            channel.connectionView.connectionClosed(error: Boom())
+            channel.connectionView.drainOutbound()
+
+            // The error is fired while the streams are still closing: a handler may rely on the
+            // connection level error to fail its streams.
+            #expect(recorder.errors.count == 1)
+            #expect(recorder.errors.last is Boom)
+            #expect(recorder.inactiveCount == 0)
+
+            // Once the streams have closed inactive fires; the error isn't fired again.
+            streamClose.succeed()
+            #expect(recorder.errors.count == 1)
+            #expect(recorder.inactiveCount == 1)
+
+            channel.embeddedEventLoop.run()
+            try channel.closeFuture.wait()
+        }
     }
 
     // MARK: Transport View
