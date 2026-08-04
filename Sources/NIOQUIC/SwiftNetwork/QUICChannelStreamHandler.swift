@@ -1366,17 +1366,17 @@ extension QUICChannelStreamHandler: Channel, ChannelCore {
         // its close promise must still be completed.
         let wasActive = self._isActive.exchange(false, ordering: .sequentiallyConsistent)
 
-        // Put calls to _close on the next runloop tick because it calls fireChannelInactive
+        if let error {
+            self.pipeline.fireErrorCaught(error)
+        }
+
+        if wasActive {
+            self.pipeline.fireChannelInactive()
+            self.pipeline.fireChannelUnregistered()
+        }
+
+        // Complete the promise on the next loop tick.
         self.eventLoop.assumeIsolated().execute {
-            if let error {
-                self.pipeline.fireErrorCaught(error)
-            }
-
-            if wasActive {
-                self.pipeline.fireChannelInactive()
-                self.pipeline.fireChannelUnregistered()
-            }
-
             self.removeHandlers(pipeline: self.pipeline)
             self._closePromise.succeed(())
             promise?.succeed()
