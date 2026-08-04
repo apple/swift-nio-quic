@@ -762,6 +762,12 @@ extension QUICConnectionChannel {
             ()
         }
 
+        // Surface the close error to before tearing the streams down: a handler may rely on
+        // connection level errors to fail streams.
+        if let error {
+            self.pipeline.fireErrorCaught(error)
+        }
+
         // Wait for all streams to close before firing inactive.
         let streamCloseFutures = self._connection.closeAllStreams()
 
@@ -784,10 +790,6 @@ extension QUICConnectionChannel {
 
         // Datagram writes buffered while waiting for the peer's advertisement will never be sent.
         self._failBufferedDatagramWrites()
-
-        if let error {
-            self.pipeline.fireErrorCaught(error)
-        }
 
         self.pipeline.fireChannelInactive()
 

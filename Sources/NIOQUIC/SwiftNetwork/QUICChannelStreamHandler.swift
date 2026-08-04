@@ -32,6 +32,12 @@ enum StreamClosureState {
     case disconnectOnly  // Calls stop and detach only, could result in disconnect event as well
 }
 
+private enum LogLevel {
+    case trace
+    case warning
+    case error
+}
+
 /// `QUICChannelStreamHandler` is the bridge between SwiftNetwork and our code on the application-side;
 /// one `QUICChannelStreamHandler` exists for each QUIC stream.
 @available(anyAppleOS 26, *)
@@ -45,9 +51,11 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
     /// The event loop of the connection channel.
     @usableFromInline
     let eventLoop: any EventLoop
-    /// The allocator of the parent.
+    /// The allocator of the parent — computed so it does not occupy inline storage.
     @usableFromInline
-    let allocator: ByteBufferAllocator
+    var allocator: ByteBufferAllocator {
+        self.connectionChannel?.allocator ?? ByteBufferAllocator()
+    }
     /// Atomic that stores if this channel is currently active.
     @usableFromInline
     let _isActive: Atomic<Bool>
@@ -72,7 +80,6 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
     internal typealias LowerProtocol = OutboundStreamLinkage
 
     private let role: Role
-    private let keepAliveInterval: Duration?
     private let logger: Logger
     internal var reference: ProtocolInstanceReference = ProtocolInstanceReference()
 
@@ -89,9 +96,13 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
 
     /// Whether the application has opted in to half-closure semantics for received STOP_SENDING.
     private var understandsStopSending = false
+    #if DEBUG
     private var logPrefix: String = ""
+    #endif
     private var bufferedReadData: ByteBuffer = ByteBuffer()
     private var bufferedWriteData: TinyArray<ByteBuffer> = []
+    /// Stores as a UInt16 to reduce the memory footprint
+    private var _keepAliveInterval: UInt16? = nil
 
     /// A flag that is `true` when the downstream consumer has requested a read that has not yet been satisfied.
     ///
@@ -127,7 +138,9 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
         self._remoteAddress = remoteAddress
         self._localAddress = localAddress
         self.context = parameters.context
-        self.keepAliveInterval = keepAliveInterval
+        if let keepAlive = keepAliveInterval {
+            self._keepAliveInterval = UInt16(clamping: keepAlive.components.seconds)
+        }
         #if DEBUG
         self.logPrefix = "[\(self.role.description)][S\(streamID == nil ? "?" : String(streamID!.rawValue))]"
         #endif
@@ -137,7 +150,6 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
 
         self.connectionChannel = connectionChannel
         self.eventLoop = connectionChannel.eventLoop
-        self.allocator = connectionChannel.allocator
         self._isActive = Atomic(false)
         self._isWritable = Atomic(true)
         self._closePromise = connectionChannel.eventLoop.makePromise(of: Void.self)
@@ -168,7 +180,9 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
         self._remoteAddress = remoteAddress
         self._localAddress = localAddress
         self.context = parameters.context
-        self.keepAliveInterval = keepAliveInterval
+        if let keepAlive = keepAliveInterval {
+            self._keepAliveInterval = UInt16(clamping: keepAlive.components.seconds)
+        }
         #if DEBUG
         self.logPrefix = "[\(self.role.description)][S\(streamID == nil ? "?" : String(streamID!.rawValue))]"
         #endif
@@ -177,7 +191,6 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
         self.swiftNetworkStreamHandle = SwiftNetworkStreamHandle()
 
         self.eventLoop = eventLoop
-        self.allocator = connectionChannel?.allocator ?? ByteBufferAllocator()
         self.connectionChannel = connectionChannel
         self._isActive = Atomic(false)
         self._isWritable = Atomic(true)
@@ -251,14 +264,32 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
     ///
     /// - Parameters:
     ///     - logMessage: The logMessage that is fetched by an autoclosure.  For performance reasons we could gate this behind a flag.
-    func log(
+    fileprivate func log(
         _ logMessage: @autoclosure () -> String,
-        metadata: @autoclosure () -> Logger.Metadata? = nil
+        metadata: @autoclosure () -> Logger.Metadata? = nil,
+        logLevel: LogLevel = .trace
     ) {
-        #if DEBUG
-        let message = logMessage()
-        self.logger.trace("\(self.logPrefix) \(message)", metadata: metadata())
-        #endif
+        switch logLevel {
+        case .error:
+            let message = logMessage()
+            #if DEBUG
+            self.logger.error("\(self.logPrefix) \(message)", metadata: metadata())
+            #else
+            self.logger.error("\(message)", metadata: metadata())
+            #endif
+        case .trace:
+            #if DEBUG
+            let message = logMessage()
+            self.logger.trace("\(self.logPrefix) \(message)", metadata: metadata())
+            #endif
+        case .warning:
+            let message = logMessage()
+            #if DEBUG
+            self.logger.warning("\(self.logPrefix) \(message)", metadata: metadata())
+            #else
+            self.logger.warning("\(message)", metadata: metadata())
+            #endif
+        }
     }
 
     // Event that signals that RESET_STREAM was received
@@ -276,7 +307,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
             do {
                 try self.handleReceivedResetStream(applicationErrorCode: errorCode)
             } catch {
-                self.logger.warning("\(self.logPrefix) handleInboundAbortedEvent errored: \(error)")
+                self.log("handleInboundAbortedEvent errored: \(error)", logLevel: .warning)
                 switch error {
                 case .wrongDirection:
                     self.closeStream(mode: .disconnectOnly, error: error, promise: nil)
@@ -399,7 +430,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
                     self.log("receiveStopSending: stream already reset, ignoring")
                 }
             } catch {
-                self.logger.warning("\(self.logPrefix) handleOutboundAbortedEvent errored: \(error)")
+                self.log("handleOutboundAbortedEvent errored: \(error)", logLevel: .warning)
                 switch error {
                 case .wrongDirection:
                     self.closeStream(mode: .disconnectOnly, error: error, promise: nil)
@@ -791,10 +822,9 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
         self.pipeline.fireChannelRegistered()
         self.pipeline.fireChannelActive()
         log("setting up metadata handlers")
-        if let keepAliveTime = self.keepAliveInterval {
+        if let keepAliveTime = self._keepAliveInterval {
             log("setting keepalive interval")
-            let keepAlive = UInt16(truncatingIfNeeded: keepAliveTime.components.seconds)
-            metadata.connectionMetadata?.setKeepalive(keepAlive: keepAlive)
+            metadata.connectionMetadata?.setKeepalive(keepAlive: keepAliveTime)
         }
 
         guard let rawStreamID = metadata.streamID else {
@@ -814,13 +844,13 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
             break
 
         case .ignoreAlreadyConnected:
-            self.logger.warning("\(self.logPrefix) handleConnectedEvent called when already connected")
-            assertionFailure("\(self.logPrefix) handleConnectedEvent called when already connected")
+            self.log("handleConnectedEvent called when already connected", logLevel: .warning)
+            assertionFailure("handleConnectedEvent called when already connected")
             return
 
         case .ignoreAlreadyClosed:
-            self.logger.warning("\(self.logPrefix) handleConnectedEvent called when already closed")
-            assertionFailure("\(self.logPrefix) handleConnectedEvent called when already closed")
+            self.log("handleConnectedEvent called when already closed", logLevel: .warning)
+            assertionFailure("handleConnectedEvent called when already closed")
             return
         }
 
@@ -914,7 +944,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
             }
             return true
         } catch {
-            self.logger.error("\(self.logPrefix) writeBuffersToStream failed: \(error)")
+            self.log("writeBuffersToStream failed: \(error)", logLevel: .error)
             return false
         }
     }
@@ -998,21 +1028,17 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
                             }
 
                         case .doNotBuffer(.allDataReceived):
-                            self.logger.warning(
-                                "\(self.logPrefix) receiveData: data arrived after all data received"
-                            )
+                            self.log("receiveData: data arrived after all data received", logLevel: .warning)
                             assertionFailure("receiveData: data arrived after all data received")
                             return 0
 
                         case .doNotBuffer(.streamReset):
-                            self.logger.warning(
-                                "\(self.logPrefix) receiveData: data arrived after stream reset"
-                            )
+                            self.log("receiveData: data arrived after stream reset", logLevel: .warning)
                             assertionFailure("receiveData: data arrived after stream reset")
                             return 0
                         }
                     } catch {
-                        self.logger.warning("\(self.logPrefix) read errored: \(error)")
+                        self.log("read errored: \(error)", logLevel: .warning)
                         return 0
                     }
                 } ?? 0
@@ -1030,7 +1056,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
                         self.log("receiveFin: stream was reset")
                     }
                 } catch {
-                    self.logger.warning("\(self.logPrefix) receiveFin errored: \(error)")
+                    self.log("receiveFin errored: \(error)", logLevel: .warning)
                 }
             }
             frame.finalize(success: true)
