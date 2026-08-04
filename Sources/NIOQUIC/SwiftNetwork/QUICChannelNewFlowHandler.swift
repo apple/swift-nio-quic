@@ -168,6 +168,13 @@ final class QUICChannelNewFlowHandler: ProtocolInstanceContainer, InboundFlowHan
         }
     }
 
+    func outboundBatching(_ isEnabled: Bool) {
+        let event: ApplicationEvent = isEnabled ? .outboundDataBatchStart : .outboundDataBatchEnd
+        self.fromExternal {
+            self.lowerProtocol.invokeApplicationEvent(self.reference, event: event)
+        }
+    }
+
     // Received connected event
     func handleConnectedEvent(_ from: SwiftNetwork.ProtocolInstanceReference) {
         log("connected received")

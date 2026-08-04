@@ -874,28 +874,28 @@ extension QUICConnectionChannel {
     fileprivate func _parentChannelReadComplete() {
         self.eventLoop.assertInEventLoop()
 
-        defer {
-            switch self._connection {
-            case .live(let connection):
-                connection.exitReadLoop()
-            case .test:
-                ()
-            }
-        }
-
         // Avoid entering 'drainOutput'; wait for all events to be delivered and then
         // deal with them in 'drainAndReconcileLifecycle' below.
         self.withoutEnteringDrainOutput {
             self._connection.receivePacketsComplete()
         }
 
-        self.drainAndReconcileLifecycle()
-        let initializedAnyStreams = self.processPendingInboundStreams()
-
-        // Stream initializers may produce output; reconcile any pending events again.
-        if initializedAnyStreams {
-            self.drainAndReconcileLifecycle()
+        // Disable outbound batching so that SwiftQUIC emits frames into the connection. They'll
+        // be picked up when draining starts a few lines below. Re-enable again (i.e. disable
+        // temporarily) if there are pending streams as they may also produce output during their
+        // init.
+        self._connection.withLiveOnly { connection in
+            let hasPendingStreams = !self._pendingStreams.isEmpty
+            connection.flushOutboundBatch(resumeBatching: hasPendingStreams)
         }
+
+        self.drainAndReconcileLifecycle()
+        self.processPendingInboundStreams()
+
+        // Done producing data: exit read loop (and implicitly disables outbound batching).
+        self._connection.withLiveOnly { $0.exitReadLoop() }
+        // Stream initializers may produce output; reconcile any pending events again.
+        self.drainAndReconcileLifecycle()
     }
 
     fileprivate func _parentChannelWritabilityChanged(to isWritable: Bool) {
@@ -1001,19 +1001,15 @@ extension QUICConnectionChannel {
     }
 
     /// Initialize inbound streams pushed during the current read batch, skipping any not yet
-    /// connected. Returns `true` if any stream was initialized.
-    private func processPendingInboundStreams() -> Bool {
+    /// connected.
+    private func processPendingInboundStreams() {
         self.eventLoop.assertInEventLoop()
-        var anyStreamInitialized = false
 
         while let (streamID, stream) = self._pendingStreams.popFirst() {
             if stream.streamStateMachine.isConnected {
                 self.runInboundStreamInitializer(streamID: streamID, stream: stream)
-                anyStreamInitialized = true
             }
         }
-
-        return anyStreamInitialized
     }
 
     private func runInboundStreamInitializer(

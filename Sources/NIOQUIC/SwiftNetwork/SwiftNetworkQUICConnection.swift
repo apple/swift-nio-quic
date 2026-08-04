@@ -90,8 +90,30 @@ final class SwiftNetworkQUICConnection {
     /// `exitReadLoop()`.
     private var inReadLoop: Bool
 
+    /// Whether SwiftQUIC has been told to batch outbound writes.
+    private var batchingEnabled: Bool
+
     internal func exitReadLoop() {
+        // Emit first as it triggers frames to be written; the writes check whether we're in a read
+        // loop and if we're not they'll do an out-of-band write. The connection channel is about
+        // to do an explicit drain anyway so no need for an out-of-band write.
+        self.setOutboundBatching(false)
         self.inReadLoop = false
+    }
+
+    internal func setOutboundBatching(_ enabled: Bool) {
+        if self.batchingEnabled == enabled { return }
+        guard let newFlowHandler = self.connectionNewFlowHandler else { return }
+
+        self.batchingEnabled = enabled
+        newFlowHandler.outboundBatching(enabled)
+    }
+
+    internal func flushOutboundBatch(resumeBatching: Bool) {
+        self.setOutboundBatching(false)
+        if resumeBatching {
+            self.setOutboundBatching(true)
+        }
     }
 
     /// Sets the connection channel and propagates it as the parent channel for inbound streams
@@ -371,6 +393,7 @@ final class SwiftNetworkQUICConnection {
         )
 
         self.inReadLoop = false
+        self.batchingEnabled = false
         self.start(
             localEndpoint: localEndpoint,
             remoteEndpoint: remoteEndpoint,
@@ -860,7 +883,12 @@ final class SwiftNetworkQUICConnection {
     @discardableResult
     @inlinable
     func receivePacket(_ packet: NIOCore.ByteBuffer) -> Int {
-        self.inReadLoop = true
+        if !self.inReadLoop {
+            self.inReadLoop = true
+            self.batchingEnabled = true
+            self.connectionNewFlowHandler?.outboundBatching(true)
+        }
+
         var packet = packet
         log("receivePacket called with \(packet.readableBytes) bytes")
         packet.withUnsafeMutableReadableBytesWithStorageManagement2 { buffer, owner in

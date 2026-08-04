@@ -98,7 +98,7 @@ extension QUICConnectionChannel {
         case test(any QUICConnectionProtocol)
 
         func withLiveOnly(
-            promise: EventLoopPromise<Void>?,
+            promise: EventLoopPromise<Void>? = nil,
             execute body: (SwiftNetworkQUICConnection) throws -> Void
         ) {
             switch self {
