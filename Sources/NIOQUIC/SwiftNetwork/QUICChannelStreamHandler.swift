@@ -118,6 +118,9 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
     /// Defaults to `true`. This value can be updated by calling `setOption`.
     private var autoRead: Bool = true
 
+    /// Whether `_close` has already run.
+    private var isClosed: Bool = false
+
     private var originalMetadata: ProtocolMetadata<QUICProtocol>?
     private var connectedEventHandler: ((QUICStreamID?) -> Void)?
     private var disconnectedEventHandler: ((NetworkError?) -> Void)?
@@ -668,6 +671,11 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
         }
     }
 
+    /// Closes the channel if it isn't yet closed.
+    func closeIfNeeded() {
+        self._close(error: nil, promise: nil)
+    }
+
     /// Called when the stream handler receives a disconnected event.
     ///
     /// Runs the close cascade synchronously
@@ -683,9 +691,8 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
         case .skipAlreadyDetached:
             break
         }
-        if self.isActive {
-            self._close(error: error, promise: nil)
-        }
+
+        self._close(error: error, promise: nil)
     }
 
     @inline(__always)
@@ -1345,20 +1352,31 @@ extension QUICChannelStreamHandler: Channel, ChannelCore {
 
     private func _close(error: (any Error)?, promise: EventLoopPromise<Void>?) {
         self.eventLoop.preconditionInEventLoop()
-        guard self.isActive else {
+        if self.isClosed {
             promise?.succeed()
             return
         }
         self.log("_close error: \(String(describing: error))")
-        self._isActive.store(false, ordering: .sequentiallyConsistent)
-        // Put calls to _close on the next runloop tick because it calls fireChannelInactive
-        self.eventLoop.assumeIsolated().execute {
-            if let error {
-                self.pipeline.fireErrorCaught(error)
-            }
+        self.isClosed = true
 
+        // A stream can be closed before it ever became active, e.g. its flow was attached in the
+        // same read batch in which the connection tore down.
+        //
+        // If that happens it must not see 'channelInactive' (it didn't see 'channelActive') but
+        // its close promise must still be completed.
+        let wasActive = self._isActive.exchange(false, ordering: .sequentiallyConsistent)
+
+        if let error {
+            self.pipeline.fireErrorCaught(error)
+        }
+
+        if wasActive {
             self.pipeline.fireChannelInactive()
             self.pipeline.fireChannelUnregistered()
+        }
+
+        // Complete the promise on the next loop tick.
+        self.eventLoop.assumeIsolated().execute {
             self.removeHandlers(pipeline: self.pipeline)
             self._closePromise.succeed(())
             promise?.succeed()
