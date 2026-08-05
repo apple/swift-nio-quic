@@ -874,6 +874,15 @@ extension QUICConnectionChannel {
     fileprivate func _parentChannelReadComplete() {
         self.eventLoop.assertInEventLoop()
 
+        defer {
+            switch self._connection {
+            case .live(let connection):
+                connection.exitReadLoop()
+            case .test:
+                ()
+            }
+        }
+
         // Avoid entering 'drainOutput'; wait for all events to be delivered and then
         // deal with them in 'drainAndReconcileLifecycle' below.
         self.withoutEnteringDrainOutput {
