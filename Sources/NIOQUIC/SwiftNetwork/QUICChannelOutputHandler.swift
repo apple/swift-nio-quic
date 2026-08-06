@@ -48,14 +48,18 @@ final class QUICChannelOutputHandler: ProtocolInstanceContainer, OutboundDatagra
     private var inputFramesHandler: ((Int) -> FrameArray?)?
     private var finalizeOutputFramesHandler: ((consuming FrameArray) -> Void)?
 
+    private let framePool: FramePool
+
     init(
         role: Role,
         logger: Logger,
-        context: NetworkContext
+        context: NetworkContext,
+        framePool: FramePool
     ) {
         self.logPrefix = "[\(role.description)][OutputHandler]"
         self.logger = logger
         self.context = context
+        self.framePool = framePool
     }
 
     func setInputFramesHandler(inputFramesHandler: @escaping (Int) -> FrameArray?) {
@@ -177,12 +181,14 @@ extension QUICChannelOutputHandler: LowerProtocolHandler {
         maximumDatagramCount: Int,
         minimumDatagramSize: Int
     ) throws(SwiftNetwork.NetworkError) -> SwiftNetwork.FrameArray? {
-        let frameSize = min(minimumDatagramSize, self.defaultFrameSize)
-        var frameArray = FrameArray(capacity: maximumDatagramCount)
+        var array = FrameArray(capacity: maximumDatagramCount)
+
         for _ in 0..<maximumDatagramCount {
-            frameArray.add(frame: Frame(allocatingCustomFinalizerBufferOfSize: frameSize))
+            let frame = self.framePool.takeOrCreateFrame(minimumSize: minimumDatagramSize)
+            array.add(frame: frame)
         }
-        return frameArray
+
+        return array
     }
 
     // Sends the datagram frames out to the SwiftNetworkConnection object to be queued for writing in writeOutboundData

@@ -28,6 +28,7 @@ struct GSOCoalescerTests {
     ) -> GSOCoalescer {
         GSOCoalescer(
             remoteAddress: Self.peer,
+            framePool: .makePool(forGSO: false),
             maxSegments: maxSegments,
             maxCoalescedSize: maxCoalescedSize
         )
@@ -200,7 +201,11 @@ struct GSOCoalescerTests {
     @available(anyAppleOS 26, *)
     @Test
     func maxSegmentsOfOneNeverCoalesces() {
-        var coalescer = GSOCoalescer(remoteAddress: Self.peer, maxSegments: 1)
+        var coalescer = GSOCoalescer(
+            remoteAddress: Self.peer,
+            framePool: .makePool(forGSO: false),
+            maxSegments: 1
+        )
         coalescer.append(frames: self.frames([1200, 1200, 1200]))
 
         let runs = self.drain(&coalescer)

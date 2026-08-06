@@ -108,7 +108,8 @@ final class SwiftNetworkQUICConnection {
         self.batchingEnabled = enabled
         // Enabling batching stops the underlying connection from producing (most) datagrams until
         // batching is disabled again, at which point any queued outbound writes will be emitted.
-        // This allows outbound writes to be better packed into datagrams.
+        // This allows outbound writes to be better packed into datagrams. Any outbound writes are
+        // emitted into `outputHandlerFinalizeOutputFrames` soon after batching is disabled.
         newFlowHandler.outboundBatching(enabled)
     }
 
@@ -332,13 +333,16 @@ final class SwiftNetworkQUICConnection {
         self.swiftNetworkQUICConnection = swiftNetworkQUICConnection
 
         #if os(Linux)
+        let framePool = FramePool.makePool(forGSO: true)
         let maxSegments = 64
         #else
+        let framePool = FramePool.makePool(forGSO: false)
         let maxSegments = 1
         #endif
 
         self.coalescer = GSOCoalescer(
             remoteAddress: remoteAddress,
+            framePool: framePool,
             maxSegments: maxSegments
         )
 
@@ -406,7 +410,8 @@ final class SwiftNetworkQUICConnection {
         self.outputHandler = QUICChannelOutputHandler(
             role: self.role,
             logger: logger,
-            context: swiftNetworkParameters.context
+            context: swiftNetworkParameters.context,
+            framePool: framePool
         )
 
         self.inReadLoop = false
