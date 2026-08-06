@@ -153,6 +153,9 @@ final class SwiftNetworkQUICConnection {
         self.connectionStateMachine.isTerminating
     }
 
+    /// Groups outbound datagrams for GSO.
+    private var coalescer: GSOCoalescer
+
     /// Creates a new client-side connection.
     ///
     /// - Parameters:
@@ -302,6 +305,17 @@ final class SwiftNetworkQUICConnection {
         let swiftNetworkQUICConnection = SwiftNetwork.QUICConnection(context: swiftNetworkParameters.context)
         self.swiftNetworkParameters = swiftNetworkParameters
         self.swiftNetworkQUICConnection = swiftNetworkQUICConnection
+
+        #if os(Linux)
+        let maxSegments = 64
+        #else
+        let maxSegments = 1
+        #endif
+
+        self.coalescer = GSOCoalescer(
+            remoteAddress: remoteAddress,
+            maxSegments: maxSegments
+        )
 
         self.connectionQLogID = Self.nextClientConnectionQLogID()
         let prefix = role == .server ? "L" : "C"
@@ -891,8 +905,8 @@ final class SwiftNetworkQUICConnection {
     ///
     @discardableResult
     @inlinable
-    func nextPacketToSend() -> ByteBuffer? {
-        self.finalizedOutput.popFirst()
+    func nextPacketToSend() -> AddressedEnvelope<ByteBuffer>? {
+        self.coalescer.next()
     }
 
 }
@@ -1358,32 +1372,9 @@ extension SwiftNetworkQUICConnection {
     /// These are QUIC output frames that have already been built by the protocol stack.
     internal func outputHandlerFinalizeOutputFrames(frames: consuming FrameArray) {
         log("finalizeOutputFrames: \(frames.count)")
-        var didFinalizeFrames = false
-        frames.iterateMutableFrames { frame in
-            if frame.unclaimedLength == 0 {
-                frame.finalize(success: true)
-                return true
-            }
+        self.coalescer.append(frames: frames)
 
-            if let bufferConfig = frame.takeOwnershipOfCustomFinalizerBuffer() {
-                frame.finalize(success: true)
-                let outputBuffer = ByteBuffer(
-                    takingOwnershipOf: bufferConfig.bufferPointer,
-                    allocator: FrameMemory.allocator,
-                    readerIndex: bufferConfig.readerOffset,
-                    writerIndex: bufferConfig.writerOffset
-                )
-                self.finalizedOutput.append(outputBuffer)
-                didFinalizeFrames = true
-                return true
-            }
-
-            assertionFailure("Encountered frame with unexpected buffer type.")
-            frame.finalize(success: false)
-            return true
-        }
-
-        if !self.inReadLoop && didFinalizeFrames {
+        if !self.inReadLoop, !self.coalescer.isEmpty {
             self.triggerOutOfBandWriteEvent()
         }
     }

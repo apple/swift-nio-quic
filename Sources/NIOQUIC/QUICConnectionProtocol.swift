@@ -43,7 +43,7 @@ protocol QUICConnectionProtocol {
     /// Call repeatedly until it returns `nil` to drain all pending output.
     ///
     /// - Returns: The next datagram to send, or `nil` if none are queued.
-    func nextPacketToSend() -> ByteBuffer?
+    func nextPacketToSend() -> AddressedEnvelope<ByteBuffer>?
 
     /// Initiates a locally-requested close of the connection.
     ///
@@ -155,7 +155,7 @@ extension QUICConnectionChannel.Connection: QUICConnectionProtocol {
         }
     }
 
-    func nextPacketToSend() -> ByteBuffer? {
+    func nextPacketToSend() -> AddressedEnvelope<ByteBuffer>? {
         switch self {
         case .live(let connection):
             connection.nextPacketToSend()

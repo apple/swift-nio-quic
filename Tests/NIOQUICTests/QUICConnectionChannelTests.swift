@@ -814,8 +814,12 @@ final class RecordingConnection: QUICConnectionProtocol {
         self.events.append(.receivedPacketsComplete)
     }
 
-    func nextPacketToSend() -> ByteBuffer? {
-        self.outboundPackets.popFirst()
+    func nextPacketToSend() -> AddressedEnvelope<ByteBuffer>? {
+        if let buffer = self.outboundPackets.popFirst() {
+            return AddressedEnvelope(remoteAddress: self.remoteAddress, data: buffer)
+        } else {
+            return nil
+        }
     }
 
     func close(isApplicationClose: Bool, errorCode: Int64, reason: String) -> Bool {
@@ -862,7 +866,7 @@ struct NoOpConnection: QUICConnectionProtocol {
     func receivePacketsComplete() {
     }
 
-    func nextPacketToSend() -> ByteBuffer? {
+    func nextPacketToSend() -> AddressedEnvelope<ByteBuffer>? {
         nil
     }
 
