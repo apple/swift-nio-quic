@@ -129,7 +129,9 @@ extension QUICConnectionChannel {
         mutating func beginClosing(error: (any Error)?) -> OnBeginClosing {
             switch self.state {
             case .idle, .initializing, .initialized, .activated:
-                self.pending.close = error.map { .withError($0) } ?? .cleanly
+                if self.pending.close == nil {
+                    self.pending.close = error.map { .withError($0) } ?? .cleanly
+                }
                 self.state = .closing(inactiveFired: false)
                 return .beganClosing
             case .closing:
@@ -196,7 +198,9 @@ extension QUICConnectionChannel {
 
         /// The connection closed spontaneously. Call ``reconcile()`` to apply the state change.
         mutating func connectionClosed(error: (any Error)?) {
-            self.pending.close = error.map { .withError($0) } ?? .cleanly
+            if self.pending.close == nil {
+                self.pending.close = error.map { .withError($0) } ?? .cleanly
+            }
         }
 
         // MARK: Streams
