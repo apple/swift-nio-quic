@@ -714,11 +714,7 @@ extension QUICConnectionChannel {
 
         // Avoid re-entering this function.
         self.withoutEnteringDrainOutput {
-            while let buffer = self._connection.nextPacketToSend() {
-                let envelope = AddressedEnvelope(
-                    remoteAddress: self._remoteAddress,
-                    data: buffer
-                )
+            while let envelope = self._connection.nextPacketToSend() {
                 self._transport.writeDatagram(envelope, promise: nil)
             }
 
