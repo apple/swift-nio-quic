@@ -1258,6 +1258,12 @@ extension SwiftNetworkQUICConnection {
             } else {
                 self.logger.trace("Beginning connection draining")
             }
+            // Record the close on the channel before tearing down. Stopping a stream fires
+            // `channelInactive` on its pipeline, and a handler may react by closing the connection
+            // channel: if that lands first the channel commits to a clean close and this error is
+            // never surfaced.
+            self.channelView?.connectionClosed(error: error)
+
             // Complete draining and tear down.
             // SwiftNetwork manages the draining timeout per RFC 9000 §10.2.2 internally.
             // By the time this handler is called, the draining period is complete and
@@ -1274,8 +1280,6 @@ extension SwiftNetworkQUICConnection {
             case .notDraining:
                 self.logger.warning("Unexpected state when completing draining")
             }
-
-            self.channelView?.connectionClosed(error: error)
 
         case .completeClosing:
             self.logger.trace("Completing connection closing")
