@@ -139,7 +139,7 @@ struct GSOCoalescer: ~Copyable {
             let (buffer, ()) = self.pool.withBuffer(minimumCapacity: totalSize) { buffer in
                 while runLength > 0 {
                     runLength &-= 1
-                    Self.write(self.frames.popFirst()!, to: &buffer, returningFrameTo: self.framePool)
+                    Self.write(self.frames.removeFirst(), to: &buffer, returningFrameTo: self.framePool)
                 }
             }
 
