@@ -717,7 +717,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
     /// advancing its flow control window, defeating backpressure and letting unbounded bytes accumulate here.
     private func deliverInboundDataDownstreamIfDemand() {
         // Only continue if there is a pending read.
-        guard self.pendingRead else {
+        guard self.pendingRead && !self.isClosed else {
             return
         }
 
