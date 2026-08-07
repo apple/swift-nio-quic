@@ -294,11 +294,9 @@ struct QUICStreamStateMachine: ~Copyable {
         self.isConnected && !self.isWriteClosed
     }
 
-    // MARK: - Private Queries
-
     /// Returns `true` if the receive side is closed (terminal, reset, stream closed,
     /// or send-only direction where there is no receive side).
-    private var isReceiveClosed: Bool {
+    var isReceiveClosed: Bool {
         switch self.state {
         case .connected(let connected):
             switch connected.streamState {
@@ -317,6 +315,8 @@ struct QUICStreamStateMachine: ~Copyable {
             return true
         }
     }
+
+    // MARK: - Private Queries
 
     /// Returns `true` if the stream is disconnected and fully closed, indicating it needs cleanup.
     private var needsCleanup: Bool {

@@ -1425,19 +1425,17 @@ extension QUICChannelStreamHandler: Channel, ChannelCore {
                 return
             }
         case .input:
-            switch self.streamStateMachine.completeRead() {
-            case .nothingToReport:
-                // `shutdownStream` handles the QUIC-level signaling as needed,
-                // e.g. STOP_SENDING for `.read`, RESET_STREAM for `.write`.
-                self.shutdownStream(direction: .read, applicationErrorCode: nil)
-                if self.streamStateMachine.isWriteClosed {
-                    self.log("Input and output for stream are now closed, stream will be queued up for closure")
-                }
-                promise?.succeed()
-            default:
+            if self.streamStateMachine.isReceiveClosed {
                 promise?.fail(ChannelError.inputClosed)
                 return
             }
+            // `shutdownStream` handles the QUIC-level signaling as needed,
+            // e.g. STOP_SENDING for `.read`, RESET_STREAM for `.write`.
+            self.shutdownStream(direction: .read, applicationErrorCode: nil)
+            if self.streamStateMachine.isWriteClosed {
+                self.log("Input and output for stream are now closed, stream will be queued up for closure")
+            }
+            promise?.succeed()
         case .all:
             // Gracefully shutdown both sides.
             if self.streamID != nil {
@@ -1454,13 +1452,8 @@ extension QUICChannelStreamHandler: Channel, ChannelCore {
                     shutdownWrite = true
                 }
 
-                if shutdownRead {
-                    switch self.streamStateMachine.completeRead() {
-                    case .nothingToReport:
-                        self.shutdownStream(direction: .read, applicationErrorCode: nil)
-                    default:
-                        break
-                    }
+                if shutdownRead, !self.streamStateMachine.isReceiveClosed {
+                    self.shutdownStream(direction: .read, applicationErrorCode: nil)
                 }
 
                 if shutdownWrite, self.streamStateMachine.canWrite {
