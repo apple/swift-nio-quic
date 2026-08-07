@@ -106,6 +106,9 @@ final class SwiftNetworkQUICConnection {
         guard let newFlowHandler = self.connectionNewFlowHandler else { return }
 
         self.batchingEnabled = enabled
+        // Enabling batching stops the underlying connection from producing (most) datagrams until
+        // batching is disabled again, at which point any queued outbound writes will be emitted.
+        // This allows outbound wrties to be better packed into datagrams.
         newFlowHandler.outboundBatching(enabled)
     }
 
@@ -899,8 +902,7 @@ final class SwiftNetworkQUICConnection {
     func receivePacket(_ packet: NIOCore.ByteBuffer) -> Int {
         if !self.inReadLoop {
             self.inReadLoop = true
-            self.batchingEnabled = true
-            self.connectionNewFlowHandler?.outboundBatching(true)
+            self.setOutboundBatching(true)
         }
 
         var packet = packet

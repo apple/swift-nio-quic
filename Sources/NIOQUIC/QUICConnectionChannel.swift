@@ -888,7 +888,7 @@ extension QUICConnectionChannel {
         self.drainAndReconcileLifecycle()
         self.processPendingInboundStreams()
 
-        // Done producing data: exit read loop (and implicitly disables outbound batching).
+        // Done producing data: exit read loop (which also flushes outbound data.)
         self._connection.withLiveOnly { $0.exitReadLoop() }
         // Stream initializers may produce output; reconcile any pending events again.
         self.drainAndReconcileLifecycle()
