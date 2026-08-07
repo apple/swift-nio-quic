@@ -108,7 +108,7 @@ final class SwiftNetworkQUICConnection {
         self.batchingEnabled = enabled
         // Enabling batching stops the underlying connection from producing (most) datagrams until
         // batching is disabled again, at which point any queued outbound writes will be emitted.
-        // This allows outbound wrties to be better packed into datagrams.
+        // This allows outbound writes to be better packed into datagrams.
         newFlowHandler.outboundBatching(enabled)
     }
 
