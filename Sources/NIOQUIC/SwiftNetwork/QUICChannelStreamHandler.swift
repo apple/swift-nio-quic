@@ -1366,6 +1366,8 @@ extension QUICChannelStreamHandler: Channel, ChannelCore {
         // its close promise must still be completed.
         let wasActive = self._isActive.exchange(false, ordering: .sequentiallyConsistent)
 
+        promise?.succeed()
+
         if let error {
             self.pipeline.fireErrorCaught(error)
         }
@@ -1379,7 +1381,6 @@ extension QUICChannelStreamHandler: Channel, ChannelCore {
         self.eventLoop.assumeIsolated().execute {
             self.removeHandlers(pipeline: self.pipeline)
             self._closePromise.succeed(())
-            promise?.succeed()
             // Fire disconnect if there is no error present
             if let disconnect = self.disconnectedEventHandler {
                 disconnect(nil)
