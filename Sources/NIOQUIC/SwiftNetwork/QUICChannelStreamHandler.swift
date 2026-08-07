@@ -692,7 +692,8 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
             break
         }
 
-        self._close(error: error, promise: nil)
+        let quicError = error.flatMap { QUICConnectionError(networkError: $0) }
+        self._close(error: quicError ?? error, promise: nil)
     }
 
     @inline(__always)
@@ -1548,5 +1549,25 @@ extension QUICChannelStreamHandler {
     internal func _testOnly_appendToBufferedReadData(_ buffer: ByteBuffer) {
         self.eventLoop.preconditionInEventLoop()
         self.bufferedReadData.writeImmutableBuffer(buffer)
+    }
+}
+
+@available(anyAppleOS 26, *)
+extension QUICConnectionError {
+    init?(networkError error: NetworkError) {
+        let errorCode: UInt64
+        let isApplication: Bool
+
+        if let code = error.quicApplicationError {
+            errorCode = UInt64(code)
+            isApplication = true
+        } else if let code = error.quicTransportError {
+            errorCode = UInt64(code)
+            isApplication = false
+        } else {
+            return nil
+        }
+
+        self.init(reason: String(describing: error), isApplication: isApplication, code: errorCode)
     }
 }
