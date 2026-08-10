@@ -692,7 +692,8 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
             break
         }
 
-        self._close(error: error, promise: nil)
+        let quicError = error.flatMap { QUICConnectionError(networkError: $0) }
+        self._close(error: quicError ?? error, promise: nil)
     }
 
     @inline(__always)
@@ -1097,7 +1098,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
                 self.closeStream(mode: .disconnectOnly, error: nil, promise: nil)
             }
 
-        case .closeRead(let streamFullyClosed):
+        case .closeRead(let streamFullyClosed, let deliverEndOfStream):
             // Send STOP_SENDING so no more data is received from the peer.
             // Per RFC 9000 §3.4, send and receive are independent state machines,
             // so we always use the graceful path regardless of the write side's state.
@@ -1105,12 +1106,18 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
                 "shutdownStream shutting down read, applicationErrorCode: \(String(describing: applicationErrorCode))"
             )
             self.abortInbound(error: NetworkError(quicApplicationError: applicationErrorCode?.rawValue ?? 0))
+            if deliverEndOfStream {
+                self.pipeline.fireUserInboundEventTriggered(ChannelEvent.inputClosed)
+            }
             if streamFullyClosed {
                 self.closeStream(mode: .disconnectOnly, error: nil, promise: nil)
             }
 
-        case .readAlreadyClosed:
+        case .readAlreadyClosed(let deliverEndOfStream):
             self.log("shutdownStream read side already closed")
+            if deliverEndOfStream {
+                self.pipeline.fireUserInboundEventTriggered(ChannelEvent.inputClosed)
+            }
 
         case .readPeerReset:
             self.log("shutdownStream read side already reset by peer")
@@ -1366,6 +1373,8 @@ extension QUICChannelStreamHandler: Channel, ChannelCore {
         // its close promise must still be completed.
         let wasActive = self._isActive.exchange(false, ordering: .sequentiallyConsistent)
 
+        promise?.succeed()
+
         if let error {
             self.pipeline.fireErrorCaught(error)
         }
@@ -1379,7 +1388,6 @@ extension QUICChannelStreamHandler: Channel, ChannelCore {
         self.eventLoop.assumeIsolated().execute {
             self.removeHandlers(pipeline: self.pipeline)
             self._closePromise.succeed(())
-            promise?.succeed()
             // Fire disconnect if there is no error present
             if let disconnect = self.disconnectedEventHandler {
                 disconnect(nil)
@@ -1424,19 +1432,17 @@ extension QUICChannelStreamHandler: Channel, ChannelCore {
                 return
             }
         case .input:
-            switch self.streamStateMachine.completeRead() {
-            case .nothingToReport:
-                // `shutdownStream` handles the QUIC-level signaling as needed,
-                // e.g. STOP_SENDING for `.read`, RESET_STREAM for `.write`.
-                self.shutdownStream(direction: .read, applicationErrorCode: nil)
-                if self.streamStateMachine.isWriteClosed {
-                    self.log("Input and output for stream are now closed, stream will be queued up for closure")
-                }
-                promise?.succeed()
-            default:
+            if self.streamStateMachine.isReceiveClosed {
                 promise?.fail(ChannelError.inputClosed)
                 return
             }
+            // `shutdownStream` handles the QUIC-level signaling as needed,
+            // e.g. STOP_SENDING for `.read`, RESET_STREAM for `.write`.
+            self.shutdownStream(direction: .read, applicationErrorCode: nil)
+            if self.streamStateMachine.isWriteClosed {
+                self.log("Input and output for stream are now closed, stream will be queued up for closure")
+            }
+            promise?.succeed()
         case .all:
             // Gracefully shutdown both sides.
             if self.streamID != nil {
@@ -1453,13 +1459,8 @@ extension QUICChannelStreamHandler: Channel, ChannelCore {
                     shutdownWrite = true
                 }
 
-                if shutdownRead {
-                    switch self.streamStateMachine.completeRead() {
-                    case .nothingToReport:
-                        self.shutdownStream(direction: .read, applicationErrorCode: nil)
-                    default:
-                        break
-                    }
+                if shutdownRead, !self.streamStateMachine.isReceiveClosed {
+                    self.shutdownStream(direction: .read, applicationErrorCode: nil)
                 }
 
                 if shutdownWrite, self.streamStateMachine.canWrite {
@@ -1554,5 +1555,25 @@ extension QUICChannelStreamHandler {
     internal func _testOnly_appendToBufferedReadData(_ buffer: ByteBuffer) {
         self.eventLoop.preconditionInEventLoop()
         self.bufferedReadData.writeImmutableBuffer(buffer)
+    }
+}
+
+@available(anyAppleOS 26, *)
+extension QUICConnectionError {
+    init?(networkError error: NetworkError) {
+        let errorCode: UInt64
+        let isApplication: Bool
+
+        if let code = error.quicApplicationError {
+            errorCode = UInt64(code)
+            isApplication = true
+        } else if let code = error.quicTransportError {
+            errorCode = UInt64(code)
+            isApplication = false
+        } else {
+            return nil
+        }
+
+        self.init(reason: String(describing: error), isApplication: isApplication, code: errorCode)
     }
 }

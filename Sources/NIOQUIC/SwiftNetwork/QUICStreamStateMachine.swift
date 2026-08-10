@@ -294,11 +294,9 @@ struct QUICStreamStateMachine: ~Copyable {
         self.isConnected && !self.isWriteClosed
     }
 
-    // MARK: - Private Queries
-
     /// Returns `true` if the receive side is closed (terminal, reset, stream closed,
     /// or send-only direction where there is no receive side).
-    private var isReceiveClosed: Bool {
+    var isReceiveClosed: Bool {
         switch self.state {
         case .connected(let connected):
             switch connected.streamState {
@@ -317,6 +315,8 @@ struct QUICStreamStateMachine: ~Copyable {
             return true
         }
     }
+
+    // MARK: - Private Queries
 
     /// Returns `true` if the stream is disconnected and fully closed, indicating it needs cleanup.
     private var needsCleanup: Bool {
@@ -601,8 +601,8 @@ struct QUICStreamStateMachine: ~Copyable {
     // MARK: - Combined atomic transitions
 
     enum CloseReadSideAction: ~Copyable {
-        case markReadClosed(streamFullyClosed: Bool)
-        case ignoreAlreadyClosed
+        case markReadClosed(streamFullyClosed: Bool, deliverEndOfStream: Bool)
+        case ignoreAlreadyClosed(deliverEndOfStream: Bool)
         case deliverPeerResetError(applicationErrorCode: QUICApplicationErrorCode)
     }
 
@@ -651,10 +651,6 @@ struct QUICStreamStateMachine: ~Copyable {
     /// Called after draining read data. Checks whether the receive side has
     /// reached a terminal condition (FIN or reset) and atomically closes it.
     mutating func completeRead() -> CompleteReadAction {
-        if self.isFullyClosed {
-            // Stream was closed (e.g. connection teardown) — signal end-of-stream.
-            return .reportFin(streamFullyClosed: true)
-        }
         switch self.consumeFinOrReset() {
         case .reportFin(let streamFullyClosed):
             return .reportFin(streamFullyClosed: streamFullyClosed)
@@ -671,10 +667,12 @@ struct QUICStreamStateMachine: ~Copyable {
         /// Shut down both directions — caller should stop and remove handler.
         case shutdownBoth
         /// Read side closed. If `streamFullyClosed`, stop and remove handler;
-        /// otherwise send STOP_SENDING via `abortInbound`.
-        case closeRead(streamFullyClosed: Bool)
-        /// Read side was already closed — no action needed.
-        case readAlreadyClosed
+        /// otherwise send STOP\_SENDING via `abortInbound`. When `deliverEndOfStream`
+        /// is set the caller must surface `ChannelEvent.inputClosed` exactly once.
+        case closeRead(streamFullyClosed: Bool, deliverEndOfStream: Bool)
+        /// Read side was already closed. `deliverEndOfStream` is set if a FIN had been
+        /// captured but never surfaced, in which case the caller must surface it now.
+        case readAlreadyClosed(deliverEndOfStream: Bool)
         /// Peer reset the stream — stop and remove handler.
         case readPeerReset
         /// Write side reset. Send RESET_STREAM via `abortOutbound` with the given code.
@@ -708,10 +706,13 @@ struct QUICStreamStateMachine: ~Copyable {
             if self.canShutdownRead {
                 do {
                     switch try self.closeReadSide() {
-                    case .markReadClosed(let streamFullyClosed):
-                        return .closeRead(streamFullyClosed: streamFullyClosed)
-                    case .ignoreAlreadyClosed:
-                        return .readAlreadyClosed
+                    case .markReadClosed(let streamFullyClosed, let deliverEndOfStream):
+                        return .closeRead(
+                            streamFullyClosed: streamFullyClosed,
+                            deliverEndOfStream: deliverEndOfStream
+                        )
+                    case .ignoreAlreadyClosed(let deliverEndOfStream):
+                        return .readAlreadyClosed(deliverEndOfStream: deliverEndOfStream)
                     case .deliverPeerResetError:
                         return .readPeerReset
                     }
@@ -1146,18 +1147,24 @@ extension QUICStreamStateMachine.State {
             let finAction = connected.streamState.withReceiveState {
                 $0.receiveFin(finalSize: 0)
             }
-            // Transition receive SM to terminal state (dataRead or resetRead).
-            // The return value is intentionally not propagated — closeReadSide
-            // uses finAction (from receiveFin) to determine the outcome.
-            connected.streamState.withReceiveState { recv in
+            // Transition receive SM to terminal state (dataRead or resetRead). The result says
+            // whether a FIN was still waiting to be surfaced: consuming it here without telling
+            // the caller loses the one `inputClosed` the pipeline is owed.
+            let endOfStream = connected.streamState.withReceiveState { recv in
                 switch recv.applicationRead() {
-                case .deliverData: break
-                case .deliverEndOfStream: break
-                case .deliverResetError: break
-                case .ignore(.noDataAvailable): break
-                case .ignore(.alreadyDelivered): break
+                case .deliverEndOfStream:
+                    return true
+                case .deliverData:
+                    return false
+                case .deliverResetError:
+                    return false
+                case .ignore(.noDataAvailable):
+                    return false
+                case .ignore(.alreadyDelivered):
+                    return false
                 }
             }
+            let deliverEndOfStream = endOfStream ?? false
 
             let resetCode = connected.streamState.withReceiveState { $0.resetErrorCode }.flatMap { $0 }
             let streamFullyClosed = connected.streamState.isFullyClosed
@@ -1165,7 +1172,7 @@ extension QUICStreamStateMachine.State {
 
             switch finAction {
             case .ignore(.alreadyReceivedFin):
-                return .ignoreAlreadyClosed
+                return .ignoreAlreadyClosed(deliverEndOfStream: deliverEndOfStream)
 
             case .ignore(.streamReset):
                 // resetCode must be non-nil if the stream was reset
@@ -1177,7 +1184,10 @@ extension QUICStreamStateMachine.State {
                 }
 
             case .markAllDataReceived:
-                return .markReadClosed(streamFullyClosed: streamFullyClosed)
+                return .markReadClosed(
+                    streamFullyClosed: streamFullyClosed,
+                    deliverEndOfStream: deliverEndOfStream
+                )
 
             case nil:
                 throw .wrongDirection
