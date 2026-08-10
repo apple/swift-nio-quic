@@ -1098,7 +1098,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
                 self.closeStream(mode: .disconnectOnly, error: nil, promise: nil)
             }
 
-        case .closeRead(let streamFullyClosed):
+        case .closeRead(let streamFullyClosed, let deliverEndOfStream):
             // Send STOP_SENDING so no more data is received from the peer.
             // Per RFC 9000 §3.4, send and receive are independent state machines,
             // so we always use the graceful path regardless of the write side's state.
@@ -1106,12 +1106,18 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
                 "shutdownStream shutting down read, applicationErrorCode: \(String(describing: applicationErrorCode))"
             )
             self.abortInbound(error: NetworkError(quicApplicationError: applicationErrorCode?.rawValue ?? 0))
+            if deliverEndOfStream {
+                self.pipeline.fireUserInboundEventTriggered(ChannelEvent.inputClosed)
+            }
             if streamFullyClosed {
                 self.closeStream(mode: .disconnectOnly, error: nil, promise: nil)
             }
 
-        case .readAlreadyClosed:
+        case .readAlreadyClosed(let deliverEndOfStream):
             self.log("shutdownStream read side already closed")
+            if deliverEndOfStream {
+                self.pipeline.fireUserInboundEventTriggered(ChannelEvent.inputClosed)
+            }
 
         case .readPeerReset:
             self.log("shutdownStream read side already reset by peer")

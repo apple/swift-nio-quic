@@ -887,6 +887,69 @@ struct QUICStreamStateMachineTests {
     }
 
     @available(anyAppleOS 26, *)
+    @Test("Closing the read side surfaces end-of-stream exactly once")
+    func closeReadSideSurfacesEndOfStreamOnce() throws {
+        var sm = QUICStreamStateMachine()
+        _ = sm.streamConnected(direction: .bidirectional)
+
+        // A local input close owes the pipeline one `inputClosed`.
+        switch try sm.closeReadSide() {
+        case .markReadClosed(_, let deliverEndOfStream):
+            #expect(deliverEndOfStream)
+        case .ignoreAlreadyClosed:
+            Issue.record("expected the read side to be newly closed")
+        case .deliverPeerResetError:
+            Issue.record("expected the read side to be newly closed")
+        }
+
+        // Closing again owes nothing, and neither does any later read.
+        switch try sm.closeReadSide() {
+        case .ignoreAlreadyClosed(let deliverEndOfStream):
+            #expect(!deliverEndOfStream)
+        case .markReadClosed:
+            Issue.record("expected the read side to already be closed")
+        case .deliverPeerResetError:
+            Issue.record("expected the read side to already be closed")
+        }
+
+        switch sm.completeRead() {
+        case .nothingToReport:
+            ()
+        case .reportFin:
+            Issue.record("end-of-stream was surfaced twice")
+        case .reportPeerReset:
+            Issue.record("end-of-stream was surfaced twice")
+        }
+    }
+
+    @available(anyAppleOS 26, *)
+    @Test("Closing the read side surfaces a captured FIN which was never read")
+    func closeReadSideSurfacesUnreadFIN() throws {
+        var sm = QUICStreamStateMachine()
+        _ = sm.streamConnected(direction: .bidirectional)
+        _ = try sm.receiveFin(finalSize: 0)
+
+        // The FIN arrived but was never surfaced, so the close still owes the event.
+        switch try sm.closeReadSide() {
+        case .ignoreAlreadyClosed(let deliverEndOfStream):
+            #expect(deliverEndOfStream)
+        case .markReadClosed:
+            Issue.record("expected the FIN to already have been received")
+        case .deliverPeerResetError:
+            Issue.record("expected the FIN to already have been received")
+        }
+
+        switch sm.completeRead() {
+        case .nothingToReport:
+            ()
+        case .reportFin:
+            Issue.record("end-of-stream was surfaced twice")
+        case .reportPeerReset:
+            Issue.record("end-of-stream was surfaced twice")
+        }
+    }
+
+    @available(anyAppleOS 26, *)
     @Test("Receive operations throw wrongDirection on send-only stream")
     func receiveOnSendOnlyThrows() {
         var sm = QUICStreamStateMachine()
