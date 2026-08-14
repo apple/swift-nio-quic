@@ -165,15 +165,6 @@ final class SwiftNetworkQUICConnection {
     /// Maps a temporary ID to the data required for its initialization.
     private var pendingOutboundStreams: [OpaqueIDGenerator<UInt64>.ID: PendingStreamData] = [:]
 
-    private var observedStreamIDs = Set<QUICStreamID>()
-
-    private func checkAndAddStreamID(_ streamID: QUICStreamID) {
-        if self.observedStreamIDs.contains(streamID) {
-            fatalError("adding already observed stream: \(streamID)")
-        }
-        self.observedStreamIDs.insert(streamID)
-    }
-
     /// Returns `true` if the connection is in any termination state.
     var isTerminating: Bool {
         self.connectionStateMachine.isTerminating
@@ -506,7 +497,6 @@ final class SwiftNetworkQUICConnection {
             let streamID = pendingInitialClientStream.streamID
         {
             assert(streamID.rawValue == 0, "The stream ID does not match the expected initial stream ID.")
-            self.checkAndAddStreamID(streamID)
             if pendingInitialClientStream.streamStateMachine.isConnected {
                 let streamHandler = pendingInitialClientStream
                 self.pendingInitialClientStream = nil
@@ -607,7 +597,6 @@ final class SwiftNetworkQUICConnection {
         }
 
         let streamID = QUICStreamID(rawValue: rawStreamID)
-        self.checkAndAddStreamID(streamID)
         self.finishOutboundStreamSetup(
             temporaryID: temporaryID,
             streamID: streamID,
@@ -642,7 +631,6 @@ final class SwiftNetworkQUICConnection {
                 // Fast path already ran
                 return
             }
-            self.checkAndAddStreamID(streamID)
             self.finishOutboundStreamSetup(
                 temporaryID: temporaryID,
                 streamID: streamID,
