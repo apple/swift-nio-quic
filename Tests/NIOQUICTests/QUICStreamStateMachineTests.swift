@@ -962,7 +962,11 @@ struct QUICStreamStateMachineTests {
             _ = try sm.receiveFin(finalSize: 0)
         }
         #expect(throws: QUICStreamStateMachine.InvalidTransition.wrongDirection) {
-            _ = try sm.receiveResetStream(applicationErrorCode: QUICApplicationErrorCode(0), finalSize: 0)
+            _ = try sm.receiveResetStream(
+                applicationErrorCode: QUICApplicationErrorCode(0),
+                finalSize: 0,
+                pipelineInitialized: true
+            )
         }
         #expect(throws: QUICStreamStateMachine.InvalidTransition.wrongDirection) {
             _ = try sm.applicationRead()
@@ -994,7 +998,11 @@ struct QUICStreamStateMachineTests {
         var sm = QUICStreamStateMachine()
         _ = sm.streamConnected(direction: .bidirectional)
 
-        let action = try sm.receiveResetStream(applicationErrorCode: QUICApplicationErrorCode(123), finalSize: 0)
+        let action = try sm.receiveResetStream(
+            applicationErrorCode: QUICApplicationErrorCode(123),
+            finalSize: 0,
+            pipelineInitialized: true
+        )
         guard case .surfaceReset(let code) = action else {
             Issue.record("Expected .surfaceReset")
             return
@@ -1036,7 +1044,11 @@ struct QUICStreamStateMachineTests {
         _ = sm.streamConnected(direction: .bidirectional)
 
         _ = try sm.receiveData()
-        let action = try sm.receiveResetStream(applicationErrorCode: QUICApplicationErrorCode(77), finalSize: 0)
+        let action = try sm.receiveResetStream(
+            applicationErrorCode: QUICApplicationErrorCode(77),
+            finalSize: 0,
+            pipelineInitialized: true
+        )
 
         guard case .surfaceReset(_) = action else {
             Issue.record("Expected .surfaceReset")
@@ -1095,7 +1107,11 @@ struct QUICStreamStateMachineTests {
 
         _ = try sm.receiveFin(finalSize: 1024)
 
-        let action = try sm.receiveResetStream(applicationErrorCode: QUICApplicationErrorCode(55), finalSize: 1024)
+        let action = try sm.receiveResetStream(
+            applicationErrorCode: QUICApplicationErrorCode(55),
+            finalSize: 1024,
+            pipelineInitialized: true
+        )
         guard case .doNothing(.alreadyFullyReceived) = action else {
             Issue.record("Expected .doNothing(.alreadyFullyReceived)")
             return
@@ -1113,14 +1129,22 @@ struct QUICStreamStateMachineTests {
         var sm = QUICStreamStateMachine()
         _ = sm.streamConnected(direction: .bidirectional)
 
-        let first = try sm.receiveResetStream(applicationErrorCode: QUICApplicationErrorCode(42), finalSize: 0)
+        let first = try sm.receiveResetStream(
+            applicationErrorCode: QUICApplicationErrorCode(42),
+            finalSize: 0,
+            pipelineInitialized: true
+        )
         guard case .surfaceReset(let firstCode) = first else {
             Issue.record("Expected .surfaceReset")
             return
         }
         #expect(firstCode.rawValue == 42)
 
-        let second = try sm.receiveResetStream(applicationErrorCode: QUICApplicationErrorCode(99), finalSize: 0)
+        let second = try sm.receiveResetStream(
+            applicationErrorCode: QUICApplicationErrorCode(99),
+            finalSize: 0,
+            pipelineInitialized: true
+        )
         guard case .doNothing(.alreadyReset) = second else {
             Issue.record("Expected .doNothing(.alreadyReset)")
             return
@@ -1207,7 +1231,11 @@ struct QUICStreamStateMachineTests {
         var sm = QUICStreamStateMachine()
         _ = sm.streamConnected(direction: .bidirectional)
 
-        _ = try sm.receiveResetStream(applicationErrorCode: QUICApplicationErrorCode(77), finalSize: 0)
+        _ = try sm.receiveResetStream(
+            applicationErrorCode: QUICApplicationErrorCode(77),
+            finalSize: 0,
+            pipelineInitialized: true
+        )
 
         guard
             case .deliverResetError(
@@ -1267,7 +1295,11 @@ struct QUICStreamStateMachineTests {
         var sm = QUICStreamStateMachine()
         _ = sm.streamConnected(direction: .bidirectional)
 
-        let action = try sm.receiveResetStream(applicationErrorCode: QUICApplicationErrorCode(42), finalSize: 0)
+        let action = try sm.receiveResetStream(
+            applicationErrorCode: QUICApplicationErrorCode(42),
+            finalSize: 0,
+            pipelineInitialized: true
+        )
         guard case .surfaceReset(let code) = action else {
             Issue.record("Expected .surfaceReset")
             return
@@ -1294,12 +1326,81 @@ struct QUICStreamStateMachineTests {
         #expect(stopSendingError.code.rawValue == 10)
 
         // Second: RESET_STREAM — should also produce an error (not deduplicated)
-        let resetAction = try sm.receiveResetStream(applicationErrorCode: QUICApplicationErrorCode(20), finalSize: 0)
+        let resetAction = try sm.receiveResetStream(
+            applicationErrorCode: QUICApplicationErrorCode(20),
+            finalSize: 0,
+            pipelineInitialized: true
+        )
         guard case .surfaceReset(let resetCode) = resetAction else {
             Issue.record("Expected .surfaceReset")
             return
         }
         #expect(resetCode.rawValue == 20)
+    }
+
+    // MARK: - Deferred RESET surfacing (pipeline init race)
+
+    @available(anyAppleOS 26, *)
+    @Test("receiveResetStream with pipelineInitialized: false stashes the reset")
+    func receiveResetStreamStashesWhenPipelineNotInitialized() throws {
+        var sm = QUICStreamStateMachine()
+        _ = sm.streamConnected(direction: .bidirectional)
+
+        let action = try sm.receiveResetStream(
+            applicationErrorCode: QUICApplicationErrorCode(42),
+            finalSize: 0,
+            pipelineInitialized: false
+        )
+        guard case .doNothing(.stashedForLaterDelivery) = action else {
+            Issue.record("Expected .doNothing(.stashedForLaterDelivery)")
+            return
+        }
+        // The reset must still be recorded on the sub-SM so a later
+        // `surfaceDeferredResetAfterInit` can drain it.
+        let hasReceivedReset = sm.hasReceivedReset
+        #expect(hasReceivedReset)
+    }
+
+    @available(anyAppleOS 26, *)
+    @Test("surfaceDeferredResetAfterInit fires the stashed reset and advances the SM")
+    func surfaceDeferredResetAfterInitFiresStashedReset() throws {
+        var sm = QUICStreamStateMachine()
+        _ = sm.streamConnected(direction: .bidirectional)
+
+        _ = try sm.receiveResetStream(
+            applicationErrorCode: QUICApplicationErrorCode(42),
+            finalSize: 0,
+            pipelineInitialized: false
+        )
+
+        let action = sm.surfaceDeferredResetAfterInit()
+        guard case .fireReset(applicationErrorCode: let code) = action else {
+            Issue.record("Expected .fireReset")
+            return
+        }
+        #expect(code.rawValue == 42)
+
+        // `.ignore(.alreadyDelivered)` proves the receive sub-SM is now
+        // `.resetRead`, i.e. the terminator was consumed exactly once.
+        guard case .ignore(.alreadyDelivered) = try sm.applicationRead() else {
+            Issue.record("Expected .ignore(.alreadyDelivered) — receive sub-SM should be .resetRead")
+            return
+        }
+    }
+
+    /// The helper is called from every `initialize(...)` overload, so a
+    /// fresh SM must be a safe no-op.
+    @available(anyAppleOS 26, *)
+    @Test("surfaceDeferredResetAfterInit on a fresh SM returns .doNothing")
+    func surfaceDeferredResetAfterInitOnFreshSMReturnsDoNothing() {
+        var sm = QUICStreamStateMachine()
+        _ = sm.streamConnected(direction: .bidirectional)
+
+        let action = sm.surfaceDeferredResetAfterInit()
+        guard case .doNothing = action else {
+            Issue.record("Expected .doNothing")
+            return
+        }
     }
 }
 

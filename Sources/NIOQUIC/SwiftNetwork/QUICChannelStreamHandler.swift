@@ -330,7 +330,8 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
     ) throws(QUICStreamStateMachine.InvalidTransition) {
         switch try self.streamStateMachine.receiveResetStream(
             applicationErrorCode: errorCode,
-            finalSize: 0
+            finalSize: 0,
+            pipelineInitialized: self.pipelineStateMachine.isInitialized
         ) {
         case .closeStream(let code):
             self.closeStream(
@@ -343,16 +344,9 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
             #if compiler(<6.4)
             self.surfaceReceivedReset(applicationErrorCode: code)
             #else
-
-            if self.pipelineStateMachine.isInitialized {
-                self.log("surfaceReset", metadata: ["applicationErrorCode": "\(code)"])
-                // yields buffered data and then surfaces the reset
-                self.streamRead()
-            } else {
-                // SM has captured the reset; the post-init `streamRead()`
-                // will surface it via `completeRead()`.
-                self.log("surfaceReset: pipeline not yet initialized, will surface on next read")
-            }
+            self.log("surfaceReset", metadata: ["applicationErrorCode": "\(code)"])
+            // yields buffered data and then surfaces the reset
+            self.streamRead()
             #endif
 
         case .doNothing(let reason):
@@ -361,6 +355,8 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
                 self.log("receiveResetStream: already fully received")
             case .alreadyReset:
                 self.log("receiveResetStream: already reset")
+            case .stashedForLaterDelivery:
+                self.log("receiveResetStream: stashed; will surface when pipeline is initialized")
             }
         }
     }
@@ -373,15 +369,9 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
     private func surfaceReceivedReset(
         applicationErrorCode code: QUICApplicationErrorCode
     ) {
-        if self.pipelineStateMachine.isInitialized {
-            self.log("surfaceReset", metadata: ["applicationErrorCode": "\(code)"])
-            // yields buffered data and then surfaces the reset
-            self.streamRead()
-        } else {
-            // SM has captured the reset; the post-init `streamRead()`
-            // will surface it via `completeRead()`.
-            self.log("surfaceReset: pipeline not yet initialized, will surface on next read")
-        }
+        self.log("surfaceReset", metadata: ["applicationErrorCode": "\(code)"])
+        // yields buffered data and then surfaces the reset
+        self.streamRead()
     }
     #endif
 
@@ -527,6 +517,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
                     switch self.pipelineStateMachine.markInitializerComplete() {
                     case .surfaceInitializedStream:
                         continuation.yield(output: output, channel: self)
+                        self.surfaceDeferredResetAfterInit()
                         self.tryToAutoRead()
                     case .ignoreAlreadyComplete:
                         break
@@ -544,6 +535,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
                 case .success:
                     switch self.pipelineStateMachine.markInitializerComplete() {
                     case .surfaceInitializedStream:
+                        self.surfaceDeferredResetAfterInit()
                         self.tryToAutoRead()
                     case .ignoreAlreadyComplete:
                         break
@@ -557,6 +549,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
         case .none:
             switch self.pipelineStateMachine.markInitializerComplete() {
             case .surfaceInitializedStream:
+                self.surfaceDeferredResetAfterInit()
                 self.tryToAutoRead()
             case .ignoreAlreadyComplete:
                 break
@@ -590,6 +583,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
                         switch self.pipelineStateMachine.markInitializerComplete() {
                         case .surfaceInitializedStream:
                             promise.succeed(self)
+                            self.surfaceDeferredResetAfterInit()
                             self.tryToAutoRead()
                         case .ignoreAlreadyComplete:
                             promise.succeed(self)
@@ -808,6 +802,21 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
 
         if flushed || endOfStream {
             self.fireChannelReadComplete()
+        }
+    }
+
+    /// Drain any peer RESET the stream SM captured while the pipeline was uninitialized.
+    internal func surfaceDeferredResetAfterInit() {
+        self.eventLoop.preconditionInEventLoop()
+        switch self.streamStateMachine.surfaceDeferredResetAfterInit() {
+        case .fireReset(let code):
+            self.log("surfaceDeferredReset", metadata: ["applicationErrorCode": "\(code)"])
+            self.pipeline.fireErrorCaught(
+                NIOQUICHelpers.QUICStreamResetError(code: code)
+            )
+            self.fireChannelReadComplete()
+        case .doNothing:
+            break
         }
     }
 
