@@ -65,7 +65,7 @@ final class SwiftNetworkQUICConnection {
     private var scidPendingDeletion: QUICConnectionID?
 
     private var connectionNewFlowHandler: QUICChannelNewFlowHandler?
-    private var streamInputHandlers: [QUICStreamID: QUICChannelStreamHandler] = [:]
+    private var streamInputHandlers = QUICStreamIDDictionary<QUICChannelStreamHandler>()
     private var pendingInitialClientStream: QUICChannelStreamHandler?
 
     /// The connection's datagram (RFC 9221) flow, attached once the handshake completes.
@@ -855,10 +855,7 @@ final class SwiftNetworkQUICConnection {
     }
 
     func removeStreamHandler(streamID: QUICStreamID) -> Bool {
-        if let _ = self.streamInputHandlers.removeValue(forKey: streamID) {
-            return true
-        }
-        return false
+        self.streamInputHandlers.removeValue(forID: streamID) != nil
     }
 
     func streamInputHandler(streamID: QUICStreamID) -> QUICChannelStreamHandler? {
@@ -869,8 +866,8 @@ final class SwiftNetworkQUICConnection {
         if streamInputHandlers.isEmpty {
             return []
         }
-        let futures = streamInputHandlers.values.map { $0.closeFuture }
-        for stream in streamInputHandlers.values {
+        let futures = streamInputHandlers.map { $0.1.closeFuture }
+        for (_, stream) in streamInputHandlers {
             stream.stop(detachFromLowerProtocol: true)
             stream.closeIfNeeded()
         }
@@ -1545,7 +1542,7 @@ extension SwiftNetworkQUICConnection: QUICConnectionProtocol {
     }
 
     func quiesceStreams() {
-        for stream in self.streamInputHandlers.values {
+        for (_, stream) in self.streamInputHandlers {
             stream.pipeline.fireUserInboundEventTriggered(ChannelShouldQuiesceEvent())
         }
     }
