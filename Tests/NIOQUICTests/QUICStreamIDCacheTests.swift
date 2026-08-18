@@ -23,8 +23,7 @@ struct QUICStreamIDCacheTests {
         #expect(QUICStreamIDCache<Int>(capacity: capacity, threshold: 0.6).capacity == rounded)
     }
 
-    @Test
-    func insertThenLookup() {
+    @Test func insertThenLookup() {
         var cache = Self.cache(capacity: 8)
 
         for (index, id) in Self.streamIDs(count: 8).enumerated() {
@@ -36,8 +35,7 @@ struct QUICStreamIDCacheTests {
         #expect(cache.count == 8)
     }
 
-    @Test
-    func lookupUnknownID() {
+    @Test func lookupUnknownID() {
         var cache = Self.cache(capacity: 8)
         cache.updateValue(42, forID: QUICStreamID(rawValue: 0))
 
@@ -45,8 +43,7 @@ struct QUICStreamIDCacheTests {
         #expect(!cache.contains(QUICStreamID(rawValue: 4)))
     }
 
-    @Test
-    func insertReplacesValueForSameID() {
+    @Test func insertReplacesValueForSameID() {
         var cache = Self.cache(capacity: 8)
         let id = QUICStreamID(rawValue: 4)
         cache.updateValue(1, forID: id)
@@ -56,8 +53,7 @@ struct QUICStreamIDCacheTests {
         #expect(cache.count == 1)
     }
 
-    @Test
-    func insertEvictsSlotOccupant() {
+    @Test func insertEvictsSlotOccupant() {
         var cache = Self.cache(capacity: 4)
         let (first, second) = Self.collidingIDs
         cache.updateValue(1, forID: first)
@@ -71,8 +67,7 @@ struct QUICStreamIDCacheTests {
         #expect(cache.count == 1)
     }
 
-    @Test
-    func removeValue() {
+    @Test func removeValue() {
         var cache = Self.cache(capacity: 8)
         let id = QUICStreamID(rawValue: 8)
         cache.updateValue(1, forID: id)
@@ -83,8 +78,7 @@ struct QUICStreamIDCacheTests {
         #expect(cache.removeValue(forID: id) == nil)
     }
 
-    @Test
-    func removeValueForIDOccupyingNoSlot() {
+    @Test func removeValueForIDOccupyingNoSlot() {
         var cache = Self.cache(capacity: 4)
         let (first, second) = Self.collidingIDs
         cache.updateValue(1, forID: first)
@@ -93,8 +87,7 @@ struct QUICStreamIDCacheTests {
         #expect(cache[first] == 1)
     }
 
-    @Test
-    func growthPreservesValues() {
+    @Test func growthPreservesValues() {
         var cache = QUICStreamIDCache<Int>(capacity: 4, threshold: 0.6)
         let ids = Self.streamIDs(count: 32)
 
@@ -110,8 +103,7 @@ struct QUICStreamIDCacheTests {
         }
     }
 
-    @Test
-    func removeAll() {
+    @Test func removeAll() {
         var cache = Self.cache(capacity: 8)
         let ids = Self.streamIDs(count: 4)
         for (index, id) in ids.enumerated() {
@@ -126,8 +118,7 @@ struct QUICStreamIDCacheTests {
         }
     }
 
-    @Test
-    func iterator() throws {
+    @Test func iterator() throws {
         var cache = Self.cache(capacity: 8)
         let ids = Self.streamIDs(count: 4)
         for (index, id) in ids.enumerated() {

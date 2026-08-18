@@ -43,10 +43,10 @@ struct QUICStreamIDDictionary<Value> {
     /// Returns the number of elements in the dictionary.
     var count: Int {
         var total = self.overflow.count
-        total &+= self.caches[0].count
-        total &+= self.caches[1].count
-        total &+= self.caches[2].count
-        total &+= self.caches[3].count
+        total += self.caches[0].count
+        total += self.caches[1].count
+        total += self.caches[2].count
+        total += self.caches[3].count
         return total
     }
 

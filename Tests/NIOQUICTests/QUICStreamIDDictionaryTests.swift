@@ -18,26 +18,23 @@ import Testing
 @testable import NIOQUIC
 
 struct QUICStreamIDDictionaryTests {
-    @Test
     @available(anyAppleOS 26, *)
-    func empty() {
+    @Test func empty() {
         let dictionary = QUICStreamIDDictionary<Int>()
         #expect(dictionary.count == 0)
         #expect(dictionary.isEmpty)
     }
 
-    @Test
     @available(anyAppleOS 26, *)
-    func updateNewValue() {
+    @Test func updateNewValue() {
         var dictionary = QUICStreamIDDictionary<Int>()
         let previous = dictionary.updateValue(42, forID: 1)
         #expect(previous == nil)
         #expect(dictionary.count == 1)
     }
 
-    @Test
     @available(anyAppleOS 26, *)
-    func updateExistingValue() {
+    @Test func updateExistingValue() {
         var dictionary = QUICStreamIDDictionary<Int>()
         dictionary.updateValue(42, forID: 1)
         let previous = dictionary.updateValue(41, forID: 1)
@@ -45,17 +42,15 @@ struct QUICStreamIDDictionaryTests {
         #expect(dictionary.count == 1)
     }
 
-    @Test
     @available(anyAppleOS 26, *)
-    func setNewValue() {
+    @Test func setNewValue() {
         var dictionary = QUICStreamIDDictionary<Int>()
         dictionary[1] = 42
         #expect(dictionary.count == 1)
     }
 
-    @Test
     @available(anyAppleOS 26, *)
-    func setExistingValue() {
+    @Test func setExistingValue() {
         var dictionary = QUICStreamIDDictionary<Int>()
         dictionary[1] = 42
         #expect(dictionary.count == 1)
@@ -63,9 +58,8 @@ struct QUICStreamIDDictionaryTests {
         #expect(dictionary.count == 1)
     }
 
-    @Test
     @available(anyAppleOS 26, *)
-    func setRemoveExistingValue() {
+    @Test func setRemoveExistingValue() {
         var dictionary = QUICStreamIDDictionary<Int>()
         dictionary[1] = 42
         #expect(dictionary.count == 1)
@@ -73,17 +67,15 @@ struct QUICStreamIDDictionaryTests {
         #expect(dictionary.count == 0)
     }
 
-    @Test
     @available(anyAppleOS 26, *)
-    func getValue() {
+    @Test func getValue() {
         var dictionary = QUICStreamIDDictionary<Int>()
         dictionary[1] = 42
         #expect(dictionary[1] == 42)
     }
 
-    @Test
     @available(anyAppleOS 26, *)
-    func removeValue() {
+    @Test func removeValue() {
         var dictionary = QUICStreamIDDictionary<Int>()
         dictionary[1] = 42
         #expect(dictionary.removeValue(forID: 0) == nil)
@@ -91,17 +83,15 @@ struct QUICStreamIDDictionaryTests {
         #expect(dictionary.count == 0)
     }
 
-    @Test
     @available(anyAppleOS 26, *)
-    func removeUnknownValue() {
+    @Test func removeUnknownValue() {
         var dictionary = QUICStreamIDDictionary<Int>()
         #expect(dictionary.removeValue(forID: 0) == nil)
         #expect(dictionary.count == 0)
     }
 
-    @Test
     @available(anyAppleOS 26, *)
-    func streamTypesHaveIndependentKeys() {
+    @Test func streamTypesHaveIndependentKeys() {
         var dictionary = QUICStreamIDDictionary<Int>()
 
         // The IDs share a numeric part and differ only in their type bits.
@@ -116,9 +106,8 @@ struct QUICStreamIDDictionaryTests {
         #expect(dictionary.count == 4)
     }
 
-    @Test
     @available(anyAppleOS 26, *)
-    func evictedValuesRemainReadable() {
+    @Test func evictedValuesRemainReadable() {
         var dictionary = Self.evictingDictionary()
         let (evicted, evictor) = Self.collidingIDs
 
@@ -131,9 +120,8 @@ struct QUICStreamIDDictionaryTests {
         #expect(dictionary.count == 2)
     }
 
-    @Test
     @available(anyAppleOS 26, *)
-    func evictedValuesAreUpdatedInPlace() {
+    @Test func evictedValuesAreUpdatedInPlace() {
         var dictionary = Self.evictingDictionary()
         let (evicted, evictor) = Self.collidingIDs
 
@@ -145,9 +133,8 @@ struct QUICStreamIDDictionaryTests {
         #expect(dictionary.count == 2)
     }
 
-    @Test
     @available(anyAppleOS 26, *)
-    func evictedValuesCanBeRemoved() {
+    @Test func evictedValuesCanBeRemoved() {
         var dictionary = Self.evictingDictionary()
         let (evicted, evictor) = Self.collidingIDs
 
@@ -160,9 +147,8 @@ struct QUICStreamIDDictionaryTests {
         #expect(dictionary.count == 1)
     }
 
-    @Test
     @available(anyAppleOS 26, *)
-    func manyStreamsOfEachType() {
+    @Test func manyStreamsOfEachType() {
         var dictionary = QUICStreamIDDictionary<Int>(initialCacheCapacity: 4)
         let ids = (0..<256).map { QUICStreamID(rawValue: UInt64($0)) }
 
@@ -182,9 +168,8 @@ struct QUICStreamIDDictionaryTests {
         #expect(dictionary.isEmpty)
     }
 
-    @Test
     @available(anyAppleOS 26, *)
-    func removeAll() {
+    @Test func removeAll() {
         var dictionary = Self.evictingDictionary()
         let (evicted, evictor) = Self.collidingIDs
         dictionary[evicted] = 1
@@ -198,8 +183,7 @@ struct QUICStreamIDDictionaryTests {
     }
 
     @available(anyAppleOS 26, *)
-    @Test
-    func updatingCollidingStreamsDoesNotSwapThemInAndOutOfTheCache() {
+    @Test func updatingCollidingStreamsDoesNotSwapThemInAndOutOfTheCache() {
         var dictionary = Self.evictingDictionary()
         let (evicted, evictor) = Self.collidingIDs
         dictionary[evicted] = 1
@@ -218,9 +202,8 @@ struct QUICStreamIDDictionaryTests {
         }
     }
 
-    @Test
     @available(anyAppleOS 26, *)
-    func evictedStreamStaysInTheOverflowDictionary() {
+    @Test func evictedStreamStaysInTheOverflowDictionary() {
         var dictionary = Self.evictingDictionary()
         let (evicted, evictor) = Self.collidingIDs
         dictionary[evicted] = 1
@@ -234,16 +217,14 @@ struct QUICStreamIDDictionaryTests {
         #expect(dictionary.count == 1)
     }
 
-    @Test
     @available(anyAppleOS 26, *)
-    func iteratorEmpty() {
+    @Test func iteratorEmpty() {
         let dictionary = QUICStreamIDDictionary<Int>()
         #expect(Array(dictionary).isEmpty)
     }
 
-    @Test
     @available(anyAppleOS 26, *)
-    func iteratorVisitsEachCache() throws {
+    @Test func iteratorVisitsEachCache() throws {
         var dictionary = QUICStreamIDDictionary<Int>(initialCacheCapacity: 8)
         // Cover all stream ID types
         let ids = (0..<16).map { QUICStreamID(rawValue: UInt64($0)) }
@@ -257,9 +238,8 @@ struct QUICStreamIDDictionaryTests {
         #expect(Dictionary(uniqueKeysWithValues: elements) == expected)
     }
 
-    @Test
     @available(anyAppleOS 26, *)
-    func iteratorIncludesOverflowValues() throws {
+    @Test func iteratorIncludesOverflowValues() throws {
         var dictionary = Self.evictingDictionary()
         let (evicted, evictor) = Self.collidingIDs
         dictionary[evicted] = 1
