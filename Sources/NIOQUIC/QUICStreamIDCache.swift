@@ -47,7 +47,7 @@ struct QUICStreamIDCache<Value> {
     var isEmpty: Bool { self.count == 0 }
 
     init(capacity: Int, threshold: Double) {
-        precondition((0.0 ... 1.0).contains(threshold))
+        precondition((0.0...1.0).contains(threshold))
         let capacity = capacity.nextPowerOfTwo
         self.slots = Array(repeating: nil, count: capacity)
         self.mask = UInt64(capacity - 1)
