@@ -218,6 +218,66 @@ struct QUICStreamIDDictionaryTests {
     }
 
     @available(anyAppleOS 26, *)
+    @Test func overflowSwitchesToDictionaryWhenArrayIsFull() {
+        var dictionary = Self.evictingDictionary(overflowArrayCapacity: 2)
+        let ids = Self.collidingIDs(4)
+
+        for (index, id) in ids.enumerated() {
+            dictionary[id] = index
+        }
+
+        // Each ID evicts its predecessor: the last stays in the cache and the three before it
+        // overflow, which is one more than the array holds, so all three move to the dictionary.
+        #expect(dictionary._testOnly_isCached(ids[3]))
+        #expect(!dictionary._testOnly_isInOverflowArray(ids[2]))
+        #expect(!dictionary._testOnly_isInOverflowArray(ids[1]))
+        #expect(!dictionary._testOnly_isInOverflowArray(ids[0]))
+
+        for (index, id) in ids.enumerated() {
+            #expect(dictionary[id] == index)
+        }
+        #expect(dictionary.count == ids.count)
+    }
+
+    @available(anyAppleOS 26, *)
+    @Test func overflowSwitchesBackToArrayWhenDictionaryIsEmptied() throws {
+        var dictionary = Self.evictingDictionary(overflowArrayCapacity: 2)
+        let ids = Self.collidingIDs(5)
+
+        for (index, id) in ids.prefix(4).enumerated() {
+            dictionary[id] = index
+        }
+        try #require(!dictionary._testOnly_isInOverflowArray(ids[0]))
+
+        for id in ids.prefix(3) {
+            #expect(dictionary.removeValue(forID: id) != nil)
+        }
+
+        // The dictionary is empty again, so the next evicted value goes back into the array.
+        dictionary[ids[4]] = 4
+        #expect(dictionary._testOnly_isInOverflowArray(ids[3]))
+        #expect(dictionary[ids[3]] == 3)
+        #expect(dictionary[ids[4]] == 4)
+        #expect(dictionary.count == 2)
+    }
+
+    @available(anyAppleOS 26, *)
+    @Test func spilledOverflowValuesCanBeUpdatedAndRemoved() {
+        var dictionary = Self.evictingDictionary(overflowArrayCapacity: 2)
+        let ids = Self.collidingIDs(4)
+
+        for (index, id) in ids.enumerated() {
+            dictionary[id] = index
+        }
+
+        #expect(dictionary.updateValue(42, forID: ids[2]) == 2)
+        #expect(dictionary[ids[2]] == 42)
+        #expect(dictionary.removeValue(forID: ids[2]) == 42)
+        #expect(dictionary[ids[2]] == nil)
+        #expect(dictionary.count == 3)
+    }
+
+    @available(anyAppleOS 26, *)
     @Test func iteratorEmpty() {
         let dictionary = QUICStreamIDDictionary<Int>()
         #expect(Array(dictionary).isEmpty)
@@ -253,12 +313,24 @@ struct QUICStreamIDDictionaryTests {
 
     /// Client-initiated bidirectional stream IDs which share a slot in a cache with four slots.
     private static var collidingIDs: (QUICStreamID, QUICStreamID) {
-        (QUICStreamID(rawValue: 0), QUICStreamID(rawValue: 16))
+        let ids = Self.collidingIDs(2)
+        return (ids[0], ids[1])
+    }
+
+    /// Client-initiated bidirectional stream IDs which share a slot in a cache with four slots.
+    private static func collidingIDs(_ count: Int) -> [QUICStreamID] {
+        (0..<count).map { QUICStreamID(rawValue: UInt64($0) * 16) }
     }
 
     /// A dictionary which evicts on a collision rather than growing its caches.
     @available(anyAppleOS 26, *)
-    private static func evictingDictionary() -> QUICStreamIDDictionary<Int> {
-        QUICStreamIDDictionary(initialCacheCapacity: 4, cacheGrowthThreshold: 1.0)
+    private static func evictingDictionary(
+        overflowArrayCapacity: Int = 32,
+    ) -> QUICStreamIDDictionary<Int> {
+        QUICStreamIDDictionary(
+            initialCacheCapacity: 4,
+            cacheGrowthThreshold: 1.0,
+            overflowArrayCapacity: overflowArrayCapacity,
+        )
     }
 }
