@@ -46,7 +46,7 @@ private func makeChannel(
 
         // Activate the connection.
         channel.connectionView.handshakeCompleted(peerMaxDatagramFrameSize: 0)
-        channel.connectionView.drainOutbound()
+        channel.connectionView.drainOutboundAndReconcileLifecycle()
 
         try promise.futureResult.wait()
 
@@ -292,14 +292,14 @@ struct QUICConnectionChannelTests {
             let channel = try makeChannel(connection: connection, transport: transport)
 
             // No buffers, so just a flush.
-            channel.connectionView.drainOutbound()
+            channel.connectionView.drainOutboundAndReconcileLifecycle()
             #expect(transport.events.popFirst() == .flushed)
             #expect(transport.events.isEmpty)
 
             // Try again with a packet.
             let buffer = ByteBuffer(string: "Hello!")
             connection.outboundPackets.append(buffer)
-            channel.connectionView.drainOutbound()
+            channel.connectionView.drainOutboundAndReconcileLifecycle()
 
             let expected = AddressedEnvelope(remoteAddress: .ipv4Loopback8081, data: buffer)
             #expect(transport.events.popFirst() == .wrote(expected))
@@ -320,7 +320,7 @@ struct QUICConnectionChannelTests {
             // applied on the next drain.
             struct Boom: Error {}
             channel.connectionView.connectionClosed(error: Boom())
-            channel.connectionView.drainOutbound()
+            channel.connectionView.drainOutboundAndReconcileLifecycle()
 
             #expect(recorder.errors.last is Boom)
             #expect(recorder.inactiveCount == 1)
@@ -350,7 +350,7 @@ struct QUICConnectionChannelTests {
 
             struct Boom: Error {}
             channel.connectionView.connectionClosed(error: Boom())
-            channel.connectionView.drainOutbound()
+            channel.connectionView.drainOutboundAndReconcileLifecycle()
 
             // The error is fired while the streams are still closing: a handler may rely on the
             // connection level error to fail its streams.
@@ -385,7 +385,7 @@ struct QUICConnectionChannelTests {
 
             // Complete handshake to activate.
             channel.connectionView.handshakeCompleted(peerMaxDatagramFrameSize: 0)
-            channel.connectionView.drainOutbound()
+            channel.connectionView.drainOutboundAndReconcileLifecycle()
             #expect(channel.isActive)
         }
 
@@ -399,7 +399,7 @@ struct QUICConnectionChannelTests {
 
             // Only completes when the handshake completes.
             channel.connectionView.handshakeCompleted(peerMaxDatagramFrameSize: 0)
-            channel.connectionView.drainOutbound()
+            channel.connectionView.drainOutboundAndReconcileLifecycle()
 
             try promise.futureResult.wait()
 
@@ -417,7 +417,7 @@ struct QUICConnectionChannelTests {
 
             struct Boom: Error {}
             channel.connectionView.connectionClosed(error: Boom())
-            channel.connectionView.drainOutbound()
+            channel.connectionView.drainOutboundAndReconcileLifecycle()
 
             #expect(throws: Boom.self) {
                 try promise.futureResult.wait()
@@ -676,6 +676,28 @@ struct QUICConnectionChannelTests {
             #expect(recorder.inactiveCount == 1)
             channel.embeddedEventLoop.run()
             try channel.closeFuture.wait()
+        }
+
+        @available(anyAppleOS 26, *)
+        @Test
+        func drainWithoutTriggeringLifecycle() throws {
+            let channel = try makeChannel()
+            let view = channel.transportView
+            let promise = channel.eventLoop.makePromise(of: Void.self)
+            view.initialize(promise: promise) { $0.eventLoop.makeSucceededVoidFuture() }
+            try promise.futureResult.wait()
+
+            // Channel isn't active yet.
+            #expect(!channel.isActive)
+
+            // We can drain without triggering the lifecycle.
+            channel.connectionView.handshakeCompleted(peerMaxDatagramFrameSize: 0)
+            channel.connectionView.drainOutbound()
+            #expect(!channel.isActive)
+
+            // When draining with events, the channel will become active.
+            channel.connectionView.drainOutboundAndReconcileLifecycle()
+            #expect(channel.isActive)
         }
     }
 }
