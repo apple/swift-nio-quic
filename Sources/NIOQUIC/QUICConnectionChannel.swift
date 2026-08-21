@@ -431,14 +431,14 @@ extension QUICConnectionChannel.ConnectionView {
     }
 
     /// Notifies the connection that it should call back into the connection and drain its output
-    /// buffer.
-    func drainOutbound() {
+    /// buffer. This is used for tests.
+    func drainOutboundAndReconcileLifecycle() {
         self._channel.drainAndReconcileLifecycle()
     }
 
     /// Notifies the connection that it should call back into the connection and drain its output
     /// buffer. This is used for out-of-band writes.
-    func drainOutboundOnly() {
+    func drainOutbound() {
         self._channel.drainOutput()
     }
 

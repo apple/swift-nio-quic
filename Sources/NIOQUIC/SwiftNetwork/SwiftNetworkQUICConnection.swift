@@ -1414,6 +1414,8 @@ extension SwiftNetworkQUICConnection {
             log("Dropping unexpected request to trigger write")
         case .triggerEvent(let channelView):
             log("Triggering out-of-band outbound write event")
+            // When handling out-of-band write, we should only drain and not avoid
+            // firing events that might enter SwiftNetwork.
             channelView.drainOutbound()
         }
     }
