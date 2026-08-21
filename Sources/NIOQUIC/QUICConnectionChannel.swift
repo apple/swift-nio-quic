@@ -433,7 +433,9 @@ extension QUICConnectionChannel.ConnectionView {
     /// Notifies the connection that it should call back into the connection and drain its output
     /// buffer. This is used for out-of-band writes.
     func drainOutbound() {
-        self._channel.drainAndReconcileLifecycle()
+        // When handling out-of-band write, we should only drain and not avoid
+        // firing events that might enter SwiftNetwork.
+        self._channel.drainOutput()
     }
 
     /// Notifies the connection that the handshake completed.
@@ -707,7 +709,7 @@ extension QUICConnectionChannel {
         return body()
     }
 
-    private func drainOutput() {
+    fileprivate func drainOutput() {
         self.eventLoop.assertInEventLoop()
 
         guard self._isAllowedToDrain else { return }
