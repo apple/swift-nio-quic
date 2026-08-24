@@ -454,11 +454,11 @@ struct QUICConnectionChannelTests {
             }
 
             let view = channel.transportView
-            view.parentChannelRead(ByteBuffer(string: "Hello,"))
+            #expect(view.parentChannelRead(ByteBuffer(string: "Hello,")))
             #expect(connection.events.popFirst() == .receivedPacket(ByteBuffer(string: "Hello,")))
             #expect(transport.events.isEmpty)
 
-            view.parentChannelRead(ByteBuffer(string: "QUIC!"))
+            #expect(!view.parentChannelRead(ByteBuffer(string: "QUIC!")))
             #expect(connection.events.popFirst() == .receivedPacket(ByteBuffer(string: "QUIC!")))
             #expect(transport.events.isEmpty)
 

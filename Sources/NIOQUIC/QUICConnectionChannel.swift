@@ -84,6 +84,9 @@ final class QUICConnectionChannel: @unchecked Sendable {
     /// Whether the channel is allowed to drain the output from the connection.
     private var _isAllowedToDrain: Bool
 
+    /// Whether the channel is currently in a read loop.
+    private var _inReadLoop: Bool
+
     /// A queue of streams pushed to the channel by the underlying connection. These are dequeued
     /// at the end of the parent channel's read loop (in `_parentChannelReadComplete`).
     private var _pendingStreams: Deque<(QUICStreamID, QUICChannelStreamHandler)>
@@ -140,6 +143,7 @@ final class QUICConnectionChannel: @unchecked Sendable {
         self._streamInitializer = nil
         self._readyPromise = nil
         self._isAllowedToDrain = true
+        self._inReadLoop = false
         self._pendingStreams = []
         self._datagramNegotiation = .waitingForPeerAdvertisement(earlyWrites: TinyArray())
 
@@ -553,7 +557,9 @@ extension QUICConnectionChannel.TransportView {
         }
     }
 
-    func parentChannelRead(_ buffer: ByteBuffer) {
+    /// Returns whether the read caused the channel to enter a read loop.
+    @discardableResult
+    func parentChannelRead(_ buffer: ByteBuffer) -> Bool {
         self.channel._parentChannelRead(buffer)
     }
 
@@ -860,15 +866,20 @@ extension QUICConnectionChannel {
         self.pipeline.syncOperations.fireUserInboundEventTriggered(event)
     }
 
-    fileprivate func _parentChannelRead(_ buffer: ByteBuffer) {
+    fileprivate func _parentChannelRead(_ buffer: ByteBuffer) -> Bool {
         self.eventLoop.assertInEventLoop()
         // Feed packets in, '_parentChannelReadComplete' signals to the connection that
         // it should then consume those packets.
         self._connection.receivePacket(buffer)
+
+        let didEnterReadLoop = !self._inReadLoop
+        self._inReadLoop = true
+        return didEnterReadLoop
     }
 
     fileprivate func _parentChannelReadComplete() {
         self.eventLoop.assertInEventLoop()
+        self._inReadLoop = false
 
         // Avoid entering 'drainOutput'; wait for all events to be delivered and then
         // deal with them in 'drainAndReconcileLifecycle' below.

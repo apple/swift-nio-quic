@@ -190,12 +190,6 @@ extension ConnectionRegistry where Value == QUICConnectionChannel.TransportView 
         }
     }
 
-    func notifyParentChannelReadComplete() {
-        for view in self.values {
-            view.parentChannelReadComplete()
-        }
-    }
-
     func notifyParentChannelWritabilityChanged(_ writable: Bool) {
         for view in self.values {
             view.parentChannelWritabilityChanged(to: writable)

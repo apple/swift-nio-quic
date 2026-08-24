@@ -62,6 +62,8 @@ public final class QUICHandler {
     private var didWrite = false
     /// Whether we're expecting a channelReadComplete. This is used to delay flushing the channel until the a read complete is received.
     private var expectingChannelReadComplete: Bool = false
+    /// Connections which read at least one datagram in the read loop.
+    private var connectionsAwaitingReadComplete: [QUICConnectionChannel.TransportView] = []
     /// The context of the channel handler.
     private var context: ChannelHandlerContext?
     /// The next connection handle to use. Don't use directly, use `nextConnectionHandle()` instead.
@@ -420,11 +422,32 @@ public final class QUICHandler {
         to view: QUICConnectionChannel.TransportView
     ) {
         self.eventLoop.assertInEventLoop()
-        view.parentChannelRead(packet)
+        self.deliverPacket(packet, to: view)
 
+        // First reads can be delivered outside of the read loop (i.e. after the connection init)
+        // so notify read complete out-of-band if necessary.
         if !self.expectingChannelReadComplete {
+            self.notifyPendingReadCompletions()
+        }
+    }
+
+    private func deliverPacket(
+        _ packet: ByteBuffer,
+        to view: QUICConnectionChannel.TransportView
+    ) {
+        let didEnterReadLoop = view.parentChannelRead(packet)
+
+        if didEnterReadLoop {
+            self.connectionsAwaitingReadComplete.append(view)
+        }
+    }
+
+    private func notifyPendingReadCompletions() {
+        for view in self.connectionsAwaitingReadComplete {
             view.parentChannelReadComplete()
         }
+
+        self.connectionsAwaitingReadComplete.removeAll(keepingCapacity: true)
     }
 
     private func connectionDidClose(_ handle: ConnectionHandle) {
@@ -524,7 +547,7 @@ extension QUICHandler: ChannelInboundHandler {
             switch self.state {
             case .accepting:
                 if let view = self.connectionRegistry[header.destinationConnectionID] {
-                    view.parentChannelRead(addressedEnvelope.data)
+                    self.deliverPacket(addressedEnvelope.data, to: view)
                 } else if self.quicConfiguration.role == .server {
                     // Only INITIAL packets can create new connections. However, we do need to
                     // pass packets with unknown versions to Swift QUIC to initiate version
@@ -584,7 +607,7 @@ extension QUICHandler: ChannelInboundHandler {
                     ]
                 )
 
-                view.parentChannelRead(addressedEnvelope.data)
+                self.deliverPacket(addressedEnvelope.data, to: view)
 
             case .shutdown:
                 self.logger.warning(
@@ -606,7 +629,7 @@ extension QUICHandler: ChannelInboundHandler {
     public func channelReadComplete(context: ChannelHandlerContext) {
         self.logger.trace("QUICHandler read complete")
 
-        self.connectionRegistry.notifyParentChannelReadComplete()
+        self.notifyPendingReadCompletions()
         self.expectingChannelReadComplete = false
 
         if self.didWrite {
