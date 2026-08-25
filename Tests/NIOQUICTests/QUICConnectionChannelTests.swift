@@ -677,28 +677,6 @@ struct QUICConnectionChannelTests {
             channel.embeddedEventLoop.run()
             try channel.closeFuture.wait()
         }
-
-        @available(anyAppleOS 26, *)
-        @Test
-        func drainWithoutTriggeringLifecycle() throws {
-            let channel = try makeChannel()
-            let view = channel.transportView
-            let promise = channel.eventLoop.makePromise(of: Void.self)
-            view.initialize(promise: promise) { $0.eventLoop.makeSucceededVoidFuture() }
-            try promise.futureResult.wait()
-
-            // Channel isn't active yet.
-            #expect(!channel.isActive)
-
-            // We can drain without triggering the lifecycle.
-            channel.connectionView.handshakeCompleted(peerMaxDatagramFrameSize: 0)
-            channel.connectionView.drainOutbound()
-            #expect(!channel.isActive)
-
-            // When draining with events, the channel will become active.
-            channel.connectionView.drainOutboundAndReconcileLifecycle()
-            #expect(channel.isActive)
-        }
     }
 }
 
