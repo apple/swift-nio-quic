@@ -45,6 +45,9 @@ struct DatagramTests {
         let serverReceivedPromise = eventLoopGroup.any().makePromise(of: ByteBuffer.self)
         let clientReceivedEchoPromise = eventLoopGroup.any().makePromise(of: ByteBuffer.self)
 
+        let serverReceivedReadComplete = NIOLockedValueBox<Int>(0)
+        let clientReceivedReadComplete = NIOLockedValueBox<Int>(0)
+
         let serverChannel = try await createServerChannel(
             eventLoopGroup: eventLoopGroup,
             host: host,
@@ -53,10 +56,13 @@ struct DatagramTests {
             inboundConnectionInitializer: { connectionChannel, streamCreator in
                 connectionChannel.eventLoop.makeCompletedFuture {
                     try connectionChannel.pipeline.syncOperations.addHandler(
-                        DatagramCapture(onDatagram: { buffer in
-                            serverReceivedPromise.succeed(buffer)
-                            connectionChannel.writeAndFlush(buffer, promise: nil)
-                        })
+                        DatagramCapture(
+                            onDatagram: { buffer in
+                                serverReceivedPromise.succeed(buffer)
+                                connectionChannel.writeAndFlush(buffer, promise: nil)
+                            },
+                            receivedReadComplete: serverReceivedReadComplete
+                        )
                     )
                 }
             },
@@ -87,7 +93,10 @@ struct DatagramTests {
         ) { connectionChannel, _ in
             connectionChannel.eventLoop.makeCompletedFuture {
                 try connectionChannel.pipeline.syncOperations.addHandler(
-                    DatagramCapture(onDatagram: { clientReceivedEchoPromise.succeed($0) })
+                    DatagramCapture(
+                        onDatagram: { clientReceivedEchoPromise.succeed($0) },
+                        receivedReadComplete: clientReceivedReadComplete
+                    )
                 )
             }
         }
@@ -102,6 +111,10 @@ struct DatagramTests {
 
         let clientReceived = try await clientReceivedEchoPromise.futureResult.get()
         #expect(clientReceived == payload)
+
+        // Verify that channelReadComplete was propagated as expected.
+        #expect(clientReceivedReadComplete.withLockedValue { $0 } == 1)
+        #expect(serverReceivedReadComplete.withLockedValue { $0 } == 1)
 
         try await serverChannel.close()
         try await noMoreConnectionsPromise.futureResult.get()
@@ -518,14 +531,22 @@ final class DatagramCapture: ChannelInboundHandler {
     typealias InboundIn = ByteBuffer
 
     let onDatagram: @Sendable (ByteBuffer) -> Void
+    let receivedReadComplete: NIOLockedValueBox<Int>?
 
-    init(onDatagram: @escaping @Sendable (ByteBuffer) -> Void) {
+    init(onDatagram: @escaping @Sendable (ByteBuffer) -> Void, receivedReadComplete: NIOLockedValueBox<Int>? = nil) {
         self.onDatagram = onDatagram
+        self.receivedReadComplete = receivedReadComplete
     }
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         let buffer = self.unwrapInboundIn(data)
         self.onDatagram(buffer)
+    }
+
+    func channelReadComplete(context: ChannelHandlerContext) {
+        self.receivedReadComplete?.withLockedValue {
+            $0 += 1
+        }
     }
 }
 
