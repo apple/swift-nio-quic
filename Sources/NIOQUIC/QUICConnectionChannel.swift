@@ -91,7 +91,10 @@ final class QUICConnectionChannel: @unchecked Sendable {
     /// at the end of the parent channel's read loop (in `_parentChannelReadComplete`).
     private var _pendingStreams: Deque<(QUICStreamID, QUICChannelStreamHandler)>
 
-    /// After a datagram was read during a read loop the channel should fire read complete.
+    /// This flag tracks if QUIC datagrams were forwarded inbound on the connection channel during
+    /// this tick. Part of the responsibility of the `QUICConnectionChannel` is accepting datagrams
+    /// from SwiftNetwork and sending them on the connection channel. At the end of a tick, it should
+    /// only fire `channelReadComplete` after sending datagrams.
     private var _readDatagramsInThisTick: Bool
 
     /// The negotiation state of the QUIC datagram extension (RFC 9221) for the connection.
@@ -913,7 +916,7 @@ extension QUICConnectionChannel {
         self.drainAndReconcileLifecycle()
         self.processPendingInboundStreams()
 
-        // If we read a datagram, we should fire channelReadComplete on the connection channel.
+        // Only fire channelReadComplete after reading a datagram.
         if self._readDatagramsInThisTick {
             self._readDatagramsInThisTick = false
             self.pipeline.syncOperations.fireChannelReadComplete()
