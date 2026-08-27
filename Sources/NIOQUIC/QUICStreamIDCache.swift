@@ -19,13 +19,46 @@ import NIOQUICHelpers
 /// Slots are indexed by the numeric part of a stream ID (i.e. `rawValue >> 2`) modulo the capacity
 /// of the cache, which is always a power of two so that the modulo can be done by masking.
 struct QUICStreamIDCache<Value> {
-    fileprivate struct Entry {
-        var id: QUICStreamID
-        var value: Value
+    fileprivate struct Slot {
+        private(set) var id: UInt64
+        private(set) var value: Optional<Value>
+
+        init(id: QUICStreamID, value: Value) {
+            self.id = id.rawValue
+            self.value = value
+        }
+
+        init() {
+            self.id = .max  // Not a valid QUICStreamID
+            self.value = nil
+        }
+
+        var isEmpty: Bool {
+            self.id == .max
+        }
+
+        func containsID(_ id: QUICStreamID) -> Bool {
+            self.id == id.rawValue
+        }
+
+        func value(forID id: QUICStreamID) -> Value? {
+            self.id == id.rawValue ? self.value : nil
+        }
+
+        mutating func removeValue(forID id: QUICStreamID) -> Value? {
+            var value: Value? = nil
+
+            if self.id == id.rawValue {
+                self.id = .max
+                swap(&value, &self.value)
+            }
+
+            return value
+        }
     }
 
-    /// The underlying slots in the cache, `nil` means the slot is free.
-    private var slots: [Entry?]
+    /// The underlying slots in the cache.
+    private var slots: [Slot]
 
     /// A mask applied to the numeric part of a stream ID (i.e. top 62 bits) to get its slot index.
     /// Stored rather than recomputed to avoid the `Int` to `UInt64` conversion on every lookup.
@@ -49,7 +82,7 @@ struct QUICStreamIDCache<Value> {
     init(capacity: Int, threshold: Double) {
         precondition((0.0...1.0).contains(threshold))
         let capacity = capacity.nextPowerOfTwo
-        self.slots = Array(repeating: nil, count: capacity)
+        self.slots = Array(repeating: Slot(), count: capacity)
         self.mask = UInt64(capacity - 1)
         self.threshold = threshold
         self.nextGrowthCount = capacity.scaled(by: threshold)
@@ -65,16 +98,13 @@ struct QUICStreamIDCache<Value> {
 
     /// Returns the value for the given stream ID, if it exists in the cache.
     subscript(id: QUICStreamID) -> Value? {
-        if let entry = self.slots[self.slotIndex(of: id)], entry.id == id {
-            return entry.value
-        } else {
-            return nil
-        }
+        let index = self.slotIndex(of: id)
+        return self.slots[index].value(forID: id)
     }
 
     /// Returns whether the cache contains the given stream ID.
     func contains(_ id: QUICStreamID) -> Bool {
-        self.slots[self.slotIndex(of: id)]?.id == id
+        self.slots[self.slotIndex(of: id)].containsID(id)
     }
 
     enum UpdateResult {
@@ -97,21 +127,21 @@ struct QUICStreamIDCache<Value> {
     mutating func updateValue(_ value: Value, forID id: QUICStreamID) -> UpdateResult {
         let index = self.slotIndex(of: id)
 
-        var entry: Entry? = Entry(id: id, value: value)
-        swap(&self.slots[index], &entry)
+        var slot = Slot(id: id, value: value)
+        swap(&self.slots[index], &slot)
 
-        switch entry {
-        case .none:
+        if let previous = slot.value {
+            if slot.containsID(id) {
+                return .replaced(previous)
+            } else {
+                assert(!slot.isEmpty)
+                return .evicted(id: QUICStreamID(rawValue: slot.id), value: previous)
+            }
+        } else {
+            assert(slot.isEmpty)
             self.count &+= 1
             self.doubleCapacityIfNeeded()
             return .inserted
-
-        case .some(let previous):
-            if previous.id == id {
-                return .replaced(previous.value)
-            } else {
-                return .evicted(id: previous.id, value: previous.value)
-            }
         }
     }
 
@@ -120,20 +150,10 @@ struct QUICStreamIDCache<Value> {
     mutating func removeValue(forID id: QUICStreamID) -> Value? {
         let index = self.slotIndex(of: id)
 
-        var entry: Entry? = nil
-        swap(&entry, &self.slots[index])
-
-        switch entry {
-        case .some(let entry) where entry.id == id:
+        if let value = self.slots[index].removeValue(forID: id) {
             self.count &-= 1
-            return entry.value
-
-        case .some:
-            // Different ID, put back the entry.
-            swap(&entry, &self.slots[index])
-            return nil
-
-        case .none:
+            return value
+        } else {
             return nil
         }
     }
@@ -144,7 +164,7 @@ struct QUICStreamIDCache<Value> {
 
         self.count = 0
         for index in self.slots.indices {
-            self.slots[index] = nil
+            self.slots[index] = Slot()
         }
     }
 
@@ -158,7 +178,7 @@ struct QUICStreamIDCache<Value> {
         self.nextGrowthCount = capacity.scaled(by: self.threshold)
 
         // Add the new empty slots.
-        self.slots.append(contentsOf: repeatElement(nil, count: oldCapacity))
+        self.slots.append(contentsOf: repeatElement(Slot(), count: oldCapacity))
 
         // Doubling capacity effectively splits each slot into two. One slots maintains its place
         // and the other entry either moves by `oldCapacity` slots. This is determined by the bit
@@ -166,13 +186,8 @@ struct QUICStreamIDCache<Value> {
         // are vacant.
         let bit = UInt64(oldCapacity)
         for index in 0..<oldCapacity {
-            switch self.slots[index] {
-            case .some(let entry):
-                if (entry.id.rawValue >> 2) & bit != 0 {
-                    self.slots.swapAt(index, index | oldCapacity)
-                }
-            case .none:
-                ()
+            if !self.slots[index].isEmpty && (self.slots[index].id >> 2 & bit) != 0 {
+                self.slots.swapAt(index, index | oldCapacity)
             }
         }
     }
@@ -182,20 +197,20 @@ extension QUICStreamIDCache: Sequence {
     typealias Element = (QUICStreamID, Value)
 
     func makeIterator() -> Iterator {
-        Iterator(iterator: self.slots.makeIterator())
+        Iterator(self.slots.makeIterator())
     }
 
     struct Iterator: IteratorProtocol {
-        private var iterator: [QUICStreamIDCache<Value>.Entry?].Iterator
+        private var iterator: [QUICStreamIDCache<Value>.Slot].Iterator
 
-        fileprivate init(iterator: [QUICStreamIDCache<Value>.Entry?].Iterator) {
+        fileprivate init(_ iterator: [QUICStreamIDCache<Value>.Slot].Iterator) {
             self.iterator = iterator
         }
 
         mutating func next() -> (QUICStreamID, Value)? {
-            while let entry = self.iterator.next() {
-                if let entry {
-                    return (entry.id, entry.value)
+            while let slot = self.iterator.next() {
+                if let value = slot.value {
+                    return (QUICStreamID(rawValue: slot.id), value)
                 }
             }
             return nil

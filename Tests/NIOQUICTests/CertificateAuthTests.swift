@@ -165,6 +165,7 @@ final class CertificateAuthTests: XCTestCase {
     func testClientIdleTimeout() async throws {
         let certs = try TestCertificates()
         let certificateFilePaths = try certs.writeToTemp(fileTag: "testClientIdleTimeout")
+        let idleTimeout: Duration = .milliseconds(800)
 
         let (serverChannel, serverMultiplexer) = try await buildServerChannel(
             name: certs.leafName,
@@ -172,7 +173,7 @@ final class CertificateAuthTests: XCTestCase {
             privateKeyFilePath: certificateFilePaths.serverPrivateKeyFilePath
         )
         let (_, clientMultiplexer) = try await buildClientChannel(
-            maxIdleTimeout: .milliseconds(2000),
+            maxIdleTimeout: idleTimeout,
             trustStoreFilePath: certificateFilePaths.trustStoreFilePath
         )
 
@@ -183,6 +184,9 @@ final class CertificateAuthTests: XCTestCase {
                 channel.eventLoop.makeCompletedFuture { fatalError() }
             }
         )
+
+        // The client's connection channel, captured from the stream channel's parent.
+        let connectionChannelBox = NIOLockedValueBox<(any Channel)?>(nil)
 
         try await withThrowingTaskGroup(of: Void.self) { group in
             group.addTask {
@@ -198,7 +202,8 @@ final class CertificateAuthTests: XCTestCase {
             }
             let stream = try await clientConnection.createBidirectionalStream { streamInitializer in
                 streamInitializer.channel.eventLoop.makeCompletedFuture {
-                    try NIOAsyncChannel(
+                    connectionChannelBox.withLockedValue { $0 = streamInitializer.channel.parent! }
+                    return try NIOAsyncChannel(
                         wrappingChannelSynchronously: streamInitializer.channel,
                         configuration: .init(
                             isOutboundHalfClosureEnabled: true,
@@ -209,16 +214,19 @@ final class CertificateAuthTests: XCTestCase {
                 }
             }
             try await stream.executeThenClose { inbound, outbound in
-                try await Task.sleep(for: .seconds(4))
-                do {
-                    try await outbound.write(.init(string: "GET /foo"))
-                    outbound.finish()
-                } catch {
-                    XCTAssertNotNil(error, "Channel should be closed due to timeout")
-                }
+                // Idle for twice the timeout the client advertised, so the connection is gone.
+                try await Task.sleep(for: idleTimeout * 2)
+                // Nothing to check here. Just testing that the bytes never reach the peer.
+                try? await outbound.write(.init(string: "GET /foo"))
+                outbound.finish()
             }
             group.cancelAll()
         }
+
+        let connectionChannel = try XCTUnwrap(connectionChannelBox.withLockedValue { $0 })
+        let closed = try await trackChannelClose(of: connectionChannel, within: idleTimeout + .seconds(2))
+        XCTAssertTrue(closed, "Connection channel did not close after the client's idle timeout elapsed")
+        XCTAssertFalse(connectionChannel.isActive, "Connection channel is still active after the idle timeout")
     }
 
     func testMultipleConnections() async throws {

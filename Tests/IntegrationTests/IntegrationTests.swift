@@ -527,8 +527,9 @@ final class IntegrationTests: XCTestCase {
     }
 
     func testIdleTimeout() async throws {
-        // Test that idle timeout closes the connection when there's no activity.
-        // SwiftNetwork handles idle timeout internally and delivers ETIMEDOUT via disconnected event.
+        // Once the connection goes idle for longer than the negotiated max_idle_timeout,
+        // SwiftNetwork times it out and reports ETIMEDOUT through the disconnected event. The
+        // connection channel must act on that: go inactive and complete its close future.
         let idleTimeout: Duration = .seconds(2)
 
         let (_, serverChannel, serverMultiplexer, clientMultiplexer) =
@@ -537,10 +538,11 @@ final class IntegrationTests: XCTestCase {
                 clientKeepAliveTime: nil  // No keepalives - we want idle timeout to fire
             )
 
-        let connectionClosed = Counter()
+        // The client's connection channel, captured from the stream channel's parent.
+        let connectionChannelBox = NIOLockedValueBox<(any Channel)?>(nil)
 
         try await withThrowingTaskGroup(of: Void.self) { group in
-            // Server task - process one request then wait
+            // Server task - answer one request, then leave the connection alone.
             group.addTask {
                 for await serverConnection in serverMultiplexer.inboundConnections {
                     for await stream in serverConnection.inboundStreams {
@@ -551,9 +553,6 @@ final class IntegrationTests: XCTestCase {
                                 outbound.finish()
                             }
                         }
-                        // After first stream, wait for idle timeout then exit
-                        try await Task.sleep(for: .seconds(3))
-                        connectionClosed.increment()
                         return
                     }
                 }
@@ -570,7 +569,8 @@ final class IntegrationTests: XCTestCase {
 
             let stream = try await connection.createBidirectionalStream { streamInitializer in
                 streamInitializer.channel.eventLoop.makeCompletedFuture {
-                    try NIOAsyncChannel(
+                    connectionChannelBox.withLockedValue { $0 = streamInitializer.channel.parent! }
+                    return try NIOAsyncChannel(
                         wrappingChannelSynchronously: streamInitializer.channel,
                         configuration: .init(
                             isOutboundHalfClosureEnabled: true,
@@ -590,12 +590,16 @@ final class IntegrationTests: XCTestCase {
                 }
             }
 
-            // Wait for server task to complete (which waits for idle timeout)
             try await group.waitForAll()
         }
 
-        // After idle timeout, the connection should be closed
-        XCTAssertEqual(connectionClosed.load(), 1)
+        let connectionChannel = try XCTUnwrap(connectionChannelBox.withLockedValue { $0 })
+
+        // Only the idle timeout can close the client's connectionChannel now. Use a separate timeout
+        // to ensure the connection closes at all.
+        let closed = try await trackChannelClose(of: connectionChannel, within: idleTimeout + .seconds(2))
+        XCTAssertTrue(closed, "Connection channel did not close after the idle timeout elapsed")
+        XCTAssertFalse(connectionChannel.isActive, "Connection channel is still active after the idle timeout")
     }
 
     // MARK: - Zero-length connection ID tests (RFC 9000 Section 5.1)

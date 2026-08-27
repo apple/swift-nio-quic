@@ -71,7 +71,8 @@ final class QUICProtocolStackTests: XCTestCase {
         initialMaxUnidirectionalStreams: Int = 8,
         qlogConfiguration: QUICConfiguration.QLogConfiguration? = nil,
         sendRetry: Bool = false,
-        eventLoopGroup: any EventLoopGroup = MultiThreadedEventLoopGroup.singleton
+        eventLoopGroup: any EventLoopGroup = MultiThreadedEventLoopGroup.singleton,
+        onConnectionChannel: (@Sendable (any Channel) -> Void)? = nil
     ) async throws -> (any Channel, QUICHandler.ConnectionMultiplexer<NIOAsyncChannel<ByteBuffer, ByteBuffer>>) {
         let (channel, multiplexer) = try await DatagramBootstrap(group: eventLoopGroup)
             .channelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
@@ -96,6 +97,11 @@ final class QUICProtocolStackTests: XCTestCase {
                         logger: logger,
                         inboundStreamChannelInitializer: { streamChannel in
                             streamChannel.eventLoop.makeCompletedFuture {
+                                // Hands out the connection channel each time an inbound stream is
+                                // initialized, so a test can get at the server side of a connection.
+                                if let onConnectionChannel, let connectionChannel = streamChannel.parent {
+                                    onConnectionChannel(connectionChannel)
+                                }
                                 let asyncChannel = try NIOAsyncChannel(
                                     wrappingChannelSynchronously: streamChannel,
                                     configuration: .init(
@@ -324,12 +330,13 @@ final class QUICProtocolStackTests: XCTestCase {
     }
 
     func testClientIdleTimeout() async throws {
+        let idleTimeout: Duration = .milliseconds(400)
 
         let loggers = getChannelLoggers()
         let (serverChannel, serverMultiplexer) = try await buildServerChannel(logger: loggers.serverLogger)
         let (_, clientMultiplexer) = try await buildClientChannel(
             logger: loggers.clientLogger,
-            maxIdleTimeout: .milliseconds(400)
+            maxIdleTimeout: idleTimeout
         )
 
         let clientConnection = try await clientMultiplexer.createNewConnection(
@@ -339,6 +346,9 @@ final class QUICProtocolStackTests: XCTestCase {
                 channel.eventLoop.makeCompletedFuture { fatalError() }
             }
         )
+
+        // The client's connection channel, captured from the stream channel's parent.
+        let connectionChannelBox = NIOLockedValueBox<(any Channel)?>(nil)
 
         try await withThrowingTaskGroup(of: Void.self) { group in
             group.addTask {
@@ -354,7 +364,8 @@ final class QUICProtocolStackTests: XCTestCase {
             }
             let stream = try await clientConnection.createBidirectionalStream { streamInitializer in
                 streamInitializer.channel.eventLoop.makeCompletedFuture {
-                    try NIOAsyncChannel(
+                    connectionChannelBox.withLockedValue { $0 = streamInitializer.channel.parent! }
+                    return try NIOAsyncChannel(
                         wrappingChannelSynchronously: streamInitializer.channel,
                         configuration: .init(
                             isOutboundHalfClosureEnabled: true,
@@ -366,24 +377,36 @@ final class QUICProtocolStackTests: XCTestCase {
             }
             try await stream.executeThenClose { inbound, outbound in
                 // The server should not get the client write here due to inactivity on the client and the connection going down.
-                try await Task.sleep(for: .milliseconds(800))
-                do {
-                    try await outbound.write(.init(string: "GET /foo"))
-                    outbound.finish()
-                } catch {
-                    XCTAssertNotNil(error, "Channel should be closed due to timeout")
-                }
+                try await Task.sleep(for: idleTimeout * 2)
+                // Nothing to check here. Just testing that the bytes never reach the peer.
+                try? await outbound.write(.init(string: "GET /foo"))
+                outbound.finish()
             }
             group.cancelAll()
         }
+
+        let connectionChannel = try XCTUnwrap(connectionChannelBox.withLockedValue { $0 })
+        let closed = try await trackChannelClose(of: connectionChannel, within: idleTimeout + .seconds(2))
+        XCTAssertTrue(closed, "Connection channel did not close after the client's idle timeout elapsed")
+        XCTAssertFalse(connectionChannel.isActive, "Connection channel is still active after the idle timeout")
     }
 
     func testServerIdleTimeout() async throws {
+        let idleTimout: Duration = .milliseconds(400)
+
+        // An idle timeout is a silent close (RFC 9000 § 10.1): no CONNECTION_CLOSE goes on the
+        // wire, so only the endpoint whose own timer fires learns about it. The short timeout
+        // here is the server's, so it is the server's connection channel that must close --
+        // hence capturing it from the server side rather than asserting on the client's.
+        let connectionChannelBox = NIOLockedValueBox<(any Channel)?>(nil)
 
         let loggers = getChannelLoggers()
         let (serverChannel, serverMultiplexer) = try await buildServerChannel(
             logger: loggers.serverLogger,
-            maxIdleTimeout: .milliseconds(400)
+            maxIdleTimeout: idleTimout,
+            onConnectionChannel: { connectionChannel in
+                connectionChannelBox.withLockedValue { $0 = connectionChannel }
+            }
         )
         let (_, clientMultiplexer) = try await buildClientChannel(
             logger: loggers.clientLogger
@@ -398,14 +421,20 @@ final class QUICProtocolStackTests: XCTestCase {
         )
 
         try await withThrowingTaskGroup(of: Void.self) { group in
+            // Answer one request, then leave the connection alone so it goes idle. The exchange
+            // is what gives the server an inbound stream, and with it a connection channel to
+            // capture.
             group.addTask {
                 for await connection in serverMultiplexer.inboundConnections {
                     for await stream in connection.inboundStreams {
                         try await stream.executeThenClose { inbound, outbound in
-                            for try await _ in inbound {
-                                XCTFail("Should not reach this path")
+                            for try await buffer in inbound {
+                                XCTAssertEqual(buffer, .init(string: "GET /foo"))
+                                try await outbound.write(.init(string: "<b>Success</b>"))
+                                outbound.finish()
                             }
                         }
+                        return
                     }
                 }
             }
@@ -422,17 +451,26 @@ final class QUICProtocolStackTests: XCTestCase {
                 }
             }
             try await stream.executeThenClose { inbound, outbound in
-                try await Task.sleep(for: .milliseconds(800))
-                do {
-                    // The server should not get the client write here due to inactivity on the server and the connection going down.
-                    try await outbound.write(.init(string: "GET /foo"))
-                    outbound.finish()
-                } catch {
-                    XCTAssertNotNil(error, "Channel should be closed due to timeout")
+                try await outbound.write(.init(string: "GET /foo"))
+                outbound.finish()
+
+                for try await buffer in inbound {
+                    XCTAssertEqual(buffer, .init(string: "<b>Success</b>"))
                 }
             }
-            group.cancelAll()
+
+            try await group.waitForAll()
         }
+
+        // Nothing touches the connection from here on, so only the idle timeout can close it.
+        let connectionChannel = try XCTUnwrap(connectionChannelBox.withLockedValue { $0 })
+        XCTAssertTrue(connectionChannel.isActive)
+        let closed = try await trackChannelClose(of: connectionChannel, within: idleTimout + .seconds(2))
+        XCTAssertTrue(closed, "Server connection channel did not close after its idle timeout elapsed")
+        XCTAssertFalse(
+            connectionChannel.isActive,
+            "Server connection channel is still active after the idle timeout"
+        )
     }
 
     func testMultipleConnections() async throws {

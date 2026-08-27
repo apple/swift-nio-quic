@@ -129,3 +129,22 @@ final class Counter: Sendable {
         self.value.load(ordering: .sequentiallyConsistent)
     }
 }
+
+/// Waits up to `timeout` for `channel` to close, reporting whether it did.
+///
+/// Basically just a loop to check regularaly to notice closure early instead of just waiting
+/// for the complete timeout.
+@available(macOS 15, iOS 18, tvOS 18, watchOS 11, visionOS 2, *)
+func trackChannelClose(of channel: any Channel, within timeout: Duration) async throws -> Bool {
+    let closed = Mutex(false)
+    channel.closeFuture.whenComplete { _ in closed.withLock { $0 = true } }
+
+    let deadline = ContinuousClock.now + timeout
+    while ContinuousClock.now < deadline {
+        if closed.withLock({ $0 }) {
+            return true
+        }
+        try await Task.sleep(for: .milliseconds(50))
+    }
+    return closed.withLock { $0 }
+}
