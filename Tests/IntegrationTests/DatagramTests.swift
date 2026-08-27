@@ -53,10 +53,12 @@ struct DatagramTests {
             inboundConnectionInitializer: { connectionChannel, streamCreator in
                 connectionChannel.eventLoop.makeCompletedFuture {
                     try connectionChannel.pipeline.syncOperations.addHandler(
-                        DatagramCapture(onDatagram: { buffer in
-                            serverReceivedPromise.succeed(buffer)
-                            connectionChannel.writeAndFlush(buffer, promise: nil)
-                        })
+                        DatagramCapture(
+                            onDatagram: { buffer in
+                                serverReceivedPromise.succeed(buffer)
+                                connectionChannel.writeAndFlush(buffer, promise: nil)
+                            }
+                        )
                     )
                 }
             },
@@ -87,7 +89,89 @@ struct DatagramTests {
         ) { connectionChannel, _ in
             connectionChannel.eventLoop.makeCompletedFuture {
                 try connectionChannel.pipeline.syncOperations.addHandler(
-                    DatagramCapture(onDatagram: { clientReceivedEchoPromise.succeed($0) })
+                    DatagramCapture(
+                        onDatagram: { clientReceivedEchoPromise.succeed($0) }
+                    )
+                )
+            }
+        }
+
+        // Open a tiny synchronization stream first. Once the server reads it, the connection was established.
+        try await performSyncHandshake(streamCreator, signal: syncSignal, serverReceived: serverReceivedSyncPromise)
+
+        clientConnectionChannel.writeAndFlush(payload, promise: nil)
+
+        let serverReceived = try await serverReceivedPromise.futureResult.get()
+        #expect(serverReceived == payload)
+
+        let clientReceived = try await clientReceivedEchoPromise.futureResult.get()
+        #expect(clientReceived == payload)
+
+        try await serverChannel.close()
+        try await noMoreConnectionsPromise.futureResult.get()
+    }
+
+    @available(anyAppleOS 26, *)
+    @Test
+    func datagramRoundTripWaitingForReadComplete() async throws {
+        let eventLoopGroup = MultiThreadedEventLoopGroup.singleton
+        let loggers = getChannelLoggers()
+        let host = "127.0.0.1"
+        let payload = ByteBuffer(string: "hello datagram")
+        let syncSignal = ByteBuffer(string: "ready")
+
+        let noMoreConnectionsPromise = eventLoopGroup.any().makePromise(of: Void.self)
+        let serverReceivedSyncPromise = eventLoopGroup.any().makePromise(of: Void.self)
+        let serverReceivedPromise = eventLoopGroup.any().makePromise(of: ByteBuffer.self)
+        let clientReceivedEchoPromise = eventLoopGroup.any().makePromise(of: ByteBuffer.self)
+
+        let serverChannel = try await createServerChannel(
+            eventLoopGroup: eventLoopGroup,
+            host: host,
+            port: 0,
+            logger: loggers.serverLogger,
+            inboundConnectionInitializer: { connectionChannel, streamCreator in
+                connectionChannel.eventLoop.makeCompletedFuture {
+                    try connectionChannel.pipeline.syncOperations.addHandler(
+                        DatagramCaptureOnReadComplete(
+                            onDatagram: { buffer in
+                                serverReceivedPromise.succeed(buffer)
+                                connectionChannel.writeAndFlush(buffer, promise: nil)
+                            }
+                        )
+                    )
+                }
+            },
+            inboundStreamInitializer: { streamChannel in
+                streamChannel.pipeline.eventLoop.makeCompletedFuture {
+                    try streamChannel.pipeline.syncOperations.addHandler(
+                        SyncSignalHandler(receivedPromise: serverReceivedSyncPromise)
+                    )
+                }
+            },
+            noMoreConnections: {
+                noMoreConnectionsPromise.succeed()
+            }
+        ).get()
+        let serverPort = serverChannel.localAddress!.port!
+
+        let clientChannel = try await createClientChannel(
+            eventLoopGroup: eventLoopGroup,
+            host: host,
+            port: 0,
+            logger: loggers.clientLogger
+        ).get()
+
+        let (clientConnectionChannel, streamCreator) = try await connectOutbound(
+            clientChannel,
+            host: host,
+            port: serverPort
+        ) { connectionChannel, _ in
+            connectionChannel.eventLoop.makeCompletedFuture {
+                try connectionChannel.pipeline.syncOperations.addHandler(
+                    DatagramCaptureOnReadComplete(
+                        onDatagram: { clientReceivedEchoPromise.succeed($0) }
+                    )
                 )
             }
         }
@@ -526,6 +610,29 @@ final class DatagramCapture: ChannelInboundHandler {
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         let buffer = self.unwrapInboundIn(data)
         self.onDatagram(buffer)
+    }
+}
+
+/// Captures inbound QUIC datagrams delivered on the connection channel.
+@available(anyAppleOS 26, *)
+final class DatagramCaptureOnReadComplete: ChannelInboundHandler {
+    typealias InboundIn = ByteBuffer
+
+    let onDatagram: @Sendable (ByteBuffer) -> Void
+    var buffer: ByteBuffer? = nil
+
+    init(onDatagram: @escaping @Sendable (ByteBuffer) -> Void) {
+        self.onDatagram = onDatagram
+    }
+
+    func channelRead(context: ChannelHandlerContext, data: NIOAny) {
+        self.buffer = self.unwrapInboundIn(data)
+    }
+
+    func channelReadComplete(context: ChannelHandlerContext) {
+        if let buffer = self.buffer {
+            self.onDatagram(buffer)
+        }
     }
 }
 

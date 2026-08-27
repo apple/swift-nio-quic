@@ -141,7 +141,7 @@ struct QUICStreamIDDictionary<Value> {
     mutating func updateValue(_ value: Value, forID id: QUICStreamID) -> Value? {
         let previous: Value?
 
-        if self.overflowCount == 0 {
+        if self.overflowCount == 0 || self.caches[self.cacheIndex(of: id)].contains(id) {
             // Fast-path: no-overflow values.
             previous = self.insert(value, forID: id)
         } else if let position = self.overflowIndex(of: id) {

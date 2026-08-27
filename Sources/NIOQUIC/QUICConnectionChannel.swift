@@ -84,9 +84,18 @@ final class QUICConnectionChannel: @unchecked Sendable {
     /// Whether the channel is allowed to drain the output from the connection.
     private var _isAllowedToDrain: Bool
 
+    /// Whether the channel is currently in a read loop.
+    private var _inReadLoop: Bool
+
     /// A queue of streams pushed to the channel by the underlying connection. These are dequeued
     /// at the end of the parent channel's read loop (in `_parentChannelReadComplete`).
     private var _pendingStreams: Deque<(QUICStreamID, QUICChannelStreamHandler)>
+
+    /// This flag tracks if QUIC datagrams were forwarded inbound on the connection channel during
+    /// this tick. Part of the responsibility of the `QUICConnectionChannel` is accepting datagrams
+    /// from SwiftNetwork and sending them on the connection channel. At the end of a tick, it should
+    /// only fire `channelReadComplete` after sending datagrams.
+    private var _readDatagramsInThisTick: Bool
 
     /// The negotiation state of the QUIC datagram extension (RFC 9221) for the connection.
     enum DatagramNegotiation {
@@ -140,8 +149,10 @@ final class QUICConnectionChannel: @unchecked Sendable {
         self._streamInitializer = nil
         self._readyPromise = nil
         self._isAllowedToDrain = true
+        self._inReadLoop = false
         self._pendingStreams = []
         self._datagramNegotiation = .waitingForPeerAdvertisement(earlyWrites: TinyArray())
+        self._readDatagramsInThisTick = false
 
         self._pipeline = ChannelPipeline(channel: self)
 
@@ -431,9 +442,18 @@ extension QUICConnectionChannel.ConnectionView {
     }
 
     /// Notifies the connection that it should call back into the connection and drain its output
-    /// buffer. This is used for out-of-band writes.
-    func drainOutbound() {
+    /// buffer. This is used for tests.
+    func drainOutboundAndReconcileLifecycle() {
         self._channel.drainAndReconcileLifecycle()
+    }
+
+    /// Notifies the connection that it should call back into the connection and drain its output
+    /// buffer. Runs on the next event loop tick to avoid reentrancy. This is used for out-of-band
+    /// writes.
+    func drainOutbound() {
+        self._channel.eventLoop.assumeIsolated().execute {
+            self._channel.drainAndReconcileLifecycle()
+        }
     }
 
     /// Notifies the connection that the handshake completed.
@@ -446,6 +466,7 @@ extension QUICConnectionChannel.ConnectionView {
 
     /// A datagram was received from the peer; fire it as a `channelRead`.
     func datagramRead(_ datagram: ByteBuffer) {
+        self._channel._readDatagramsInThisTick = true
         self._channel.pipeline.syncOperations.fireChannelRead(NIOAny(datagram))
     }
 
@@ -553,7 +574,9 @@ extension QUICConnectionChannel.TransportView {
         }
     }
 
-    func parentChannelRead(_ buffer: ByteBuffer) {
+    /// Returns whether the read caused the channel to enter a read loop.
+    @discardableResult
+    func parentChannelRead(_ buffer: ByteBuffer) -> Bool {
         self.channel._parentChannelRead(buffer)
     }
 
@@ -708,7 +731,7 @@ extension QUICConnectionChannel {
         return body()
     }
 
-    private func drainOutput() {
+    fileprivate func drainOutput() {
         self.eventLoop.assertInEventLoop()
 
         guard self._isAllowedToDrain else { return }
@@ -861,15 +884,20 @@ extension QUICConnectionChannel {
         self.pipeline.syncOperations.fireUserInboundEventTriggered(event)
     }
 
-    fileprivate func _parentChannelRead(_ buffer: ByteBuffer) {
+    fileprivate func _parentChannelRead(_ buffer: ByteBuffer) -> Bool {
         self.eventLoop.assertInEventLoop()
         // Feed packets in, '_parentChannelReadComplete' signals to the connection that
         // it should then consume those packets.
         self._connection.receivePacket(buffer)
+
+        let didEnterReadLoop = !self._inReadLoop
+        self._inReadLoop = true
+        return didEnterReadLoop
     }
 
     fileprivate func _parentChannelReadComplete() {
         self.eventLoop.assertInEventLoop()
+        self._inReadLoop = false
 
         // Avoid entering 'drainOutput'; wait for all events to be delivered and then
         // deal with them in 'drainAndReconcileLifecycle' below.
@@ -888,6 +916,12 @@ extension QUICConnectionChannel {
 
         self.drainAndReconcileLifecycle()
         self.processPendingInboundStreams()
+
+        // Only fire channelReadComplete after reading a datagram.
+        if self._readDatagramsInThisTick {
+            self._readDatagramsInThisTick = false
+            self.pipeline.syncOperations.fireChannelReadComplete()
+        }
 
         // Done producing data: exit read loop (which also flushes outbound data.)
         self._connection.withLiveOnly { $0.exitReadLoop() }
