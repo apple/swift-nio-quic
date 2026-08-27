@@ -112,7 +112,7 @@ final class QUICStatelessResetTokenGeneratorTests: XCTestCase {
         let generator = QUICStatelessResetTokenGenerator(key: Self.key)
 
         // A reset needs 5 unpredictable bytes plus the 16-byte token, so nothing valid fits into
-        // fewer than 22 bytes.
+        // fewer than 21 bytes.
         for triggeringPacketLength in [0, 1, 21] {
             XCTAssertNil(
                 generator.statelessResetPacket(
