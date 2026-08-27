@@ -377,7 +377,7 @@ final class QUICProtocolStackTests: XCTestCase {
             }
             try await stream.executeThenClose { inbound, outbound in
                 // The server should not get the client write here due to inactivity on the client and the connection going down.
-                try await Task.sleep(for: idleTimeout + .seconds(2))
+                try await Task.sleep(for: idleTimeout * 2)
                 // Nothing to check here. Just testing that the bytes never reach the peer.
                 try? await outbound.write(.init(string: "GET /foo"))
                 outbound.finish()

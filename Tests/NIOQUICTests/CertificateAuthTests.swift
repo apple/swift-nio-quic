@@ -215,7 +215,7 @@ final class CertificateAuthTests: XCTestCase {
             }
             try await stream.executeThenClose { inbound, outbound in
                 // Idle for twice the timeout the client advertised, so the connection is gone.
-                try await Task.sleep(for: idleTimeout  + .seconds(2))
+                try await Task.sleep(for: idleTimeout * 2)
                 // Nothing to check here. Just testing that the bytes never reach the peer.
                 try? await outbound.write(.init(string: "GET /foo"))
                 outbound.finish()
@@ -224,7 +224,7 @@ final class CertificateAuthTests: XCTestCase {
         }
 
         let connectionChannel = try XCTUnwrap(connectionChannelBox.withLockedValue { $0 })
-        let closed = try await trackChannelClose(of: connectionChannel, within: idleTimeout + .seconds(3))
+        let closed = try await trackChannelClose(of: connectionChannel, within: idleTimeout + .seconds(2))
         XCTAssertTrue(closed, "Connection channel did not close after the client's idle timeout elapsed")
         XCTAssertFalse(connectionChannel.isActive, "Connection channel is still active after the idle timeout")
     }
