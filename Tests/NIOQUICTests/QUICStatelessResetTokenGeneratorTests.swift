@@ -68,4 +68,59 @@ final class QUICStatelessResetTokenGeneratorTests: XCTestCase {
             QUICStatelessResetTokenGenerator(key: nil).tokenBytes(for: connectionID)
         )
     }
+
+    func testResetPacketEndsWithTheTokenAndLooksLikeAShortHeader() throws {
+        let connectionID = self.makeConnectionID(1)
+        let generator = QUICStatelessResetTokenGenerator(key: Self.key)
+
+        let packet = try XCTUnwrap(
+            generator.statelessResetPacket(
+                for: connectionID,
+                triggeringPacketLength: 1200,
+                allocator: ByteBufferAllocator()
+            )
+        )
+
+        XCTAssertEqual(
+            Array(packet.readableBytesView.suffix(16)),
+            generator.tokenBytes(for: connectionID)
+        )
+        // Form bit clear, fixed bit set: indistinguishable from a 1-RTT packet (RFC 9000 § 10.3).
+        let firstByte = try XCTUnwrap(packet.getInteger(at: packet.readerIndex, as: UInt8.self))
+        XCTAssertEqual(firstByte & 0b1100_0000, 0b0100_0000)
+        XCTAssertGreaterThanOrEqual(packet.readableBytes, 21)
+    }
+
+    func testResetPacketIsSmallerThanThePacketThatTriggeredIt() throws {
+        let generator = QUICStatelessResetTokenGenerator(key: Self.key)
+
+        // RFC 9000 § 10.3.3: every reset must be smaller than its trigger, so an exchange of
+        // resets between two stateless endpoints dies out instead of looping.
+        for triggeringPacketLength in [22, 30, 43, 1200] {
+            let packet = try XCTUnwrap(
+                generator.statelessResetPacket(
+                    for: self.makeConnectionID(1),
+                    triggeringPacketLength: triggeringPacketLength,
+                    allocator: ByteBufferAllocator()
+                )
+            )
+            XCTAssertLessThan(packet.readableBytes, triggeringPacketLength)
+        }
+    }
+
+    func testNoResetPacketWhenTheTriggerIsTooSmall() {
+        let generator = QUICStatelessResetTokenGenerator(key: Self.key)
+
+        // A reset needs 5 unpredictable bytes plus the 16-byte token, so nothing valid fits into
+        // fewer than 22 bytes.
+        for triggeringPacketLength in [0, 1, 21] {
+            XCTAssertNil(
+                generator.statelessResetPacket(
+                    for: self.makeConnectionID(1),
+                    triggeringPacketLength: triggeringPacketLength,
+                    allocator: ByteBufferAllocator()
+                )
+            )
+        }
+    }
 }
