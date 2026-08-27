@@ -599,6 +599,7 @@ extension QUICConnectionChannel {
     private func _connectionClosed(error: (any Error)?) {
         self.eventLoop.assertInEventLoop()
         self._lifecycle.connectionClosed(error: error)
+        self.drainAndReconcileLifecycle()
     }
 
     /// Ask the lifecycle whether to initiate a new close, cascade onto an existing close, or

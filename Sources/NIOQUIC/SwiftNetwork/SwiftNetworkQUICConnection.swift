@@ -1253,7 +1253,6 @@ extension SwiftNetworkQUICConnection {
             // channel: if that lands first the channel commits to a clean close and this error is
             // never surfaced.
             self.channelView?.connectionClosed(error: error)
-            self.channelView?.drainOutbound()
 
             // Complete draining and tear down.
             // SwiftNetwork manages the draining timeout per RFC 9000 §10.2.2 internally.
