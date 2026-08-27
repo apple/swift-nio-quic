@@ -18,9 +18,8 @@ import NIOCore
 
 /// Derives the stateless reset tokens for the connection IDs this endpoint issues.
 ///
-/// A token is `HMAC-SHA256(key, connectionID)` truncated to 16 bytes, as suggested by
-/// RFC 9000 § 10.3.2. Since tokens can be derived from the key and the conection ID they can
-/// be regenerated after restarts.
+/// Tokens are be derived from the key and the connection ID, so they can be
+/// regenerated after restarts.
 @available(anyAppleOS 26, *)
 struct QUICStatelessResetTokenGenerator: Sendable {
     /// The length of a stateless reset token in bytes (RFC 9000 § 10.3).
@@ -56,7 +55,7 @@ struct QUICStatelessResetTokenGenerator: Sendable {
         QUICStatelessResetToken(self.tokenBytes(for: connectionID))!
     }
 
-    /// The bytes of the stateless reset token for `connectionID`.
+    /// Generate the stateless reset token for `connectionID`.
     func tokenBytes(for connectionID: QUICConnectionID) -> [UInt8] {
         let connectionIDBytes = connectionID.withUnsafeBufferPointer { Array($0) }
         let code = HMAC<SHA256>.authenticationCode(for: connectionIDBytes, using: self.key)
