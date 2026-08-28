@@ -53,11 +53,11 @@ struct QUICStatelessResetTokenGenerator: Sendable {
         let code = connectionID.withUnsafeBufferPointer {
             HMAC<SHA256>.authenticationCode(for: $0, using: self.key)
         }
-        let token = InlineArray<16, UInt8>(initializingWith: { outputSpan in
+        let token = InlineArray<16, UInt8> { outputSpan in
             for elem in code.prefix(Self.tokenLength) {
                 outputSpan.append(elem)
             }
-        })
+        }
         return QUICStatelessResetToken(token.span)!
     }
 
