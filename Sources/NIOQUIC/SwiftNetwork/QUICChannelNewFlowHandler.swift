@@ -291,7 +291,7 @@ extension QUICChannelNewFlowHandler: UpperProtocolHandler {
     // Request association of a new connection ID that our peer can use to contact us.
     func requestAssociationOfConnectionID(
         _ connectionID: QUICConnectionID,
-        statelessResetToken: QUICStatelessResetToken
+        statelessResetToken: SwiftNetwork.QUICStatelessResetToken
     ) {
         self.log("New connection ID: '\(connectionID)'")
 

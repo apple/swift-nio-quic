@@ -80,7 +80,7 @@ final class SwiftNetworkQUICConnection {
     private var streamOptions: QUICStreamProtocol.QUICStreamOptions
 
     /// Derives the stateless reset tokens advertised with the connection IDs this connection issues.
-    private let statelessResetTokenGenerator: QUICStatelessResetTokenGenerator
+    private let statelessResetTokenGenerator: any QUICStatelessResetTokenGenerator
 
     /// The connection channel. Used to drive out-of-band output drains when SwiftNetwork
     /// finalizes frames outside any drain bracket initiated by the channel.
@@ -196,7 +196,7 @@ final class SwiftNetworkQUICConnection {
     static func client(
         configuration: QUICConfiguration,
         sourceConnectionID: QUICConnectionID,
-        statelessResetTokenGenerator: QUICStatelessResetTokenGenerator,
+        statelessResetTokenGenerator: any QUICStatelessResetTokenGenerator,
         serverName: String?,
         asyncVerifier: AsyncVerifier?,
         localAddress: SocketAddress,
@@ -242,7 +242,7 @@ final class SwiftNetworkQUICConnection {
     static func server(
         configuration: QUICConfiguration,
         sourceConnectionID: QUICConnectionID,
-        statelessResetTokenGenerator: QUICStatelessResetTokenGenerator,
+        statelessResetTokenGenerator: any QUICStatelessResetTokenGenerator,
         authenticator: Authenticator?,
         localAddress: SocketAddress,
         remoteAddress: SocketAddress,
@@ -274,7 +274,7 @@ final class SwiftNetworkQUICConnection {
     private init(
         configuration: QUICConfiguration,
         sourceConnectionID: QUICConnectionID,
-        statelessResetTokenGenerator: QUICStatelessResetTokenGenerator,
+        statelessResetTokenGenerator: any QUICStatelessResetTokenGenerator,
         serverName: String,
         localAddress: SocketAddress,
         remoteAddress: SocketAddress,
@@ -340,7 +340,7 @@ final class SwiftNetworkQUICConnection {
         // have no token to derive.
         if sourceConnectionID.length > 0, self.role == .server {
             perProtocolOptions.quicConnectionOptions.initialStatelessResetToken =
-                statelessResetTokenGenerator.token(for: sourceConnectionID)
+                statelessResetTokenGenerator.token(for: sourceConnectionID).token
         }
         sourceConnectionID.withUnsafeBufferPointer { bufferPointer in
             perProtocolOptions.quicConnectionOptions.sourceConnectionID = Array(bufferPointer)
@@ -1078,7 +1078,7 @@ extension SwiftNetworkQUICConnection {
         if newCID.length > 0 {
             self.connectionNewFlowHandler?.requestAssociationOfConnectionID(
                 newCID,
-                statelessResetToken: self.statelessResetTokenGenerator.token(for: newCID)
+                statelessResetToken: self.statelessResetTokenGenerator.token(for: newCID).token
             )
         }
     }
@@ -1372,7 +1372,7 @@ extension SwiftNetworkQUICConnection {
 
         flowHandler.requestAssociationOfConnectionID(
             connectionID,
-            statelessResetToken: self.statelessResetTokenGenerator.token(for: connectionID)
+            statelessResetToken: self.statelessResetTokenGenerator.token(for: connectionID).token
         )
     }
 }

@@ -16,7 +16,6 @@ import Logging
 import NIOCore
 import NIOEmbedded
 import NIOTestUtils
-@_spi(ProtocolProvider) import SwiftNetwork
 import XCTest
 
 @testable import NIOQUIC
@@ -63,7 +62,7 @@ final class QUICHandlerTests: XCTestCase {
                     privateKeyFilePath: Self.testPrivateKeyPath
                 ),
                 applicationProtocols: [],
-                statelessResetKey: Self.statelessResetKey
+                statelessResetTokenGenerator: .defaultWithUserProvidedKey(Self.statelessResetKey)
             ),
             logger: Logger(label: "Test"),
             inboundStreamChannelInitializer: { channel in
@@ -282,9 +281,10 @@ final class QUICHandlerTests: XCTestCase {
         // The reset must be smaller than its trigger (RFC 9000 § 10.3.3) and carry the token the
         // peer would have received for this connection ID.
         XCTAssertLessThan(outbound.data.readableBytes, packet.count)
+        let tokenBytes = Array(outbound.data.readableBytesView.suffix(16))
         XCTAssertEqual(
-            QUICStatelessResetToken(Array(outbound.data.readableBytesView.suffix(16))),
-            QUICStatelessResetTokenGenerator(key: Self.statelessResetKey).token(for: connectionID)
+            QUICStatelessResetToken(tokenBytes.span),
+            HMACSHA256QUICStatelessResetTokenGenerator(key: Self.statelessResetKey).token(for: connectionID)
         )
         XCTAssertNil(try self.channel.readOutbound(as: AddressedEnvelope<ByteBuffer>.self))
     }

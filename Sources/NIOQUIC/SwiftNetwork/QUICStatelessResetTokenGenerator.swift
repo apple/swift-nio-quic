@@ -21,49 +21,15 @@ import NIOCore
 /// Tokens are be derived from the key and the connection ID, so they can be
 /// regenerated after restarts.
 @available(anyAppleOS 26, *)
-struct QUICStatelessResetTokenGenerator: Sendable {
-    /// The length of a stateless reset token in bytes (RFC 9000 § 10.3).
-    static var tokenLength: Int { 16 }
-
-    /// The shortest key accepted. HMAC keys shorter than the hash output weaken the derivation (RFC 2104).
-    static var minimumKeyLength: Int { 32 }
-
-    /// Our key input. To send valid stateless resets across restarts the same key must be configured.
-    private let key: SymmetricKey
-
-    /// Create a new stateless token generator.
-    ///
-    /// - Parameter key: The static key to derive tokens from, or `nil` to generate one. A generated
-    ///   key is private to this process, so tokens do not survive a restart.
-    /// - Precondition: A supplied key is at least ``minimumKeyLength`` bytes long.
-    init(key: [UInt8]?) {
-        if let key {
-            precondition(
-                key.count >= Self.minimumKeyLength,
-                "The stateless reset key must be at least \(Self.minimumKeyLength) bytes long"
-            )
-            self.key = SymmetricKey(data: key)
-        } else {
-            self.key = SymmetricKey(size: .bits256)
-        }
-    }
-
+public protocol QUICStatelessResetTokenGenerator: Sendable {
     /// The stateless reset token for `connectionID`.
     ///
     /// - Precondition: `connectionID` must be longer than 0 bytes.
-    func token(for connectionID: QUICConnectionID) -> QUICStatelessResetToken {
-        assert(connectionID.length > 0)
-        let code = connectionID.withUnsafeBufferPointer {
-            HMAC<SHA256>.authenticationCode(for: $0, using: self.key)
-        }
-        let token = InlineArray<16, UInt8> { outputSpan in
-            for elem in code.prefix(Self.tokenLength) {
-                outputSpan.append(elem)
-            }
-        }
-        return QUICStatelessResetToken(token.span)!
-    }
+    func token(for connectionID: QUICConnectionID) -> QUICStatelessResetToken
+}
 
+@available(anyAppleOS 26, *)
+extension QUICStatelessResetTokenGenerator {
     /// Builds a stateless reset datagram for `connectionID`.
     ///
     /// Given the same key and same connection ID this packet will always generate the same token.
@@ -79,8 +45,10 @@ struct QUICStatelessResetTokenGenerator: Sendable {
         triggeringPacketLength: Int,
         allocator: ByteBufferAllocator
     ) -> ByteBuffer? {
+        let token = self.token(for: connectionID)
+
         let bytes = QUICConnectionUtilities.createStatelessResetPacket(
-            token: self.token(for: connectionID),
+            token: token.token,
             triggeringPacketLength: triggeringPacketLength
         )
         // No bytes means no reset could be built which is both a plausible QUIC packet (21 bytes
@@ -91,4 +59,65 @@ struct QUICStatelessResetTokenGenerator: Sendable {
         buffer.writeBytes(bytes)
         return buffer
     }
+}
+
+/// A default implementation of ``QUICStatelessResetTokenGenerator`` that
+/// uses `HMAC<SHA256>` to generate tokens.
+@available(anyAppleOS 26, *)
+public struct HMACSHA256QUICStatelessResetTokenGenerator: QUICStatelessResetTokenGenerator {
+    /// The length of a stateless reset token in bytes (RFC 9000 § 10.3).
+    static var tokenLength: Int { 16 }
+
+    /// The shortest key accepted. HMAC keys shorter than the hash output weaken the derivation (RFC 2104).
+    static var minimumKeyLength: Int { 32 }
+
+    /// Our key input. To send valid stateless resets across restarts the same key must be configured.
+    private let key: SymmetricKey
+
+    /// Create a new stateless token generator.
+    ///
+    /// - Parameter key: The static key to derive tokens from, or `nil` to generate one. A generated
+    ///   key is private to this process, so tokens do not survive a restart.
+    /// - Precondition: A supplied key is at least ``minimumKeyLength`` bytes long.
+    public init(key: [UInt8]?) {
+        if let key {
+            precondition(
+                key.count >= Self.minimumKeyLength,
+                "The stateless reset key must be at least \(Self.minimumKeyLength) bytes long"
+            )
+            self.key = SymmetricKey(data: key)
+        } else {
+            self.key = SymmetricKey(size: .bits256)
+        }
+    }
+
+    /// The stateless reset token for `connectionID`.
+    ///
+    /// - Precondition: `connectionID` must be longer than 0 bytes.
+    public func token(for connectionID: QUICConnectionID) -> QUICStatelessResetToken {
+        assert(connectionID.length > 0)
+        let code = connectionID.withUnsafeBufferPointer {
+            HMAC<SHA256>.authenticationCode(for: $0, using: self.key)
+        }
+        let token = InlineArray<16, UInt8> { outputSpan in
+            for elem in code.prefix(Self.tokenLength) {
+                outputSpan.append(elem)
+            }
+        }
+        return .init(token)
+    }
+}
+
+@available(anyAppleOS 26, *)
+extension QUICStatelessResetTokenGenerator where Self == HMACSHA256QUICStatelessResetTokenGenerator {
+
+    /// A default implementation for the ``QUICStatelessResetTokenGenerator`` that uses `HMAC<SHA256>`
+    /// and automatically generates an ephemeral key on startup. As a result stateless resets will not be valid across
+    /// restarts. Use ``defaultWithUserProvidedKey(key:)`` to provide a key across restarts.
+    public static var defaultWithAutoGeneratedKey: Self { .init(key: nil) }
+
+    /// A default implementation for the ``QUICStatelessResetTokenGenerator`` that uses `HMAC<SHA256>`
+    /// with a user-provided key. Providing the same key across restarts enables sending stateless resets that reset
+    /// dangling connections without local state.
+    public static func defaultWithUserProvidedKey(_ key: [UInt8]) -> Self { .init(key: key) }
 }

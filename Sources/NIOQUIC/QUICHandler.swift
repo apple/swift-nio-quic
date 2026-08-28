@@ -58,7 +58,7 @@ public final class QUICHandler {
     private var quicConnectionIDGenerator: any QUICConnectionIDGenerator
     /// Derives the stateless reset tokens for the connection IDs issued by this handler's
     /// connections, and for the resets this handler sends on their behalf once they are gone.
-    private let statelessResetTokenGenerator: QUICStatelessResetTokenGenerator
+    private let statelessResetTokenGenerator: any QUICStatelessResetTokenGenerator
     /// Our current state.
     private var state: State = .accepting
     /// Boolean to indicate if we wrote something.
@@ -205,7 +205,7 @@ public final class QUICHandler {
         self.quicConfiguration = quicConfiguration
         self.logger = logger
         self.quicConnectionIDGenerator = quicConnectionIDGenerator
-        self.statelessResetTokenGenerator = .init(key: quicConfiguration.statelessResetKey)
+        self.statelessResetTokenGenerator = quicConfiguration.statelessResetTokenGenerator
         if let asyncVerifier {
             self.asyncVerifierRunner = .init(asyncVerifier: asyncVerifier)
         }
@@ -241,7 +241,7 @@ public final class QUICHandler {
         self.quicConfiguration = quicConfiguration
         self.logger = logger
         self.quicConnectionIDGenerator = quicConnectionIDGenerator
-        self.statelessResetTokenGenerator = .init(key: quicConfiguration.statelessResetKey)
+        self.statelessResetTokenGenerator = quicConfiguration.statelessResetTokenGenerator
         self.multiplexerContinuation = .closure(
             connectionInitializer: inboundConnectionInitializer,
             inboundStreamInitializer: inboundStreamInitializer,
