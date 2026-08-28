@@ -57,8 +57,9 @@ struct QUICStatelessResetTokenGenerator: Sendable {
 
     /// Generate the stateless reset token for `connectionID`.
     func tokenBytes(for connectionID: QUICConnectionID) -> [UInt8] {
-        let connectionIDBytes = connectionID.withUnsafeBufferPointer { Array($0) }
-        let code = HMAC<SHA256>.authenticationCode(for: connectionIDBytes, using: self.key)
+        let code = connectionID.withUnsafeBufferPointer {
+            return HMAC<SHA256>.authenticationCode(for: $0, using: self.key)
+        }
         return Array(code.prefix(Self.tokenLength))
     }
 
@@ -83,7 +84,7 @@ struct QUICStatelessResetTokenGenerator: Sendable {
         )
         // No bytes means no reset could be built which is both a plausible QUIC packet (21 bytes
         // at minimum) and smaller than the packet that triggered it.
-        guard !bytes.isEmpty else { return nil }
+        if bytes.isEmpty { return nil }
 
         var buffer = allocator.buffer(capacity: bytes.count)
         buffer.writeBytes(bytes)
