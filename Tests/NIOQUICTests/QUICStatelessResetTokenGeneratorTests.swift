@@ -53,7 +53,7 @@ struct QUICStatelessResetTokenGeneratorTests {
 
         #expect(
             QUICStatelessResetTokenGenerator(key: Self.key).token(for: connectionID)
-            != QUICStatelessResetTokenGenerator(key: Self.otherKey).token(for: connectionID)
+                != QUICStatelessResetTokenGenerator(key: Self.otherKey).token(for: connectionID)
         )
     }
 
@@ -64,7 +64,7 @@ struct QUICStatelessResetTokenGeneratorTests {
 
         #expect(
             QUICStatelessResetTokenGenerator(key: nil).token(for: connectionID)
-            != QUICStatelessResetTokenGenerator(key: nil).token(for: connectionID)
+                != QUICStatelessResetTokenGenerator(key: nil).token(for: connectionID)
         )
     }
 
@@ -121,7 +121,7 @@ struct QUICStatelessResetTokenGeneratorTests {
                     triggeringPacketLength: triggeringPacketLength,
                     allocator: ByteBufferAllocator()
                 )
-                == nil
+                    == nil
             )
         }
     }

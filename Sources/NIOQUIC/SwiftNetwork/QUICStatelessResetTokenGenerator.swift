@@ -51,7 +51,7 @@ struct QUICStatelessResetTokenGenerator: Sendable {
     /// The stateless reset token for `connectionID`.
     func token(for connectionID: QUICConnectionID) -> QUICStatelessResetToken {
         let code = connectionID.withUnsafeBufferPointer {
-            return HMAC<SHA256>.authenticationCode(for: $0, using: self.key)
+            HMAC<SHA256>.authenticationCode(for: $0, using: self.key)
         }
         let token = InlineArray<16, UInt8>(initializingWith: { outputSpan in
             for elem in code.prefix(Self.tokenLength) {
