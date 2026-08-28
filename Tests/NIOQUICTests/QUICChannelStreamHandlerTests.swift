@@ -505,6 +505,7 @@ extension QUICChannelStreamHandlerTests {
                 applicationProtocols: []
             ),
             sourceConnectionID: .random(using: &rng),
+            statelessResetTokenGenerator: .init(key: nil),
             authenticator: nil,
             localAddress: try SocketAddress(ipAddress: "127.0.0.1", port: 1234),
             remoteAddress: try SocketAddress(ipAddress: "127.0.0.1", port: 1234),

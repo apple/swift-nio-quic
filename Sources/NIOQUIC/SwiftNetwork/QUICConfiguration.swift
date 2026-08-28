@@ -114,6 +114,11 @@ public struct QUICConfiguration: Sendable {
     /// Maximum datagram frame size in bytes. Set to 0 to disable datagrams.
     /// Defaults to 65535 (the max value allowed) as recommended in RFC 9221.
     public var maxDatagramFrameSize: Int
+    /// The key for generating stateless reset tokens (RFC 9000 § 10.3.2).
+    ///
+    /// Must be at least 32 bytes. Defaults to `nil`, in which case a key will be generated.
+    /// This must be set to enable consistent stateless resets across restarts.
+    public var statelessResetKey: [UInt8]?
 
     private init(
         role: Role,
@@ -135,7 +140,8 @@ public struct QUICConfiguration: Sendable {
         keyLogPath: String?,
         qLogConfiguration: QLogConfiguration?,
         peerCertificateVerification: CertificateVerification,
-        maxDatagramFrameSize: Int
+        maxDatagramFrameSize: Int,
+        statelessResetKey: [UInt8]?
     ) {
         self.role = role
         self.serverName = serverName
@@ -157,6 +163,7 @@ public struct QUICConfiguration: Sendable {
         self.qLogConfiguration = qLogConfiguration
         self.peerCertificateVerification = peerCertificateVerification
         self.maxDatagramFrameSize = maxDatagramFrameSize
+        self.statelessResetKey = statelessResetKey
     }
 
     /// Factory method to initialise a `QUICConfiguration` for servers.
@@ -169,6 +176,7 @@ public struct QUICConfiguration: Sendable {
     ///     - maxIdleTimeout: The max idle timeout for the connection.
     ///     - keyLogPath: The path to the file where the key log should be written to.
     ///     - qLogConfiguration: Configuration for qlog.
+    ///     - statelessResetKey: The key stateless reset tokens are derived from.
     public static func server(
         serverName: String,
         authenticationConfiguration: AuthenticationConfiguration,
@@ -185,7 +193,8 @@ public struct QUICConfiguration: Sendable {
         sendRetry: Bool = false,
         keyLogPath: String? = nil,
         qLogConfiguration: QLogConfiguration? = nil,
-        maxDatagramFrameSize: Int = 65535
+        maxDatagramFrameSize: Int = 65535,
+        statelessResetKey: [UInt8]? = nil
     ) -> Self {
         self.init(
             role: .server,
@@ -207,7 +216,8 @@ public struct QUICConfiguration: Sendable {
             keyLogPath: keyLogPath,
             qLogConfiguration: qLogConfiguration,
             peerCertificateVerification: .noVerification,
-            maxDatagramFrameSize: maxDatagramFrameSize
+            maxDatagramFrameSize: maxDatagramFrameSize,
+            statelessResetKey: statelessResetKey
         )
     }
 
@@ -221,6 +231,7 @@ public struct QUICConfiguration: Sendable {
     ///     - keyLogPath: The path to the file where the key log should be written to.
     ///     - qLogConfiguration: Configuration for qlog.
     ///     - peerCertificateVerification: Customize verification of the peer certificate.
+    ///     - statelessResetKey: The key stateless reset tokens are derived from.
     public static func client(
         verificationConfiguration: VerificationConfiguration,
         keyExchangeGroup: KeyExchangeGroup = .x25519,
@@ -237,7 +248,8 @@ public struct QUICConfiguration: Sendable {
         keyLogPath: String? = nil,
         qLogConfiguration: QLogConfiguration? = nil,
         peerCertificateVerification: CertificateVerification = .fullVerification,
-        maxDatagramFrameSize: Int = 65535
+        maxDatagramFrameSize: Int = 65535,
+        statelessResetKey: [UInt8]? = nil
     ) -> Self {
         self.init(
             role: .client,
@@ -259,7 +271,8 @@ public struct QUICConfiguration: Sendable {
             keyLogPath: keyLogPath,
             qLogConfiguration: qLogConfiguration,
             peerCertificateVerification: peerCertificateVerification,
-            maxDatagramFrameSize: maxDatagramFrameSize
+            maxDatagramFrameSize: maxDatagramFrameSize,
+            statelessResetKey: statelessResetKey
         )
     }
 }

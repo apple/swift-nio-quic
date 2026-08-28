@@ -49,7 +49,10 @@ struct QUICStatelessResetTokenGenerator: Sendable {
     }
 
     /// The stateless reset token for `connectionID`.
+    ///
+    /// - Precondition: `connectionID` must be longer than 0 bytes.
     func token(for connectionID: QUICConnectionID) -> QUICStatelessResetToken {
+        assert(connectionID.length > 0)
         let code = connectionID.withUnsafeBufferPointer {
             HMAC<SHA256>.authenticationCode(for: $0, using: self.key)
         }

@@ -79,6 +79,9 @@ final class SwiftNetworkQUICConnection {
 
     private var streamOptions: QUICStreamProtocol.QUICStreamOptions
 
+    /// Derives the stateless reset tokens advertised with the connection IDs this connection issues.
+    private let statelessResetTokenGenerator: QUICStatelessResetTokenGenerator
+
     /// The connection channel. Used to drive out-of-band output drains when SwiftNetwork
     /// finalizes frames outside any drain bracket initiated by the channel.
     internal var channelView: QUICConnectionChannel.ConnectionView?
@@ -175,9 +178,15 @@ final class SwiftNetworkQUICConnection {
 
     /// Creates a new client-side connection.
     ///
+    /// Note: The statless token generator configured here can be shared with the
+    /// `QUICHandler` and otherwise must use the same key in order generate
+    /// consistent reset tokens.
+    ///
     /// - Parameters:
     ///     - configuration: The configuration to use when creating the connection.
     ///     - sourceConnectionID: The client's source connection ID.
+    ///     - statelessResetTokenGenerator: Generator for stateless reset tokens that will
+    ///         sent along with new connection IDs.
     ///     - serverName: The server name of the peer used to verify the peer's certificate.
     ///     - asyncVerifier: Verifies the server identity when using X509-based auth.
     ///     - localAddress: The socket address we are sending from.
@@ -187,6 +196,7 @@ final class SwiftNetworkQUICConnection {
     static func client(
         configuration: QUICConfiguration,
         sourceConnectionID: QUICConnectionID,
+        statelessResetTokenGenerator: QUICStatelessResetTokenGenerator,
         serverName: String?,
         asyncVerifier: AsyncVerifier?,
         localAddress: SocketAddress,
@@ -203,6 +213,7 @@ final class SwiftNetworkQUICConnection {
         return try SwiftNetworkQUICConnection(
             configuration: configuration,
             sourceConnectionID: sourceConnectionID,
+            statelessResetTokenGenerator: statelessResetTokenGenerator,
             serverName: serverName,
             localAddress: localAddress,
             remoteAddress: remoteAddress,
@@ -214,9 +225,15 @@ final class SwiftNetworkQUICConnection {
 
     /// Accepts a new server-side connection.
     ///
+    /// Note: The statless token generator configured here can be shared with the
+    /// `QUICHandler` and otherwise must use the same key in order generate
+    /// consistent reset tokens.
+    ///
     /// - Parameters:
     ///     - configuration: The configuration to use when creating the connection.
     ///     - sourceConnectionID: The server's source connection ID.
+    ///     - statelessResetTokenGenerator: Generator for stateless reset tokens that will
+    ///         sent along with new connection IDs.
     ///     - authenticator: Authenticates the server when using X509 certificates.
     ///     - localAddress: The remote socket address of the peer
     ///     - remoteAddress: The socket address of the peer.
@@ -225,6 +242,7 @@ final class SwiftNetworkQUICConnection {
     static func server(
         configuration: QUICConfiguration,
         sourceConnectionID: QUICConnectionID,
+        statelessResetTokenGenerator: QUICStatelessResetTokenGenerator,
         authenticator: Authenticator?,
         localAddress: SocketAddress,
         remoteAddress: SocketAddress,
@@ -238,6 +256,7 @@ final class SwiftNetworkQUICConnection {
         return try SwiftNetworkQUICConnection(
             configuration: configuration,
             sourceConnectionID: sourceConnectionID,
+            statelessResetTokenGenerator: statelessResetTokenGenerator,
             serverName: serverName,
             localAddress: localAddress,
             remoteAddress: remoteAddress,
@@ -255,6 +274,7 @@ final class SwiftNetworkQUICConnection {
     private init(
         configuration: QUICConfiguration,
         sourceConnectionID: QUICConnectionID,
+        statelessResetTokenGenerator: QUICStatelessResetTokenGenerator,
         serverName: String,
         localAddress: SocketAddress,
         remoteAddress: SocketAddress,
@@ -272,6 +292,7 @@ final class SwiftNetworkQUICConnection {
         self.logger = logger
         self.localAddress = localAddress
         self.remoteAddress = remoteAddress
+        self.statelessResetTokenGenerator = statelessResetTokenGenerator
 
         self.activeSCIDs = [sourceConnectionID]
 
@@ -314,6 +335,13 @@ final class SwiftNetworkQUICConnection {
         // '!' is okay: the `options(...)` call above throws if this isn't set.
         let perProtocolOptions = quicOptions.perProtocolOptions!
         perProtocolOptions.quicConnectionOptions.disableAutomaticNewConnectionIDs = true
+        // The token for the handshake connection ID. Only a server transmits it. The client's
+        // transport parameters have no confidentiality protection. Zero-length connection IDs
+        // have no token to derive.
+        if sourceConnectionID.length > 0, self.role == .server {
+            perProtocolOptions.quicConnectionOptions.initialStatelessResetToken =
+                statelessResetTokenGenerator.token(for: sourceConnectionID)
+        }
         sourceConnectionID.withUnsafeBufferPointer { bufferPointer in
             perProtocolOptions.quicConnectionOptions.sourceConnectionID = Array(bufferPointer)
         }
@@ -1048,7 +1076,10 @@ extension SwiftNetworkQUICConnection {
 
         // Connections with a 0-length connection ID cannot announce new connection IDs.
         if newCID.length > 0 {
-            self.connectionNewFlowHandler?.requestAssociationOfConnectionID(newCID)
+            self.connectionNewFlowHandler?.requestAssociationOfConnectionID(
+                newCID,
+                statelessResetToken: self.statelessResetTokenGenerator.token(for: newCID)
+            )
         }
     }
 
@@ -1330,13 +1361,19 @@ extension SwiftNetworkQUICConnection {
 
     /// Request associating a new connection ID that our peer can use to contact us.
     /// Note: Endpoints limit connection IDs. The peer might not accept new connection IDs at this time.
+    ///
+    /// - Precondition: `connectionID` must be longer than 0 bytes.
     func requestAssociationOfConnectionID(_ connectionID: QUICConnectionID) throws {
+        assert(connectionID.length > 0)
         guard let flowHandler = self.connectionNewFlowHandler else {
             self.logger.error("failed to associate connection ID (\(connectionID)): flow handler is not set")
             throw QUICError.failedToAssociateConnectionID
         }
 
-        flowHandler.requestAssociationOfConnectionID(connectionID)
+        flowHandler.requestAssociationOfConnectionID(
+            connectionID,
+            statelessResetToken: self.statelessResetTokenGenerator.token(for: connectionID)
+        )
     }
 }
 

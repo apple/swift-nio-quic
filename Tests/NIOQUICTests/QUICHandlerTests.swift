@@ -16,12 +16,15 @@ import Logging
 import NIOCore
 import NIOEmbedded
 import NIOTestUtils
+@_spi(ProtocolProvider) import SwiftNetwork
 import XCTest
 
 @testable import NIOQUIC
 
 @available(anyAppleOS 26, *)
 final class QUICHandlerTests: XCTestCase {
+    private static let statelessResetKey = [UInt8](repeating: 0x5A, count: 32)
+
     private var eventLoop: EmbeddedEventLoop!
     private var channel: EmbeddedChannel!
     private var serverHandler: QUICHandler!
@@ -37,15 +40,30 @@ final class QUICHandlerTests: XCTestCase {
         let channelHandler = NIOLoopBound(MockChannelHandler(), eventLoop: self.eventLoop)
         self.channelHandler = channelHandler.value
         self.randomNumberGenerator = SystemRandomNumberGenerator()
-        let (handler, _) = try! QUICHandler.makeHandlerAndConnectionMultiplexer(
+        self.serverHandler = try! Self.makeHandler(
             channel: self.channel,
+            channelHandler: channelHandler,
+            connectionIDLength: Int(QUICConnectionID.randomIDLength)
+        )
+        try! self.channel.pipeline.syncOperations.addHandler(self.serverHandler)
+    }
+
+    /// Creates a server handler which derives its stateless reset tokens from ``statelessResetKey``.
+    private static func makeHandler(
+        channel: EmbeddedChannel,
+        channelHandler: NIOLoopBound<MockChannelHandler>,
+        connectionIDLength: Int
+    ) throws -> QUICHandler {
+        let (handler, _) = try QUICHandler.makeHandlerAndConnectionMultiplexer(
+            channel: channel,
             quicConfiguration: .server(
                 serverName: "quic-test.local",
                 authenticationConfiguration: .rawPublicKeys(
                     publicKeyFilePath: Self.testPublicKeyPath,
                     privateKeyFilePath: Self.testPrivateKeyPath
                 ),
-                applicationProtocols: []
+                applicationProtocols: [],
+                statelessResetKey: Self.statelessResetKey
             ),
             logger: Logger(label: "Test"),
             inboundStreamChannelInitializer: { channel in
@@ -55,10 +73,12 @@ final class QUICHandlerTests: XCTestCase {
                 } catch {
                     return channel.eventLoop.makeFailedFuture(error)
                 }
-            }
+            },
+            quicConnectionIDGenerator: RandomQUICConnectionIDGenerator(
+                connectionIDLength: connectionIDLength
+            )
         )
-        self.serverHandler = handler
-        try! self.channel.pipeline.syncOperations.addHandler(self.serverHandler)
+        return handler
     }
 
     override func tearDown() {
@@ -244,5 +264,83 @@ final class QUICHandlerTests: XCTestCase {
 
         let outbound = try self.channel.readOutbound(as: AddressedEnvelope<ByteBuffer>.self)
         XCTAssertNil(outbound)
+    }
+
+    // MARK: - Stateless reset
+
+    func testChannelRead_whenUnroutableShortHeaderPacket_sendsStatelessReset() throws {
+        let connectionID = QUICConnectionID.random(using: &self.randomNumberGenerator)
+        let packet = QUICPackets.shortHeader(destinationID: connectionID, payloadLength: 31)
+        let address = try SocketAddress(ipAddress: "127.0.0.0", port: 443)
+        self.channel.pipeline.fireChannelRead(
+            AddressedEnvelope<ByteBuffer>(remoteAddress: address, data: ByteBuffer(bytes: packet))
+        )
+        self.channel.pipeline.fireChannelReadComplete()
+
+        let outbound = try XCTUnwrap(try self.channel.readOutbound(as: AddressedEnvelope<ByteBuffer>.self))
+        XCTAssertEqual(outbound.remoteAddress, address)
+        // The reset must be smaller than its trigger (RFC 9000 § 10.3.3) and carry the token the
+        // peer would have received for this connection ID.
+        XCTAssertLessThan(outbound.data.readableBytes, packet.count)
+        XCTAssertEqual(
+            QUICStatelessResetToken(Array(outbound.data.readableBytesView.suffix(16))),
+            QUICStatelessResetTokenGenerator(key: Self.statelessResetKey).token(for: connectionID)
+        )
+        XCTAssertNil(try self.channel.readOutbound(as: AddressedEnvelope<ByteBuffer>.self))
+    }
+
+    func testChannelRead_whenUnroutableLongHeaderPacket_sendsNoStatelessReset() throws {
+        // Handshake packets are only used before the peer has a token to compare a reset against.
+        let packet = QUICPackets.handshake(
+            destinationID: .random(using: &self.randomNumberGenerator),
+            sourceID: .random(using: &self.randomNumberGenerator),
+            version: 1
+        )
+        let address = try SocketAddress(ipAddress: "127.0.0.0", port: 443)
+        self.channel.pipeline.fireChannelRead(
+            AddressedEnvelope<ByteBuffer>(remoteAddress: address, data: ByteBuffer(bytes: packet))
+        )
+        self.channel.pipeline.fireChannelReadComplete()
+
+        XCTAssertNil(try self.channel.readOutbound(as: AddressedEnvelope<ByteBuffer>.self))
+    }
+
+    func testChannelRead_whenUnroutableShortHeaderPacketIsTooSmall_sendsNoStatelessReset() throws {
+        // No valid reset fits below 22 bytes, so this packet cannot be answered.
+        let packet = QUICPackets.shortHeader(
+            destinationID: .random(using: &self.randomNumberGenerator)
+        )
+        let address = try SocketAddress(ipAddress: "127.0.0.0", port: 443)
+        self.channel.pipeline.fireChannelRead(
+            AddressedEnvelope<ByteBuffer>(remoteAddress: address, data: ByteBuffer(bytes: packet))
+        )
+        self.channel.pipeline.fireChannelReadComplete()
+
+        XCTAssertNil(try self.channel.readOutbound(as: AddressedEnvelope<ByteBuffer>.self))
+    }
+
+    func testChannelRead_whenConnectionIDsAreZeroLength_sendsNoStatelessReset() throws {
+        // With zero-length connection IDs there is nothing to derive a token from
+        // (RFC 9000 § 10.3.2).
+        let eventLoop = EmbeddedEventLoop()
+        let channel = EmbeddedChannel(loop: eventLoop)
+        channel.localAddress = try SocketAddress(ipAddress: "127.0.0.0", port: 1234)
+        let handler = try Self.makeHandler(
+            channel: channel,
+            channelHandler: NIOLoopBound(MockChannelHandler(), eventLoop: eventLoop),
+            connectionIDLength: 0
+        )
+        try channel.pipeline.syncOperations.addHandler(handler)
+        defer { _ = try? channel.finish() }
+
+        let zeroLengthCID = QUICConnectionID(bytes: InlineArray(repeating: 0), length: 0)
+        let packet = QUICPackets.shortHeader(destinationID: zeroLengthCID, payloadLength: 39)
+        let address = try SocketAddress(ipAddress: "127.0.0.0", port: 443)
+        channel.pipeline.fireChannelRead(
+            AddressedEnvelope<ByteBuffer>(remoteAddress: address, data: ByteBuffer(bytes: packet))
+        )
+        channel.pipeline.fireChannelReadComplete()
+
+        XCTAssertNil(try channel.readOutbound(as: AddressedEnvelope<ByteBuffer>.self))
     }
 }

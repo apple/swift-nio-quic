@@ -56,6 +56,9 @@ public final class QUICHandler {
     private let logger: Logger
     /// The generator used for creating source connection IDs for new connections.
     private var quicConnectionIDGenerator: any QUICConnectionIDGenerator
+    /// Derives the stateless reset tokens for the connection IDs issued by this handler's
+    /// connections, and for the resets this handler sends on their behalf once they are gone.
+    private let statelessResetTokenGenerator: QUICStatelessResetTokenGenerator
     /// Our current state.
     private var state: State = .accepting
     /// Boolean to indicate if we wrote something.
@@ -202,6 +205,7 @@ public final class QUICHandler {
         self.quicConfiguration = quicConfiguration
         self.logger = logger
         self.quicConnectionIDGenerator = quicConnectionIDGenerator
+        self.statelessResetTokenGenerator = .init(key: quicConfiguration.statelessResetKey)
         if let asyncVerifier {
             self.asyncVerifierRunner = .init(asyncVerifier: asyncVerifier)
         }
@@ -237,6 +241,7 @@ public final class QUICHandler {
         self.quicConfiguration = quicConfiguration
         self.logger = logger
         self.quicConnectionIDGenerator = quicConnectionIDGenerator
+        self.statelessResetTokenGenerator = .init(key: quicConfiguration.statelessResetKey)
         self.multiplexerContinuation = .closure(
             connectionInitializer: inboundConnectionInitializer,
             inboundStreamInitializer: inboundStreamInitializer,
@@ -364,6 +369,7 @@ public final class QUICHandler {
             let quicConnection = try SwiftNetworkQUICConnection.client(
                 configuration: self.quicConfiguration,
                 sourceConnectionID: sourceConnectionID,
+                statelessResetTokenGenerator: self.statelessResetTokenGenerator,
                 serverName: serverName,
                 asyncVerifier: asyncVerifierRunner?.asyncVerifier,
                 localAddress: localAddress,
@@ -453,6 +459,56 @@ public final class QUICHandler {
     private func connectionDidClose(_ handle: ConnectionHandle) {
         self.eventLoop.assertInEventLoop()
         self.connectionRegistry.remove(handle)
+    }
+
+    /// Answers a packet which routes to no connection with a stateless reset (RFC 9000 § 10.3),
+    /// telling the peer to give up on a connection this endpoint has no state for.
+    ///
+    /// Requirements to send a stateless reset:
+    /// * The incoming packet must be a short-header packet.
+    /// * The incoming packet must be longer than 21 bytes.
+    /// * The related connection ID must be longer than 0 bytes.
+    ///
+    /// - Parameters:
+    ///   - header: The parsed header of the unroutable packet.
+    ///   - envelope: The datagram it arrived in.
+    private func trySendStatelessReset(
+        for header: QUICPacketHeader,
+        triggeredBy envelope: AddressedEnvelope<ByteBuffer>
+    ) {
+        self.eventLoop.assertInEventLoop()
+
+        // RFC 10.3 says that we may send stateless reset in response to long headers.
+        // However, long header packets are only used before the handshake completes,
+        // at which point the peer doesn't have a token to compare the reset against yet,
+        // so answering it can be ommited in current versions.
+        guard header.type == .short else { return }
+        // Token can only be derived for non-zero length connection IDs.
+        guard self.quicConnectionIDGenerator.connectionIDLength > 0 else { return }
+
+        let reset = self.statelessResetTokenGenerator.statelessResetPacket(
+            for: header.destinationConnectionID,
+            triggeringPacketLength: envelope.data.readableBytes,
+            allocator: self.udpChannel.allocator
+        )
+
+        // Packet generation will fail if no valid packet can be created as a response
+        // (e.g., the packet is too small).
+        guard let reset else { return }
+
+        self.logger.debug(
+            "QUICHandler sending stateless reset",
+            metadata: [
+                LoggingKeys.addressRemote: "\(envelope.remoteAddress)",
+                LoggingKeys.connectionDCID: "\(header.destinationConnectionID.description)",
+                LoggingKeys.channelOutboundBytes: "\(reset.readableBytes)",
+            ]
+        )
+
+        self.writeDatagram(
+            AddressedEnvelope(remoteAddress: envelope.remoteAddress, data: reset),
+            promise: nil
+        )
     }
 }
 
@@ -573,6 +629,7 @@ extension QUICHandler: ChannelInboundHandler {
                                 ]
                             }()
                         )
+                        self.trySendStatelessReset(for: header, triggeredBy: addressedEnvelope)
                     }
                 } else {
                     self.logger.warning(
@@ -583,6 +640,7 @@ extension QUICHandler: ChannelInboundHandler {
                             LoggingKeys.connectionDCID: "\(header.destinationConnectionID.description)",
                         ]
                     )
+                    self.trySendStatelessReset(for: header, triggeredBy: addressedEnvelope)
                 }
             case .shuttingDown:
                 // We still need to forward packets to open connections but not accept new ones.
@@ -595,6 +653,7 @@ extension QUICHandler: ChannelInboundHandler {
                             LoggingKeys.connectionDCID: "\(header.destinationConnectionID.description)",
                         ]
                     )
+                    self.trySendStatelessReset(for: header, triggeredBy: addressedEnvelope)
                     break
                 }
 
@@ -692,6 +751,7 @@ extension QUICHandler: ChannelInboundHandler {
         let quicConnection = try SwiftNetworkQUICConnection.server(
             configuration: self.quicConfiguration,
             sourceConnectionID: newSourceConnectionID,
+            statelessResetTokenGenerator: self.statelessResetTokenGenerator,
             authenticator: self.authenticator,
             localAddress: localAddress,
             remoteAddress: addressedEnvelope.remoteAddress,
