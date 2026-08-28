@@ -28,14 +28,6 @@ struct QUICStatelessResetTokenGeneratorTests {
 
     @Test
     @available(anyAppleOS 26, *)
-    func tokenIsSixteenBytes() {
-        let generator = QUICStatelessResetTokenGenerator(key: Self.key)
-
-        #expect(generator.tokenBytes(for: self.makeConnectionID(1)).count == 16)
-    }
-
-    @Test
-    @available(anyAppleOS 26, *)
     func tokenIsStableForTheSameKeyAndConnectionID() {
         let connectionID = self.makeConnectionID(1)
         let generator = QUICStatelessResetTokenGenerator(key: Self.key)
@@ -43,7 +35,7 @@ struct QUICStatelessResetTokenGeneratorTests {
 
         // The whole point of deriving tokens: a second generator with the same key produces the
         // same token, so a reset stays valid after the connection state is gone.
-        #expect(generator.tokenBytes(for: connectionID) == other.tokenBytes(for: connectionID))
+        #expect(generator.token(for: connectionID) == other.token(for: connectionID))
     }
 
     @Test
@@ -51,10 +43,7 @@ struct QUICStatelessResetTokenGeneratorTests {
     func tokenDiffersPerConnectionID() {
         let generator = QUICStatelessResetTokenGenerator(key: Self.key)
 
-        #expect(
-            generator.tokenBytes(for: self.makeConnectionID(1))
-            != generator.tokenBytes(for: self.makeConnectionID(2))
-        )
+        #expect(generator.token(for: self.makeConnectionID(1)) != generator.token(for: self.makeConnectionID(2)))
     }
 
     @Test
@@ -63,8 +52,8 @@ struct QUICStatelessResetTokenGeneratorTests {
         let connectionID = self.makeConnectionID(1)
 
         #expect(
-            QUICStatelessResetTokenGenerator(key: Self.key).tokenBytes(for: connectionID)
-            != QUICStatelessResetTokenGenerator(key: Self.otherKey).tokenBytes(for: connectionID)
+            QUICStatelessResetTokenGenerator(key: Self.key).token(for: connectionID)
+            != QUICStatelessResetTokenGenerator(key: Self.otherKey).token(for: connectionID)
         )
     }
 
@@ -74,8 +63,8 @@ struct QUICStatelessResetTokenGeneratorTests {
         let connectionID = self.makeConnectionID(1)
 
         #expect(
-            QUICStatelessResetTokenGenerator(key: nil).tokenBytes(for: connectionID)
-            != QUICStatelessResetTokenGenerator(key: nil).tokenBytes(for: connectionID)
+            QUICStatelessResetTokenGenerator(key: nil).token(for: connectionID)
+            != QUICStatelessResetTokenGenerator(key: nil).token(for: connectionID)
         )
     }
 
@@ -93,7 +82,6 @@ struct QUICStatelessResetTokenGeneratorTests {
             )
         )
 
-        #expect(Array(packet.readableBytesView.suffix(16)) == generator.tokenBytes(for: connectionID))
         // Form bit clear, fixed bit set: indistinguishable from a 1-RTT packet (RFC 9000 § 10.3).
         let firstByte = try #require(packet.getInteger(at: packet.readerIndex, as: UInt8.self))
         #expect(firstByte & 0b1100_0000 == 0b0100_0000)

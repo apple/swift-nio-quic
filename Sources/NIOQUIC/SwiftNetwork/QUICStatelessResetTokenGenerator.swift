@@ -50,17 +50,15 @@ struct QUICStatelessResetTokenGenerator: Sendable {
 
     /// The stateless reset token for `connectionID`.
     func token(for connectionID: QUICConnectionID) -> QUICStatelessResetToken {
-        // The initializer only rejects tokens which aren't `tokenLength` bytes long.
-        // Since the RFC defines the token length, we are safe here.
-        QUICStatelessResetToken(self.tokenBytes(for: connectionID))!
-    }
-
-    /// Generate the stateless reset token for `connectionID`.
-    func tokenBytes(for connectionID: QUICConnectionID) -> [UInt8] {
         let code = connectionID.withUnsafeBufferPointer {
             return HMAC<SHA256>.authenticationCode(for: $0, using: self.key)
         }
-        return Array(code.prefix(Self.tokenLength))
+        let token = InlineArray<16, UInt8>(initializingWith: { outputSpan in
+            for elem in code.prefix(Self.tokenLength) {
+                outputSpan.append(elem)
+            }
+        })
+        return QUICStatelessResetToken(token.span)!
     }
 
     /// Builds a stateless reset datagram for `connectionID`.
