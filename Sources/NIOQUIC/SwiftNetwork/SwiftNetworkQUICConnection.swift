@@ -80,7 +80,7 @@ final class SwiftNetworkQUICConnection {
     private var streamOptions: QUICStreamProtocol.QUICStreamOptions
 
     /// Derives the stateless reset tokens advertised with the connection IDs this connection issues.
-    private let statelessResetTokenGenerator: any QUICStatelessResetTokenGenerator
+    private let statelessResetTokenGenerator: any QUICStatelessResetToken.Generator
 
     /// The connection channel. Used to drive out-of-band output drains when SwiftNetwork
     /// finalizes frames outside any drain bracket initiated by the channel.
@@ -196,7 +196,7 @@ final class SwiftNetworkQUICConnection {
     static func client(
         configuration: QUICConfiguration,
         sourceConnectionID: QUICConnectionID,
-        statelessResetTokenGenerator: any QUICStatelessResetTokenGenerator,
+        statelessResetTokenGenerator: any QUICStatelessResetToken.Generator,
         serverName: String?,
         asyncVerifier: AsyncVerifier?,
         localAddress: SocketAddress,
@@ -242,7 +242,7 @@ final class SwiftNetworkQUICConnection {
     static func server(
         configuration: QUICConfiguration,
         sourceConnectionID: QUICConnectionID,
-        statelessResetTokenGenerator: any QUICStatelessResetTokenGenerator,
+        statelessResetTokenGenerator: any QUICStatelessResetToken.Generator,
         authenticator: Authenticator?,
         localAddress: SocketAddress,
         remoteAddress: SocketAddress,
@@ -274,7 +274,7 @@ final class SwiftNetworkQUICConnection {
     private init(
         configuration: QUICConfiguration,
         sourceConnectionID: QUICConnectionID,
-        statelessResetTokenGenerator: any QUICStatelessResetTokenGenerator,
+        statelessResetTokenGenerator: any QUICStatelessResetToken.Generator,
         serverName: String,
         localAddress: SocketAddress,
         remoteAddress: SocketAddress,

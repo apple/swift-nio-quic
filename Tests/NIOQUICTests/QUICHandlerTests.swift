@@ -284,7 +284,7 @@ final class QUICHandlerTests: XCTestCase {
         let tokenBytes = Array(outbound.data.readableBytesView.suffix(16))
         XCTAssertEqual(
             QUICStatelessResetToken(tokenBytes.span),
-            HMACSHA256QUICStatelessResetTokenGenerator(key: Self.statelessResetKey).token(for: connectionID)
+            QUICStatelessResetToken.HMACSHA256Generator(key: Self.statelessResetKey).token(for: connectionID)
         )
         XCTAssertNil(try self.channel.readOutbound(as: AddressedEnvelope<ByteBuffer>.self))
     }
