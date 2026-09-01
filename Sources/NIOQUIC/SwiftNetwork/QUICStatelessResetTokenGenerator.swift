@@ -119,5 +119,7 @@ extension QUICStatelessResetTokenGenerator where Self == HMACSHA256QUICStateless
     /// A default implementation for the ``QUICStatelessResetTokenGenerator`` that uses `HMAC<SHA256>`
     /// with a user-provided key. Providing the same key across restarts enables sending stateless resets that reset
     /// dangling connections without local state.
+    ///
+    /// - Precondition: The key must be at least 32 bytes.
     public static func defaultWithUserProvidedKey(_ key: [UInt8]) -> Self { .init(key: key) }
 }
