@@ -61,8 +61,7 @@ final class QUICHandlerTests: XCTestCase {
                     publicKeyFilePath: Self.testPublicKeyPath,
                     privateKeyFilePath: Self.testPrivateKeyPath
                 ),
-                applicationProtocols: [],
-                statelessResetTokenGenerator: .defaultWithUserProvidedKey(Self.statelessResetKey)
+                applicationProtocols: []
             ),
             logger: Logger(label: "Test"),
             inboundStreamChannelInitializer: { channel in
@@ -75,7 +74,8 @@ final class QUICHandlerTests: XCTestCase {
             },
             quicConnectionIDGenerator: RandomQUICConnectionIDGenerator(
                 connectionIDLength: connectionIDLength
-            )
+            ),
+            quicStatelessResetTokenGenerator: .defaultWithUserProvidedKey(Self.statelessResetKey)
         )
         return handler
     }
