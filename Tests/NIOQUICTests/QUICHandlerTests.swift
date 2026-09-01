@@ -75,7 +75,7 @@ final class QUICHandlerTests: XCTestCase {
             quicConnectionIDGenerator: RandomQUICConnectionIDGenerator(
                 connectionIDLength: connectionIDLength
             ),
-            quicStatelessResetTokenGenerator: .defaultWithUserProvidedKey(Self.statelessResetKey)
+            statelessResetTokenGenerator: .defaultWithUserProvidedKey(Self.statelessResetKey)
         )
         return handler
     }
