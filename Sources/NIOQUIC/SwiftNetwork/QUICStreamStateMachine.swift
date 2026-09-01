@@ -259,6 +259,27 @@ struct QUICStreamStateMachine: ~Copyable {
         }
     }
 
+    /// Returns `true` if the peer has reset the receive side. Distinct from
+    /// `hasReceivedFin`: a reset terminates the read side without delivering
+    /// FIN, and the framework still needs to surface that to the application.
+    var hasReceivedReset: Bool {
+        switch self.state {
+        case .connected(let connected):
+            switch connected.streamState {
+            case .bidirectional(let streamState): return streamState.receiveState.hasReceivedReset
+            case .sendOnly: return false
+            case .receiveOnly(let streamState): return streamState.receiveState.hasReceivedReset
+            }
+        case .pendingID:
+            return false
+        case .closed(let closed):
+            switch closed.reason {
+            case .peerReset: return true
+            case .clean, .localReset, .error: return false
+            }
+        }
+    }
+
     /// True if the stream has data or FIN ready for the application to read.
     /// `hasPendingData` must be passed by the caller because buffered bytes live outside the SM.
     func isReadable(hasPendingData: Bool) -> Bool {
@@ -557,13 +578,17 @@ struct QUICStreamStateMachine: ~Copyable {
             /// Reset is moot — the receive side already saw FIN and all data.
             case alreadyFullyReceived
             case alreadyReset
+            /// The receive sub-SM captured the reset; caller must drain it
+            /// via `surfaceDeferredResetAfterInit()` at init-complete.
+            case stashedForLaterDelivery
         }
     }
 
     /// Transition when receiving RESET_STREAM from the peer.
     mutating func receiveResetStream(
         applicationErrorCode: QUICApplicationErrorCode,
-        finalSize: UInt64
+        finalSize: UInt64,
+        pipelineInitialized: Bool
     ) throws(QUICStreamStateMachine.InvalidTransition) -> ReceiveResetStreamAction {
         let innerAction = try self.state.receiveResetStream(
             applicationErrorCode: applicationErrorCode,
@@ -573,7 +598,11 @@ struct QUICStreamStateMachine: ~Copyable {
         case .closeStream:
             return .closeStream(applicationErrorCode: applicationErrorCode)
         case .doNotCloseStream:
-            return .surfaceReset(applicationErrorCode: applicationErrorCode)
+            if pipelineInitialized {
+                return .surfaceReset(applicationErrorCode: applicationErrorCode)
+            } else {
+                return .doNothing(.stashedForLaterDelivery)
+            }
         case .ignore(.alreadyFullyReceived):
             return .doNothing(.alreadyFullyReceived)
         case .ignore(.alreadyReset):
@@ -658,6 +687,34 @@ struct QUICStreamStateMachine: ~Copyable {
             return .reportPeerReset(applicationErrorCode: code)
         case .nothingToReport:
             return .nothingToReport
+        }
+    }
+
+    enum SurfaceDeferredResetAction: ~Copyable {
+        /// Caller should fire `errorCaught(QUICStreamResetError(code:))`.
+        case fireReset(applicationErrorCode: QUICApplicationErrorCode)
+        case doNothing
+    }
+
+    /// Surface a peer reset that was captured while the pipeline was
+    /// uninitialized.
+    ///
+    /// Called by the handler immediately after `markInitializerComplete`
+    /// transitions the pipeline SM to `.initialized`.
+    mutating func surfaceDeferredResetAfterInit() -> SurfaceDeferredResetAction {
+        // Only act on a captured RESET — a deferred FIN would also live
+        // in the receive sub-SM, but its surface path requires the caller
+        // to drain data first and is intentionally not covered here.
+        guard self.hasReceivedReset else {
+            return .doNothing
+        }
+        switch self.consumeFinOrReset() {
+        case .reportPeerReset(let code):
+            return .fireReset(applicationErrorCode: code)
+        case .reportFin:
+            return .doNothing
+        case .nothingToReport:
+            return .doNothing
         }
     }
 
