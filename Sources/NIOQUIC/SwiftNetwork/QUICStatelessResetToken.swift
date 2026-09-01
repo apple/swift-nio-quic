@@ -23,9 +23,6 @@ public struct QUICStatelessResetToken: Equatable, Sendable, CustomStringConverti
     // Wrapped type from SwiftNetwork.
     var token: SwiftNetwork.QUICStatelessResetToken
 
-    // A token must have 16 bytes.
-    static var tokenSize: Int { 16 }
-
     /// Create a QUIC stateless reset token.
     public init(_ token: InlineArray<16, UInt8>) {
         // This only returns nil if the length does not match.
@@ -36,10 +33,11 @@ public struct QUICStatelessResetToken: Equatable, Sendable, CustomStringConverti
     ///
     /// - Precondition: The `span` must have exactly 16 bytes.
     public init?(_ span: Span<UInt8>) {
-        guard span.count == Self.tokenSize else {
+        guard let token = SwiftNetwork.QUICStatelessResetToken(span) else {
             return nil
         }
-        self.token = .init(span)!
+
+        self.token = token
     }
 
     public var description: String {
