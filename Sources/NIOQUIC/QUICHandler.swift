@@ -500,7 +500,7 @@ public final class QUICHandler {
     ) {
         self.eventLoop.assertInEventLoop()
 
-        // RFC 10.3 says that we may send stateless reset in response to long headers.
+        // RFC 9000 § 10.3 says that we may send stateless reset in response to long headers.
         // However, long header packets are only used before the handshake completes,
         // at which point the peer doesn't have a token to compare the reset against yet,
         // so answering it can be ommited in current versions.
