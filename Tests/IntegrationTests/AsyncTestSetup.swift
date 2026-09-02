@@ -279,7 +279,7 @@ private func setUpClientConnectionMultiplexer(
                     inboundStreamChannelInitializer: { channel in
                         channel.eventLoop.makeCompletedFuture { fatalError() }
                     },
-                    quicConnectionIDGenerator: connectionIDGenerator
+                    connectionIDGenerator: connectionIDGenerator
                 )
                 try channel.pipeline.syncOperations.addHandler(quicHandler)
                 if let debugChannelInitializer {
@@ -340,7 +340,7 @@ private func setUpServerChannelAndConnectionMultiplexer(
                             return asyncChannel
                         }
                     },
-                    quicConnectionIDGenerator: connectionIDGenerator
+                    connectionIDGenerator: connectionIDGenerator
                 )
                 try channel.pipeline.syncOperations.addHandler(quicHandler)
                 return (channel, connectionMultiplexer)
