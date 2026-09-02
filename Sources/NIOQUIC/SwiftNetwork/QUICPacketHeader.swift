@@ -257,6 +257,10 @@ extension NIOCore.ByteBuffer {
             packetType = .short
             let dcidLength = shortHeaderDCIDLength
 
+            guard localBuffer.readableBytes >= dcidLength else {
+                return nil
+            }
+
             let dcidWrittenBytes = destinationConnectionID.withUnsafeMutableBufferPointer {
                 destinationConnectionIDBytes in
                 localBuffer.readSlice(length: dcidLength)!.withUnsafeReadableBytes { pointer in
@@ -286,6 +290,9 @@ extension NIOCore.ByteBuffer {
             if longHeaderDCIDLength > QUICConnectionID.maxLength {
                 throw QUICError.invalidConnectionIDLength(Int(longHeaderDCIDLength))
             }
+            guard localBuffer.readableBytes >= dcidLength else {
+                return nil
+            }
             let dcidWrittenBytes = destinationConnectionID.withUnsafeMutableBufferPointer {
                 destinationConnectionIDBytes in
                 localBuffer.readSlice(length: dcidLength)!.withUnsafeReadableBytes { pointer in
@@ -304,6 +311,10 @@ extension NIOCore.ByteBuffer {
 
             if headerSCIDLength > QUICConnectionID.maxLength {
                 throw QUICError.invalidConnectionIDLength(scidLength)
+            }
+
+            guard localBuffer.readableBytes >= scidLength else {
+                return nil
             }
 
             var scid = QUICConnectionID.zero
