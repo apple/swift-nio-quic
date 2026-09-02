@@ -19,28 +19,28 @@ import XCTest
 @available(anyAppleOS 26, *)
 final class QUICConnectionIDGeneratorTests: XCTestCase {
     func testRandomGeneratorDefaultLength() {
-        var generator = RandomQUICConnectionIDGenerator()
+        var generator = QUICConnectionID.RandomGenerator()
         XCTAssertEqual(generator.connectionIDLength, Int(QUICConnectionID.randomIDLength))
         let cid = generator.next()
         XCTAssertEqual(cid.length, Int(QUICConnectionID.randomIDLength))
     }
 
     func testRandomGeneratorCustomLength() {
-        var generator = RandomQUICConnectionIDGenerator(connectionIDLength: 16)
+        var generator = QUICConnectionID.RandomGenerator(connectionIDLength: 16)
         XCTAssertEqual(generator.connectionIDLength, 16)
         let cid = generator.next()
         XCTAssertEqual(cid.length, 16)
     }
 
     func testRandomGeneratorZeroLength() {
-        var generator = RandomQUICConnectionIDGenerator(connectionIDLength: 0)
+        var generator = QUICConnectionID.RandomGenerator(connectionIDLength: 0)
         XCTAssertEqual(generator.connectionIDLength, 0)
         let cid = generator.next()
         XCTAssertEqual(cid.length, 0)
     }
 
     func testCustomGenerator() {
-        struct CountingGenerator: QUICConnectionIDGenerator {
+        struct CountingGenerator: QUICConnectionID.Generator {
             var connectionIDLength: Int = 4
             var counter: UInt8 = 0
 
