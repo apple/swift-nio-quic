@@ -72,7 +72,7 @@ final class QUICHandlerTests: XCTestCase {
                     return channel.eventLoop.makeFailedFuture(error)
                 }
             },
-            connectionIDGenerator: RandomQUICConnectionIDGenerator(
+            connectionIDGenerator: QUICConnectionID.RandomGenerator(
                 connectionIDLength: connectionIDLength
             ),
             statelessResetTokenGenerator: .defaultWithUserProvidedKey(Self.statelessResetKey)

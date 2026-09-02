@@ -37,8 +37,8 @@ func makeClientAndServerPair(
     clientKeepAliveTime: Duration? = nil,
     extraClientALPNs: [String] = [],
     clientDebugChannelInitializer: (@Sendable (any Channel) throws -> Void)? = nil,
-    clientConnectionIDGenerator: any QUICConnectionIDGenerator = RandomQUICConnectionIDGenerator(),
-    serverConnectionIDGenerator: any QUICConnectionIDGenerator = RandomQUICConnectionIDGenerator(),
+    clientConnectionIDGenerator: any QUICConnectionID.Generator = QUICConnectionID.RandomGenerator(),
+    serverConnectionIDGenerator: any QUICConnectionID.Generator = QUICConnectionID.RandomGenerator(),
     initialMaxData: Int = 16_777_216,
     initialMaxStreamDataBidi: Int = 2_097_152,
     initialMaxStreamsBidi: Int = 8
@@ -194,8 +194,8 @@ func makeNetworkClientAndServerPair(
     clientKeepAliveTime: Duration? = nil,
     extraClientALPNs: [String] = [],
     clientDebugChannelInitializer: (@Sendable (any Channel) throws -> Void)? = nil,
-    clientConnectionIDGenerator: any QUICConnectionIDGenerator = RandomQUICConnectionIDGenerator(),
-    serverConnectionIDGenerator: any QUICConnectionIDGenerator = RandomQUICConnectionIDGenerator(),
+    clientConnectionIDGenerator: any QUICConnectionID.Generator = QUICConnectionID.RandomGenerator(),
+    serverConnectionIDGenerator: any QUICConnectionID.Generator = QUICConnectionID.RandomGenerator(),
     initialMaxData: Int = 16_777_216,
     initialMaxStreamDataBidi: Int = 2_097_152,
     initialMaxStreamsBidi: Int = 8
@@ -245,7 +245,7 @@ private func setUpClientConnectionMultiplexer(
     clientKeepAliveTime: Duration? = nil,
     extraClientALPNs: [String] = [],
     debugChannelInitializer: (@Sendable (any Channel) throws -> Void)? = nil,
-    connectionIDGenerator: any QUICConnectionIDGenerator = RandomQUICConnectionIDGenerator(),
+    connectionIDGenerator: any QUICConnectionID.Generator = QUICConnectionID.RandomGenerator(),
     initialMaxData: Int = 16_777_216,
     initialMaxStreamDataBidi: Int = 2_097_152,
     initialMaxStreamsBidi: Int = 8
@@ -298,7 +298,7 @@ private func setUpServerChannelAndConnectionMultiplexer(
     host: String,
     publicKeyFilePath: String,
     privateKeyFilePath: String,
-    connectionIDGenerator: any QUICConnectionIDGenerator = RandomQUICConnectionIDGenerator(),
+    connectionIDGenerator: any QUICConnectionID.Generator = QUICConnectionID.RandomGenerator(),
     initialMaxData: Int = 16_777_216,
     initialMaxStreamDataBidi: Int = 2_097_152,
     initialMaxStreamsBidi: Int = 8

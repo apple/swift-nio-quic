@@ -606,25 +606,25 @@ final class IntegrationTests: XCTestCase {
 
     func testZeroLengthClientSCID() async throws {
         try await self.verifyPingPongWithCIDLengths(
-            clientConnectionIDGenerator: RandomQUICConnectionIDGenerator(connectionIDLength: 0)
+            clientConnectionIDGenerator: QUICConnectionID.RandomGenerator(connectionIDLength: 0)
         )
     }
 
     func testZeroLengthServerSCID() async throws {
         try await self.verifyPingPongWithCIDLengths(
-            serverConnectionIDGenerator: RandomQUICConnectionIDGenerator(connectionIDLength: 0)
+            serverConnectionIDGenerator: QUICConnectionID.RandomGenerator(connectionIDLength: 0)
         )
     }
 
     func testZeroLengthBothSCIDs() async throws {
         try await self.verifyPingPongWithCIDLengths(
-            clientConnectionIDGenerator: RandomQUICConnectionIDGenerator(connectionIDLength: 0),
-            serverConnectionIDGenerator: RandomQUICConnectionIDGenerator(connectionIDLength: 0)
+            clientConnectionIDGenerator: QUICConnectionID.RandomGenerator(connectionIDLength: 0),
+            serverConnectionIDGenerator: QUICConnectionID.RandomGenerator(connectionIDLength: 0)
         )
     }
 
     func testCustomConnectionIDGenerator() async throws {
-        struct PrefixedGenerator: QUICConnectionIDGenerator {
+        struct PrefixedGenerator: QUICConnectionID.Generator {
             var connectionIDLength: Int = 8
             var counter: UInt8 = 0
             let prefix: UInt8
@@ -659,7 +659,7 @@ final class IntegrationTests: XCTestCase {
         // A generator where the server adopts the client's chosen DCID as its SCID.
         // This exercises the next(sourceConnectionID:destinationConnectionID:) path
         // with a generator that actually uses the parameters.
-        struct EchoDCIDGenerator: QUICConnectionIDGenerator {
+        struct EchoDCIDGenerator: QUICConnectionID.Generator {
             var connectionIDLength: Int = 8
             var counter: UInt8 = 0
 
@@ -686,8 +686,8 @@ final class IntegrationTests: XCTestCase {
     }
 
     private func verifyPingPongWithCIDLengths(
-        clientConnectionIDGenerator: any QUICConnectionIDGenerator = RandomQUICConnectionIDGenerator(),
-        serverConnectionIDGenerator: any QUICConnectionIDGenerator = RandomQUICConnectionIDGenerator()
+        clientConnectionIDGenerator: any QUICConnectionID.Generator = QUICConnectionID.RandomGenerator(),
+        serverConnectionIDGenerator: any QUICConnectionID.Generator = QUICConnectionID.RandomGenerator()
     ) async throws {
         let (_, serverChannel, serverMultiplexer, clientMultiplexer) = try await makeClientAndServerPair(
             clientConnectionIDGenerator: clientConnectionIDGenerator,
