@@ -257,9 +257,13 @@ extension NIOCore.ByteBuffer {
             packetType = .short
             let dcidLength = shortHeaderDCIDLength
 
+            guard let dcidSlice = localBuffer.readSlice(length: dcidLength) else {
+                return nil
+            }
+
             let dcidWrittenBytes = destinationConnectionID.withUnsafeMutableBufferPointer {
                 destinationConnectionIDBytes in
-                localBuffer.readSlice(length: dcidLength)!.withUnsafeReadableBytes { pointer in
+                dcidSlice.withUnsafeReadableBytes { pointer in
                     pointer.copyBytes(to: destinationConnectionIDBytes)
                 }
             }
@@ -286,9 +290,12 @@ extension NIOCore.ByteBuffer {
             if longHeaderDCIDLength > QUICConnectionID.maxLength {
                 throw QUICError.invalidConnectionIDLength(Int(longHeaderDCIDLength))
             }
+            guard let dcidSlice = localBuffer.readSlice(length: dcidLength) else {
+                return nil
+            }
             let dcidWrittenBytes = destinationConnectionID.withUnsafeMutableBufferPointer {
                 destinationConnectionIDBytes in
-                localBuffer.readSlice(length: dcidLength)!.withUnsafeReadableBytes { pointer in
+                dcidSlice.withUnsafeReadableBytes { pointer in
                     pointer.copyBytes(to: destinationConnectionIDBytes)
                 }
             }
@@ -306,10 +313,14 @@ extension NIOCore.ByteBuffer {
                 throw QUICError.invalidConnectionIDLength(scidLength)
             }
 
+            guard let scidSlice = localBuffer.readSlice(length: scidLength) else {
+                return nil
+            }
+
             var scid = QUICConnectionID.zero
 
             let scidWrittenBytes = scid.withUnsafeMutableBufferPointer { sourceConnectionIDBytes in
-                localBuffer.readSlice(length: scidLength)!.withUnsafeReadableBytes { pointer in
+                scidSlice.withUnsafeReadableBytes { pointer in
                     pointer.copyBytes(to: sourceConnectionIDBytes)
                 }
             }
