@@ -47,7 +47,7 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-certificates.git", from: "1.19.3"),
         .package(url: "https://github.com/apple/swift-collections.git", from: "1.4.1"),
         .package(url: "https://github.com/apple/swift-crypto.git", exact: "5.0.0-beta.2"),
-        .package(url: "https://github.com/apple/swift-nio-quic-helpers.git", .upToNextMinor(from: "0.1.0")),
+        .package(url: "https://github.com/apple/swift-nio-quic-helpers.git", .upToNextMinor(from: "0.1.1")),
         .package(
             url: "https://github.com/apple/swift-network-evolution",
             .upToNextMinor(from: "0.2.0"),
