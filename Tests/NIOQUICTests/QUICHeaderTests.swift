@@ -33,9 +33,10 @@ final class HeaderIDTests {
             length: 16
         )
         let packet = QUICPackets.shortHeader(destinationID: connectionID)
-        let buffer = ByteBuffer(bytes: packet)
+        var buffer = ByteBuffer(bytes: packet)
+        buffer.addPadding()
 
-        let header = buffer.getQUICPacketHeader(destinationIDLength: 16)
+        let header = buffer.parseQUICPacketHeader(destinationIDLength: 16)
 
         try #require(header?.type == .short)
         try #require(header?.destinationConnectionID == connectionID)
@@ -58,7 +59,7 @@ final class HeaderIDTests {
         let packet = QUICPackets.versionNegotiation(destinationID: connectionID, sourceID: connectionID)
         let buffer = ByteBuffer(bytes: packet)
 
-        let header = buffer.getQUICPacketHeader(destinationIDLength: 16)
+        let header = buffer.parseQUICPacketHeader(destinationIDLength: 16)
 
         try #require(header?.type == .versionNegotiation)
         try #require(header?.destinationConnectionID == connectionID)
@@ -68,7 +69,7 @@ final class HeaderIDTests {
     @available(anyAppleOS 26, *)
     @Test(
         "initial",
-        arguments: [1, 2]
+        arguments: [1]  // SwiftNetwork only supports QUIC version 1
     )
     func initial(version: Int) throws {
         let connectionID = QUICConnectionID(
@@ -89,18 +90,19 @@ final class HeaderIDTests {
         )
         let buffer = ByteBuffer(bytes: packet)
 
-        let header = buffer.getQUICPacketHeader(destinationIDLength: 16)
+        let header = buffer.parseQUICPacketHeader(destinationIDLength: 16)
 
         try #require(header?.type == .initial)
         try #require(header?.destinationConnectionID == connectionID)
         try #require(header?.sourceConnectionID == connectionID)
-        try #require(header?.token == token)
+        // Tokens will only be read from retry packets
+        try #require(header?.token == [])
     }
 
     @available(anyAppleOS 26, *)
     @Test(
         "zeroRTT",
-        arguments: [1, 2]
+        arguments: [1]  // SwiftNetwork only supports QUIC version 1
     )
     func zeroRTT(version: Int) throws {
         let connectionID = QUICConnectionID(
@@ -115,7 +117,7 @@ final class HeaderIDTests {
         let packet = QUICPackets.zeroRTT(destinationID: connectionID, sourceID: connectionID, version: version)
         let buffer = ByteBuffer(bytes: packet)
 
-        let header = buffer.getQUICPacketHeader(destinationIDLength: 16)
+        let header = buffer.parseQUICPacketHeader(destinationIDLength: 16)
 
         try #require(header?.type == .zeroRTT)
         try #require(header?.destinationConnectionID == connectionID)
@@ -125,7 +127,7 @@ final class HeaderIDTests {
     @available(anyAppleOS 26, *)
     @Test(
         "handshake",
-        arguments: [1, 2]
+        arguments: [1]  // SwiftNetwork only supports QUIC version 1
     )
     func handshake(version: Int) throws {
         let connectionID = QUICConnectionID(
@@ -140,7 +142,7 @@ final class HeaderIDTests {
         let packet = QUICPackets.handshake(destinationID: connectionID, sourceID: connectionID, version: version)
         let buffer = ByteBuffer(bytes: packet)
 
-        let header = buffer.getQUICPacketHeader(destinationIDLength: 16)
+        let header = buffer.parseQUICPacketHeader(destinationIDLength: 16)
 
         try #require(header?.type == .handshake)
         try #require(header?.destinationConnectionID == connectionID)
@@ -150,7 +152,7 @@ final class HeaderIDTests {
     @available(anyAppleOS 26, *)
     @Test(
         "retry",
-        arguments: [1, 2]
+        arguments: [1]  // SwiftNetwork only supports QUIC version 1
     )
     func retry(version: Int) throws {
         let connectionID = QUICConnectionID(
@@ -171,7 +173,7 @@ final class HeaderIDTests {
         )
         let buffer = ByteBuffer(bytes: packet)
 
-        let header = buffer.getQUICPacketHeader(destinationIDLength: 16)
+        let header = buffer.parseQUICPacketHeader(destinationIDLength: 16)
 
         try #require(header?.type == .retry)
         try #require(header?.destinationConnectionID == connectionID)
@@ -211,7 +213,7 @@ final class HeaderIDTests {
     @available(anyAppleOS 26, *)
     @Test(
         "initial with zero-length SCID",
-        arguments: [1, 2]
+        arguments: [1]  // SwiftNetwork only supports QUIC version 1
     )
     func initialWithZeroLengthSCID(version: Int) throws {
         let dcid = QUICConnectionID(
@@ -232,22 +234,24 @@ final class HeaderIDTests {
             token: token,
             version: version
         )
-        let buffer = ByteBuffer(bytes: packet)
+        var buffer = ByteBuffer(bytes: packet)
+        buffer.addPadding()
 
-        let header = buffer.getQUICPacketHeader(destinationIDLength: 8)
+        let header = buffer.parseQUICPacketHeader(destinationIDLength: 8)
 
         try #require(header?.type == .initial)
         try #require(header?.destinationConnectionID == dcid)
         let parsedSCID = try #require(header?.sourceConnectionID)
         #expect(parsedSCID.length == 0)
         #expect(parsedSCID == scid)
-        try #require(header?.token == token)
+        // Tokens will only be read from retry packets
+        try #require(header?.token == [])
     }
 
     @available(anyAppleOS 26, *)
     @Test(
         "initial with zero-length DCID and SCID",
-        arguments: [1, 2]
+        arguments: [1]  // SwiftNetwork only supports QUIC version 1
     )
     func initialWithZeroLengthDCIDAndSCID(version: Int) throws {
         let zeroLengthCID = QUICConnectionID(
@@ -261,9 +265,10 @@ final class HeaderIDTests {
             token: token,
             version: version
         )
-        let buffer = ByteBuffer(bytes: packet)
+        var buffer = ByteBuffer(bytes: packet)
+        buffer.addPadding()
 
-        let header = try #require(buffer.getQUICPacketHeader(destinationIDLength: 0))
+        let header = try #require(buffer.parseQUICPacketHeader(destinationIDLength: 0))
 
         try #require(header.type == .initial)
         let parsedDCID = header.destinationConnectionID
@@ -271,7 +276,6 @@ final class HeaderIDTests {
         let parsedSCID = try #require(header.sourceConnectionID)
         #expect(parsedSCID.length == 0)
         #expect(parsedDCID == parsedSCID)
-        try #require(header.token == token)
     }
 
     @available(anyAppleOS 26, *)
@@ -284,9 +288,10 @@ final class HeaderIDTests {
             length: 0
         )
         let packet = QUICPackets.shortHeader(destinationID: zeroLengthCID)
-        let buffer = ByteBuffer(bytes: packet)
+        var buffer = ByteBuffer(bytes: packet)
+        buffer.addPadding()
 
-        let header = try #require(buffer.getQUICPacketHeader(destinationIDLength: 0))
+        let header = try #require(buffer.parseQUICPacketHeader(destinationIDLength: 0))
 
         #expect(header.type == .short)
         #expect(header.destinationConnectionID.length == 0)
@@ -313,7 +318,7 @@ final class HeaderIDTests {
         let packet = Array(QUICPackets.shortHeader(destinationID: connectionID).prefix(4))
         let buffer = ByteBuffer(bytes: packet)
 
-        let header = buffer.getQUICPacketHeader(destinationIDLength: 16)
+        let header = buffer.parseQUICPacketHeader(destinationIDLength: 16)
 
         #expect(header == nil)
     }
@@ -338,7 +343,7 @@ final class HeaderIDTests {
         )
         let buffer = ByteBuffer(bytes: packet)
 
-        let header = buffer.getQUICPacketHeader(destinationIDLength: 16)
+        let header = buffer.parseQUICPacketHeader(destinationIDLength: 16)
 
         #expect(header == nil)
     }
@@ -367,8 +372,20 @@ final class HeaderIDTests {
         )
         let buffer = ByteBuffer(bytes: packet)
 
-        let header = buffer.getQUICPacketHeader(destinationIDLength: 16)
+        let header = buffer.parseQUICPacketHeader(destinationIDLength: 16)
 
         #expect(header == nil)
+    }
+}
+
+extension ByteBuffer {
+    /// Add padding to the byte buffer to ensure it has at least a certain length.
+    /// In the tests this is used to make sure our packets meet the minimum QUIC
+    /// requirements of 21 bytes (the default argument).
+    mutating func addPadding(ensuringMinimumLengthOf minimumLength: Int = 21, paddingByte: UInt8 = 0xAA) {
+        let currentLength = self.readableBytes
+        if currentLength < minimumLength {
+            self.writeRepeatingByte(paddingByte, count: minimumLength - currentLength)
+        }
     }
 }

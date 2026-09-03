@@ -135,9 +135,9 @@ final class QUICHandlerTests: XCTestCase {
             ],
             length: 8
         )
-        let packet = QUICPackets.versionNegotiation(destinationID: connectionID, sourceID: nil)
+        let packet = QUICPackets.versionNegotiation(destinationID: connectionID, sourceID: nil, payloadLength: 6)
         let buffer = ByteBuffer(bytes: packet)
-        let outboundHeader = buffer.getQUICPacketHeader(
+        let outboundHeader = buffer.parseQUICPacketHeader(
             destinationIDLength: 8
         )
 
@@ -156,9 +156,9 @@ final class QUICHandlerTests: XCTestCase {
             ],
             length: 8
         )
-        let packet = QUICPackets.versionNegotiation(destinationID: nil, sourceID: connectionID)
+        let packet = QUICPackets.versionNegotiation(destinationID: nil, sourceID: connectionID, payloadLength: 6)
         let buffer = ByteBuffer(bytes: packet)
-        let outboundHeader = buffer.getQUICPacketHeader(
+        let outboundHeader = buffer.parseQUICPacketHeader(
             destinationIDLength: 8
         )
         XCTAssertEqual(outboundHeader?.destinationConnectionID.length, 0)
@@ -167,13 +167,39 @@ final class QUICHandlerTests: XCTestCase {
     }
 
     func testChannelRead_whenVersionNegotiation_andEmptyDCID_andEmptySCID() throws {
-        let packet = QUICPackets.versionNegotiation(destinationID: nil, sourceID: nil)
+        let packet = QUICPackets.versionNegotiation(destinationID: nil, sourceID: nil, payloadLength: 14)
         let buffer = ByteBuffer(bytes: packet)
-        let outboundHeader = buffer.getQUICPacketHeader(
+        let outboundHeader = buffer.parseQUICPacketHeader(
             destinationIDLength: 1
         )
         XCTAssertEqual(outboundHeader?.sourceConnectionID?.length, 0)
         XCTAssertEqual(outboundHeader?.destinationConnectionID.length, 0)
+        XCTAssertEqual(outboundHeader?.type, .versionNegotiation)
+    }
+
+    func testChannelRead_whenForcedVersionNegotiationPattern() throws {
+        // RFC 9000 §15: versions matching 0x?a?a?a?a are reserved to force a version
+        // negotiation exchange and must be treated as an unsupported version.
+        let connectionID = QUICConnectionID(
+            bytes: [
+                1, 1, 1, 1, 1,
+                1, 1, 1, 0, 0,
+                0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0,
+            ],
+            length: 8
+        )
+        let packet = QUICPackets.versionNegotiation(
+            destinationID: connectionID,
+            sourceID: connectionID,
+            version: [0x1a, 0x2a, 0x3a, 0x4a]
+        )
+        let buffer = ByteBuffer(bytes: packet)
+        let outboundHeader = buffer.parseQUICPacketHeader(
+            destinationIDLength: 8
+        )
+        XCTAssertEqual(outboundHeader?.sourceConnectionID, connectionID)
+        XCTAssertEqual(outboundHeader?.destinationConnectionID, connectionID)
         XCTAssertEqual(outboundHeader?.type, .versionNegotiation)
     }
 
@@ -306,10 +332,13 @@ final class QUICHandlerTests: XCTestCase {
     }
 
     func testChannelRead_whenUnroutableShortHeaderPacketIsTooSmall_sendsNoStatelessReset() throws {
-        // No valid reset fits below 22 bytes, so this packet cannot be answered.
+        // No valid reset fits below 21 bytes, so this packet cannot be answered.
+        // Header is 9 bytes + 12 bytes payload = 21 and the response needs to be smaller.
         let packet = QUICPackets.shortHeader(
-            destinationID: .random(using: &self.randomNumberGenerator)
+            destinationID: .random(using: &self.randomNumberGenerator),
+            payloadLength: 12
         )
+
         let address = try SocketAddress(ipAddress: "127.0.0.0", port: 443)
         self.channel.pipeline.fireChannelRead(
             AddressedEnvelope<ByteBuffer>(remoteAddress: address, data: ByteBuffer(bytes: packet))

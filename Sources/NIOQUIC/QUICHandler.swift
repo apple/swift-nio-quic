@@ -504,7 +504,9 @@ public final class QUICHandler {
         // However, long header packets are only used before the handshake completes,
         // at which point the peer doesn't have a token to compare the reset against yet,
         // so answering it can be ommited in current versions.
-        guard header.type == .short else { return }
+        guard header.type == .short else {
+            return
+        }
         // Token can only be derived for non-zero length connection IDs.
         guard self.connectionIDGenerator.connectionIDLength > 0 else { return }
 

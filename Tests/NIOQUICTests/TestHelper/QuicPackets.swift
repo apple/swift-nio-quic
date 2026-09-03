@@ -28,7 +28,7 @@ enum QUICPackets {
     static func shortHeader(destinationID: QUICConnectionID, payloadLength: Int = 0) -> [UInt8] {
         [
             // Header Form, Key Phase, etc.
-            [0b0011_0000],
+            [0b0110_0000],
             // Destination ID
             destinationID.asBytes,
             // Payload, standing in for the packet number and protected frames
@@ -36,15 +36,21 @@ enum QUICPackets {
         ].reduce([], +)
     }
 
+    /// - Parameters:
+    ///   - version: Defaults to the literal Version Negotiation marker `0x00000000`. Pass the
+    ///     RFC 9000 §15 pattern `0x?a?a?a?a` (e.g. `[0x1a, 0x2a, 0x3a, 0x4a]`) to build a packet
+    ///     that forces a version negotiation exchange instead.
     static func versionNegotiation(
         destinationID: QUICConnectionID?,
-        sourceID: QUICConnectionID?
+        sourceID: QUICConnectionID?,
+        version: [UInt8] = [0, 0, 0, 0],
+        payloadLength: Int = 0
     ) -> [UInt8] {
         [
             // Header Form
             [0b1000_0000],
             // Version
-            [0, 0, 0, 0],
+            version,
             // Destination Connection ID length
             destinationID.flatMap { [UInt8(exactly: $0.length)!] } ?? [0],
             // Destination ID
@@ -53,6 +59,8 @@ enum QUICPackets {
             sourceID.flatMap { [UInt8(exactly: $0.length)!] } ?? [0],
             // Source ID
             sourceID.flatMap { $0.asBytes },
+            // Payload, standing in for the packet number and protected frames
+            Array(repeating: 0xFF, count: payloadLength),
         ].compactMap { $0 }.reduce([], +)
     }
 
