@@ -343,4 +343,31 @@ final class QUICHandlerTests: XCTestCase {
 
         XCTAssertNil(try channel.readOutbound(as: AddressedEnvelope<ByteBuffer>.self))
     }
+
+    // MARK: - Parsing failures
+
+    func testChannelRead_whenPacketFailsToParse_doesNotFireError() throws {
+        let recorder = ErrorRecordingHandler()
+        try self.channel.pipeline.syncOperations.addHandler(recorder)
+
+        let address = try SocketAddress(ipAddress: "127.0.0.0", port: 443)
+        self.channel.pipeline.fireChannelRead(
+            AddressedEnvelope<ByteBuffer>(remoteAddress: address, data: ByteBuffer())
+        )
+        self.channel.pipeline.fireChannelReadComplete()
+
+        XCTAssertEqual(recorder.errors.count, 0)
+        XCTAssertNil(try self.channel.readOutbound(as: AddressedEnvelope<ByteBuffer>.self))
+    }
+}
+
+/// Records errors fired down the pipeline.
+private final class ErrorRecordingHandler: ChannelInboundHandler {
+    typealias InboundIn = Any
+
+    var errors: [any Error] = []
+
+    func errorCaught(context: ChannelHandlerContext, error: any Error) {
+        self.errors.append(error)
+    }
 }
