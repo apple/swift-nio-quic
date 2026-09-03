@@ -83,7 +83,7 @@ struct QUICPacketHeader: Hashable, Sendable {
             self.init(base)
         }
 
-        init(firstByteAlreadyMasked: UInt8, version: Version) throws {
+        init(firstByteAlreadyMasked: UInt8, version: Version) {
             switch version {
             case Version.negotiation:
                 self = .versionNegotiation
@@ -130,9 +130,9 @@ struct QUICPacketHeader: Hashable, Sendable {
             }
         }
 
-        init(firstByte: UInt8, version: Version) throws {
+        init(firstByte: UInt8, version: Version) {
             let firstByteAlreadyMasked: UInt8 = (firstByte & Self.typeMask) >> 4
-            try self.init(firstByteAlreadyMasked: firstByteAlreadyMasked, version: version)
+            self.init(firstByteAlreadyMasked: firstByteAlreadyMasked, version: version)
         }
 
         /// Initial packet.
@@ -185,8 +185,8 @@ extension NIOCore.ByteBuffer {
     /// - Returns: The parsed `QUICPacketHeader` or `nil` if the not enough bytes were readable.
     func parseQUICPacketHeader(
         destinationIDLength shortHeaderDCIDLength: Int
-    ) throws -> QUICPacketHeader? {
-        let routingHeader: QUICPacketHeader? = try self.withUnsafeReadableBytes { buffer in
+    ) -> QUICPacketHeader? {
+        let routingHeader: QUICPacketHeader? = self.withUnsafeReadableBytes { buffer in
             let header = QUICConnectionUtilities.parseInboundPacket(
                 buffer,
                 shortHeaderDestinationCIDLength: Int(shortHeaderDCIDLength)
@@ -201,7 +201,7 @@ extension NIOCore.ByteBuffer {
             if let rawVersion = header.version {
                 version = QUICPacketHeader.Version(rawVersion)
             }
-            let packetType: QUICPacketHeader.PacketType = try QUICPacketHeader.PacketType(
+            let packetType: QUICPacketHeader.PacketType = QUICPacketHeader.PacketType(
                 firstByteAlreadyMasked: headerTypeBits,
                 version: version
             )
@@ -221,7 +221,7 @@ extension NIOCore.ByteBuffer {
         if let routingHeader {
             return routingHeader
         } else {
-            return try self.getQUICPacketHeader(
+            return self.getQUICPacketHeader(
                 destinationIDLength: shortHeaderDCIDLength
             )
         }
@@ -234,7 +234,7 @@ extension NIOCore.ByteBuffer {
     /// - Returns: The parsed `QUICPacketHeader` or `nil` if the not enough bytes were readable.
     func getQUICPacketHeader(
         destinationIDLength shortHeaderDCIDLength: Int
-    ) throws -> QUICPacketHeader? {
+    ) -> QUICPacketHeader? {
         let packetType: QUICPacketHeader.PacketType
         var sourceConnectionID: QUICConnectionID? = nil
         var destinationConnectionID = QUICConnectionID.zero
@@ -279,7 +279,7 @@ extension NIOCore.ByteBuffer {
             let parsedHeaderVersion = QUICPacketHeader.Version(longHeaderVersion)
             version = parsedHeaderVersion
 
-            packetType = try QUICPacketHeader.PacketType(firstByte: first, version: parsedHeaderVersion)
+            packetType = QUICPacketHeader.PacketType(firstByte: first, version: parsedHeaderVersion)
 
             // DESTINATION CONNECTION ID PARSING
             guard let longHeaderDCIDLength = localBuffer.readInteger(as: UInt8.self) else {
@@ -288,7 +288,7 @@ extension NIOCore.ByteBuffer {
             let dcidLength = Int(longHeaderDCIDLength)
 
             if longHeaderDCIDLength > QUICConnectionID.maxLength {
-                throw QUICError.invalidConnectionIDLength(Int(longHeaderDCIDLength))
+                return nil
             }
             guard let dcidSlice = localBuffer.readSlice(length: dcidLength) else {
                 return nil
@@ -310,7 +310,7 @@ extension NIOCore.ByteBuffer {
             let scidLength = Int(headerSCIDLength)
 
             if headerSCIDLength > QUICConnectionID.maxLength {
-                throw QUICError.invalidConnectionIDLength(scidLength)
+                return nil
             }
 
             guard let scidSlice = localBuffer.readSlice(length: scidLength) else {

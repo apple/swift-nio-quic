@@ -594,34 +594,36 @@ extension QUICHandler: ChannelInboundHandler {
     public func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         self.expectingChannelReadComplete = true
         let addressedEnvelope = self.unwrapInboundIn(data)
-        var header: QUICPacketHeader
+
+        let header = addressedEnvelope.data.parseQUICPacketHeader(
+            destinationIDLength: self.connectionIDGenerator.connectionIDLength
+        )
+
+        guard let header else {
+            self.logger.trace(
+                "QUICHandler failed to parse packet",
+                metadata: [
+                    LoggingKeys.addressRemote: "\(addressedEnvelope.remoteAddress)",
+                    LoggingKeys.role: "\(self.quicConfiguration.role)",
+                    "bytes": "\(addressedEnvelope.data.readableBytes)",
+                ]
+            )
+            return
+        }
+
         self.logger.trace(
-            "QUICHandler read packet",
+            "QUICHandler received QUIC packet",
             metadata: [
-                LoggingKeys.addressRemote: "\(addressedEnvelope.remoteAddress)"
+                LoggingKeys.addressRemote: "\(addressedEnvelope.remoteAddress)",
+                LoggingKeys.packetType: "\(header.type)",
+                LoggingKeys.packetVersion: "\(String(describing: header.version))",
+                LoggingKeys.connectionSCID: "\(header.sourceConnectionID?.description ?? "none")",
+                LoggingKeys.connectionDCID: "\(header.destinationConnectionID.description)",
+                LoggingKeys.role: "\(self.quicConfiguration.role)",
             ]
         )
 
         do {
-            guard
-                let quicPacketHeader = try addressedEnvelope.data.parseQUICPacketHeader(
-                    destinationIDLength: self.connectionIDGenerator.connectionIDLength
-                )
-            else {
-                throw QUICError.quicPacketHeaderDecodingFailed
-            }
-            header = quicPacketHeader
-            self.logger.trace(
-                "QUICHandler read packet routing to \(self.quicConfiguration.role)",
-                metadata: [
-                    LoggingKeys.addressRemote: "\(addressedEnvelope.remoteAddress)",
-                    LoggingKeys.packetType: "\(header.type)",
-                    LoggingKeys.packetVersion: "\(String(describing: header.version))",
-                    LoggingKeys.connectionSCID: "\(header.sourceConnectionID?.description ?? "none")",
-                    LoggingKeys.connectionDCID: "\(header.destinationConnectionID.description)",
-                ]
-            )
-
             switch self.state {
             case .accepting:
                 if let view = self.connectionRegistry[header.destinationConnectionID] {
