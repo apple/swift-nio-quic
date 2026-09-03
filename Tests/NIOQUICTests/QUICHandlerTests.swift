@@ -117,7 +117,7 @@ final class QUICHandlerTests: XCTestCase {
         )
         let packet = QUICPackets.versionNegotiation(destinationID: connectionID, sourceID: connectionID)
         let buffer = ByteBuffer(bytes: packet)
-        let outboundHeader = try buffer.parseQUICPacketHeader(
+        let outboundHeader = buffer.parseQUICPacketHeader(
             destinationIDLength: 8
         )
         XCTAssertEqual(outboundHeader?.sourceConnectionID, connectionID)
@@ -137,7 +137,7 @@ final class QUICHandlerTests: XCTestCase {
         )
         let packet = QUICPackets.versionNegotiation(destinationID: connectionID, sourceID: nil)
         let buffer = ByteBuffer(bytes: packet)
-        let outboundHeader = try buffer.getQUICPacketHeader(
+        let outboundHeader = buffer.getQUICPacketHeader(
             destinationIDLength: 8
         )
 
@@ -158,7 +158,7 @@ final class QUICHandlerTests: XCTestCase {
         )
         let packet = QUICPackets.versionNegotiation(destinationID: nil, sourceID: connectionID)
         let buffer = ByteBuffer(bytes: packet)
-        let outboundHeader = try buffer.getQUICPacketHeader(
+        let outboundHeader = buffer.getQUICPacketHeader(
             destinationIDLength: 8
         )
         XCTAssertEqual(outboundHeader?.destinationConnectionID.length, 0)
@@ -169,7 +169,7 @@ final class QUICHandlerTests: XCTestCase {
     func testChannelRead_whenVersionNegotiation_andEmptyDCID_andEmptySCID() throws {
         let packet = QUICPackets.versionNegotiation(destinationID: nil, sourceID: nil)
         let buffer = ByteBuffer(bytes: packet)
-        let outboundHeader = try buffer.getQUICPacketHeader(
+        let outboundHeader = buffer.getQUICPacketHeader(
             destinationIDLength: 1
         )
         XCTAssertEqual(outboundHeader?.sourceConnectionID?.length, 0)
