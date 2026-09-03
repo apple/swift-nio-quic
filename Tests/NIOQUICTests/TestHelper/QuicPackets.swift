@@ -25,12 +25,14 @@ extension QUICConnectionID {
 
 @available(anyAppleOS 26, *)
 enum QUICPackets {
-    static func shortHeader(destinationID: QUICConnectionID) -> [UInt8] {
+    static func shortHeader(destinationID: QUICConnectionID, payloadLength: Int = 0) -> [UInt8] {
         [
             // Header Form, Key Phase, etc.
             [0b0011_0000],
             // Destination ID
             destinationID.asBytes,
+            // Payload, standing in for the packet number and protected frames
+            Array(repeating: 0xAA, count: payloadLength),
         ].reduce([], +)
     }
 

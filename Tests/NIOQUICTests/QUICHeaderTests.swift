@@ -293,4 +293,82 @@ final class HeaderIDTests {
         // Short headers have no SCID
         #expect(header.sourceConnectionID == nil)
     }
+
+    // MARK: - Undersized datagrams
+
+    @available(anyAppleOS 26, *)
+    @Test(
+        "short header too small to contain the destination connection ID"
+    )
+    func shortHeaderTooSmallForDCID() throws {
+        let connectionID = QUICConnectionID(
+            bytes: [
+                1, 1, 1, 1, 1,
+                1, 1, 1, 1, 1,
+                1, 1, 1, 1, 1,
+                1, 0, 0, 0, 0,
+            ],
+            length: 16
+        )
+        let packet = Array(QUICPackets.shortHeader(destinationID: connectionID).prefix(4))
+        let buffer = ByteBuffer(bytes: packet)
+
+        let header = try buffer.getQUICPacketHeader(destinationIDLength: 16)
+
+        #expect(header == nil)
+    }
+
+    @available(anyAppleOS 26, *)
+    @Test(
+        "long header too small to contain the destination connection ID"
+    )
+    func longHeaderTooSmallForDCID() throws {
+        let connectionID = QUICConnectionID(
+            bytes: [
+                1, 1, 1, 1, 1,
+                1, 1, 1, 1, 1,
+                1, 1, 1, 1, 1,
+                1, 1, 1, 1, 1,
+            ],
+            length: 20
+        )
+        let packet = Array(
+            QUICPackets.initial(destinationID: connectionID, sourceID: connectionID, token: [], version: 1)
+                .prefix(6)
+        )
+        let buffer = ByteBuffer(bytes: packet)
+
+        let header = try buffer.getQUICPacketHeader(destinationIDLength: 16)
+
+        #expect(header == nil)
+    }
+
+    @available(anyAppleOS 26, *)
+    @Test(
+        "long header too small to contain the source connection ID"
+    )
+    func longHeaderTooSmallForSCID() throws {
+        let zeroLengthCID = QUICConnectionID(
+            bytes: InlineArray(repeating: 0),
+            length: 0
+        )
+        let sourceID = QUICConnectionID(
+            bytes: [
+                1, 1, 1, 1, 1,
+                1, 1, 1, 1, 1,
+                1, 1, 1, 1, 1,
+                1, 1, 1, 1, 1,
+            ],
+            length: 20
+        )
+        let packet = Array(
+            QUICPackets.initial(destinationID: zeroLengthCID, sourceID: sourceID, token: [], version: 1)
+                .prefix(7)
+        )
+        let buffer = ByteBuffer(bytes: packet)
+
+        let header = try buffer.getQUICPacketHeader(destinationIDLength: 16)
+
+        #expect(header == nil)
+    }
 }

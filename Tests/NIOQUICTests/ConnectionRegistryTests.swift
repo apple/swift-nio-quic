@@ -20,7 +20,7 @@ struct ConnectionRegistryTests {
     /// Makes `count` distinct connection IDs.
     @available(anyAppleOS 26, *)
     private func makeConnectionIDs(_ count: Int) -> [QUICConnectionID] {
-        var generator = RandomQUICConnectionIDGenerator()
+        var generator = QUICConnectionID.RandomGenerator()
         return (0..<count).map { _ in generator.next() }
     }
 

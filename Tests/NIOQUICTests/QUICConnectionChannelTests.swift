@@ -222,7 +222,7 @@ struct QUICConnectionChannelTests {
             let recorder = SCIDEventRecorder()
             let channel = try makeChannel(registrar: registrar) { $0.pipeline.addHandler(recorder) }
 
-            var generator = RandomQUICConnectionIDGenerator()
+            var generator = QUICConnectionID.RandomGenerator()
             let id1 = generator.next()
 
             let view = channel.connectionView
@@ -242,7 +242,7 @@ struct QUICConnectionChannelTests {
             let recorder = SCIDEventRecorder()
             let channel = try makeChannel(registrar: registrar) { $0.pipeline.addHandler(recorder) }
 
-            var generator = RandomQUICConnectionIDGenerator()
+            var generator = QUICConnectionID.RandomGenerator()
             let id = generator.next()
 
             // The registrar rejected the association, so no event is fired.
@@ -259,7 +259,7 @@ struct QUICConnectionChannelTests {
             let recorder = SCIDEventRecorder()
             let channel = try makeChannel(registrar: registrar) { $0.pipeline.addHandler(recorder) }
 
-            var generator = RandomQUICConnectionIDGenerator()
+            var generator = QUICConnectionID.RandomGenerator()
             let id = generator.next()
 
             // The registrar rejected the retirement, so no event is fired.
@@ -271,7 +271,7 @@ struct QUICConnectionChannelTests {
         @available(anyAppleOS 26, *)
         @Test
         func generate() throws {
-            var generator = RandomQUICConnectionIDGenerator()
+            var generator = QUICConnectionID.RandomGenerator()
             let id = generator.next()
 
             // Have generate always return the same ID.
