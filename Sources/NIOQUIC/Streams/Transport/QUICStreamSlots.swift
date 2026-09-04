@@ -53,6 +53,7 @@ struct QUICStreamSlots<Value: ~Copyable>: ~Copyable {
         self._count = 0
     }
 
+    @inlinable
     deinit {
         for index in self._slots.indices {
             if self._slots[index].isOccupied {

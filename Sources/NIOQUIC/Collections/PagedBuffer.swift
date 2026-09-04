@@ -37,6 +37,7 @@ struct PagedBuffer<Value: ~Copyable>: ~Copyable {
         self._count = 0
     }
 
+    @inlinable
     deinit {
         for page in self._pages {
             page.deallocate()
