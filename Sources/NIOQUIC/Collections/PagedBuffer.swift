@@ -78,6 +78,8 @@ struct PagedBuffer<Value: ~Copyable>: ~Copyable {
         if position.pageIndex == self._pages.count {
             let capacity = Page.capacity(ofPage: position.pageIndex)
             self._pages.append(UnsafeMutablePointer<Value>.allocate(capacity: capacity))
+        } else {
+            assert(position.pageIndex == self._pages.count - 1)
         }
 
         self._count &+= 1
