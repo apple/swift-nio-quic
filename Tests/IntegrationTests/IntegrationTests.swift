@@ -756,7 +756,7 @@ final class PacketHeaderRecorderHandler: ChannelInboundHandler, Sendable {
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         let message = self.unwrapInboundIn(data)
-        let header = try? message.data.getQUICPacketHeader(
+        let header = message.data.parseQUICPacketHeader(
             destinationIDLength: 16  // this is the random ID length
         )
         if let header {
