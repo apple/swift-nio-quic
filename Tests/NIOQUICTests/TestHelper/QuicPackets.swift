@@ -46,22 +46,24 @@ enum QUICPackets {
         version: [UInt8] = [0, 0, 0, 0],
         payloadLength: Int = 0
     ) -> [UInt8] {
-        [
-            // Header Form
-            [0b1000_0000],
-            // Version
-            version,
-            // Destination Connection ID length
-            destinationID.flatMap { [UInt8(exactly: $0.length)!] } ?? [0],
-            // Destination ID
-            destinationID.flatMap { $0.asBytes },
-            // Source Connection ID length
-            sourceID.flatMap { [UInt8(exactly: $0.length)!] } ?? [0],
-            // Source ID
-            sourceID.flatMap { $0.asBytes },
-            // Payload, standing in for the packet number and protected frames
-            Array(repeating: 0xFF, count: payloadLength),
-        ].compactMap { $0 }.reduce([], +)
+        // Note: Differently built to appease the type checker.
+        var packet: [UInt8] = [0b1000_0000]
+        packet.append(contentsOf: version)
+        // Destination Connection ID length
+        packet.append(contentsOf: destinationID.flatMap { [UInt8(exactly: $0.length)!] } ?? [0])
+        // Destination ID
+        if let dcidBytes = destinationID.flatMap({ $0.asBytes }) {
+            packet.append(contentsOf: dcidBytes)
+        }
+        // Source Connection ID length
+        packet.append(contentsOf: sourceID.flatMap { [UInt8(exactly: $0.length)!] } ?? [0])
+        // Source ID
+        if let scidBytes = sourceID.flatMap({ $0.asBytes }) {
+            packet.append(contentsOf: scidBytes)
+        }
+        // Payload, standing in for the packet number and protected frames
+        packet.append(contentsOf: Array(repeating: 0xFF, count: payloadLength))
+        return packet
     }
 
     static func initial(
