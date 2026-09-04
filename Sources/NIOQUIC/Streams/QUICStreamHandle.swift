@@ -73,7 +73,7 @@ extension QUICStreamHandle {
         }
 
         @inlinable
-        mutating func formNext() {
+        mutating func advance() {
             self.rawValue &+= 1
             assert(self.rawValue <= Int(UInt32.max))
         }
