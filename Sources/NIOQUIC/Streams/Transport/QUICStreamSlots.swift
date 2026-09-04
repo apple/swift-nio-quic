@@ -26,7 +26,7 @@ struct QUICStreamSlots<Value: ~Copyable>: ~Copyable {
     @usableFromInline
     var _slots: [QUICStreamSlotRecord]
 
-    /// The indexes of the vacant slots.
+    /// The indices of the vacant slots.
     @usableFromInline
     var _freeList: [QUICStreamHandle.Index]
 
@@ -75,7 +75,7 @@ struct QUICStreamSlots<Value: ~Copyable>: ~Copyable {
             pointer = self._storage.append()
             index = QUICStreamHandle.Index(self._slots.count)
             self._slots.append(QUICStreamSlotRecord())
-            // Storage and slots share indexes, double check they align.
+            // Storage and slots share indices, double check they align.
             assert(self._slots.count == self._storage.count)
         }
 

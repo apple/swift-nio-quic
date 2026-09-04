@@ -141,7 +141,7 @@ enum Page {
     @usableFromInline
     static var maxPageCapacity: Int { 64 }
 
-    /// The first page which holds ``maxPageCapacity`` slots.
+    /// The index of the first page which holds ``maxPageCapacity`` slots.
     @inlinable
     static var firstFixedCapacityPage: Int { 6 }
 
