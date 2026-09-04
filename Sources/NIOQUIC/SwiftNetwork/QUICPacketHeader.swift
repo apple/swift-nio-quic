@@ -23,7 +23,7 @@ extension UInt8 {
     }
 
     /// Only keep the bits that identify long header packet types and shift them the right.
-    fileprivate var maskedLongPacketType: UInt8 {
+    fileprivate var maskedLongHeaderPacketType: UInt8 {
         (self & QUICPacketHeader.PacketType.typeMask) >> 4
     }
 }
@@ -83,14 +83,34 @@ struct QUICPacketHeader: Hashable, Sendable {
 
         /// Parse the packet type from the byte of the packet.
         init(firstByte: UInt8, version: Version) {
-            // Check if the byte indicates a short header.
+            // RFC 9000 § 17.2: "The most significant bit (0x80) of byte 0
+            // (the first byte) is set to 1 for long headers."
             guard firstByte.indicatesLongHeader else {
+                // RFC 9000 § 17.3: "The most significant bit (0x80) of
+                // byte 0 is set to 0 for the short header."
                 self = .short
                 return
             }
 
-            // Must be VN or a long header.
-            let maskedByte = firstByte.maskedLongPacketType
+            // The first byte contains two bits for header types.
+            // Mask them and shift them to the right to switch over them.
+            //
+            // Long Header Packet {
+            //   Header Form (1) = 1,
+            //   Fixed Bit (1) = 1,
+            //   Long Packet Type (2), // <-- These two
+            //   ...
+            // }
+            //
+            // The meaning of these bits is QUIC version dependent.
+            // QUIC v1 (RFC 9000) and QUIC v2 (RFC 9369) use the same
+            // header types, but the bit patterns that indicate them
+            // differ. As a result the version is important to identify
+            // the packet type.
+            //
+            // A version negotation packet (RFC 9000 § 17.2.1) carries
+            // a version of "0x00000000".
+            let maskedByte = firstByte.maskedLongHeaderPacketType
 
             switch version {
             case Version.negotiation:
