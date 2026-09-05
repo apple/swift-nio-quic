@@ -112,7 +112,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
     /// which this endpoint is consuming inbound data.
     private var pendingRead: Bool = false
 
-    /// Whether the `autoRead` channel option is enabled. This value is inherited from the parent connection channel.
+    /// Whether `autoRead` channel option is enabled. This value is inherited from the parent connection channel.
     /// When `true`, `self.pipeline.read()` is called after every `channelReadComplete` to keep data flowing.
     ///
     /// Defaults to `true`. This value can be updated by calling `setOption`.
@@ -1105,7 +1105,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
             self.log(
                 "shutdownStream shutting down read, applicationErrorCode: \(String(describing: applicationErrorCode))"
             )
-            self.abortInbound(error: NetworkError(quicApplicationError: applicationErrorCode?.rawValue ?? 0))
+            self.abortInbound(error: makeQUICApplicationAbortError(applicationErrorCode))
             if deliverEndOfStream {
                 self.pipeline.fireUserInboundEventTriggered(ChannelEvent.inputClosed)
             }
