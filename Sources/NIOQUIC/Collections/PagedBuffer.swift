@@ -97,7 +97,7 @@ struct PagedBuffer<Value: ~Copyable>: ~Copyable {
     }
 }
 
-extension PagedBuffer where Value: ExpressibleByNilLiteral {
+extension PagedBuffer where Value: ExpressibleByNilLiteral & ~Copyable {
     /// Grows the buffer by one `nil`-initialized slot and returns it.
     ///
     /// The rest of any page this allocates is `nil`-initialized too: the whole-page operations
@@ -109,10 +109,10 @@ extension PagedBuffer where Value: ExpressibleByNilLiteral {
         let pointer = self.append()
 
         if self._pages.count > allocated {
-            self._pages[allocated].initialize(
-                repeating: nil,
-                count: Page.capacity(ofPage: allocated)
-            )
+            let page = self._pages[allocated]
+            for offset in 0..<Page.capacity(ofPage: allocated) {
+                page.advanced(by: offset).initialize(to: nil)
+            }
         }
 
         return pointer
@@ -121,8 +121,11 @@ extension PagedBuffer where Value: ExpressibleByNilLiteral {
     /// Sets every slot to `nil`.
     @inlinable
     func setAllToNil() {
-        for page in 0..<self._pages.count {
-            self._pages[page].update(repeating: nil, count: Page.capacity(ofPage: page))
+        for index in self._pages.indices {
+            let page = self._pages[index]
+            for offset in 0..<Page.capacity(ofPage: index) {
+                page.advanced(by: offset).pointee = nil
+            }
         }
     }
 
