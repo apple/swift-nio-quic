@@ -73,6 +73,7 @@ struct QUICStreamCore: ~Copyable {
     /// Creates a stream core which is not yet wired to the stack.
     ///
     /// - Parameter id: The stream ID, if the stack has already assigned one.
+    @usableFromInline
     init(id: QUICStreamID?) {
         self.id = id
         self.state = QUICStreamStateMachine()
