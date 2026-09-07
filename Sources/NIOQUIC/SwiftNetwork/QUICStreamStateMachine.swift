@@ -205,7 +205,7 @@ struct QUICStreamStateMachine: ~Copyable {
     }
 
     /// Returns `true` if the write side is closed (terminal, including both clean finish and reset).
-    var isWriteClosed: Bool {
+    var isSendClosed: Bool {
         switch self.state {
         case .connected(let connected):
             switch connected.streamState {
@@ -291,7 +291,7 @@ struct QUICStreamStateMachine: ~Copyable {
 
     /// Returns `true` if the stream is connected and the write side is open.
     var canWrite: Bool {
-        self.isConnected && !self.isWriteClosed
+        self.isConnected && !self.isSendClosed
     }
 
     /// Returns `true` if the receive side is closed (terminal, reset, stream closed,

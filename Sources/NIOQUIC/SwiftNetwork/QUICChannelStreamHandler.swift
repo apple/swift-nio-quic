@@ -1439,7 +1439,7 @@ extension QUICChannelStreamHandler: Channel, ChannelCore {
             // `shutdownStream` handles the QUIC-level signaling as needed,
             // e.g. STOP_SENDING for `.read`, RESET_STREAM for `.write`.
             self.shutdownStream(direction: .read, applicationErrorCode: nil)
-            if self.streamStateMachine.isWriteClosed {
+            if self.streamStateMachine.isSendClosed {
                 self.log("Input and output for stream are now closed, stream will be queued up for closure")
             }
             promise?.succeed()
@@ -1491,7 +1491,7 @@ extension QUICChannelStreamHandler: Channel, ChannelCore {
                 direction: .read,
                 applicationErrorCode: event.code
             )
-            if self.streamStateMachine.isWriteClosed {
+            if self.streamStateMachine.isSendClosed {
                 // Both sides now closed
                 self.closeStream(mode: .closeOnly, error: nil, promise: promise)
             } else {
