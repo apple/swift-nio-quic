@@ -203,7 +203,7 @@ extension QUICStreamCore {
     ///   - minContiguous: The shortest run of contiguous bytes to hand to `body`. Data is
     ///     coalesced to reach it; `1` never coalesces. A run can still be shorter than
     ///     `minContiguous` if `maxBytes` is smaller.
-    ///   - body: Provided a contiguous block of bytes received from the remote peet, returning how
+    ///   - body: Provided a contiguous block of bytes received from the remote peer, returning how
     ///     many of them it consumed. May be called more then once for each call to `read`.
     /// - Returns: The outcome of the read.
     @usableFromInline
@@ -576,6 +576,7 @@ extension QUICStreamCore {
                     refusalReason = "RESET_STREAM has already been sent"
                 }
             } catch {
+                assert(self.pendingWrities.isEmpty)
                 throw NetworkError(streamStateViolation: "\(error)", operation: "sendFin")
             }
         }
