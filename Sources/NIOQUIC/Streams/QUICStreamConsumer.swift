@@ -16,5 +16,9 @@
 @available(anyAppleOS 26, *)
 public protocol QUICStreamConsumer: SendableMetatype, ~Copyable {
     /// Per-stream state stored by the connection.
+    #if swift(>=6.4)
     associatedtype StreamState: ~Copyable
+    #else  // 6.3 doesn't support ~Copyable associatedtypes
+    associatedtype StreamState
+    #endif
 }
