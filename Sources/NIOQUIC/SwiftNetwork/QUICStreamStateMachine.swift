@@ -222,6 +222,30 @@ struct QUICStreamStateMachine: ~Copyable {
         }
     }
 
+    /// Returns `true` once a FIN or RESET\_STREAM has been sent, the stream has no send side, or
+    /// the stream is closed.
+    ///
+    /// Unlike ``isWriteClosed`` this doesn't wait for the peer to acknowledge what was sent.
+    var isSendFinished: Bool {
+        switch self.state {
+        case .connected(let connected):
+            switch connected.streamState {
+            case .bidirectional(let streamState):
+                return streamState.sendState.isFinished
+            case .sendOnly(let streamState):
+                return streamState.sendState.isFinished
+            case .receiveOnly:
+                return true  // No write side
+            }
+
+        case .pendingID:
+            return false
+
+        case .closed:
+            return true
+        }
+    }
+
     /// Returns `true` if the stream is fully closed (both directions terminal or closed).
     var isFullyClosed: Bool {
         switch self.state {
