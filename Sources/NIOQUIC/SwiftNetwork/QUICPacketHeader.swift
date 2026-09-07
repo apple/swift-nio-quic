@@ -15,24 +15,22 @@
 import NIOCore
 @_spi(ProtocolProvider) import SwiftNetwork
 
+@available(anyAppleOS 26, *)
+extension UInt8 {
+    /// RFC 9000 § 17.2: The most significant bit (0x80) of byte 0 (the first byte) is set to 1 for long headers.
+    fileprivate var indicatesLongHeader: Bool {
+        (self & 0x80) != 0
+    }
+
+    /// Only keep the bits that identify long header packet types and shift them the right.
+    fileprivate var maskedLongHeaderPacketType: UInt8 {
+        (self & QUICPacketHeader.PacketType.typeMask) >> 4
+    }
+}
+
 /// A QUIC packet's header.
 @available(anyAppleOS 26, *)
 struct QUICPacketHeader: Hashable, Sendable {
-    enum PacketForm {
-        case short
-        case long
-
-        private static let formBit: UInt8 = 0x80
-
-        // The most significant bit (0x80) of byte 0 (the first byte) is set to 1 for long headers.
-        init(_ firstByte: UInt8) {
-            if (firstByte & Self.formBit) == 0 {
-                self = .short
-            } else {
-                self = .long
-            }
-        }
-    }
 
     /// QUIC packet header version.
     struct Version: Hashable, Sendable {
@@ -68,7 +66,7 @@ struct QUICPacketHeader: Hashable, Sendable {
             case versionNegotiation
         }
 
-        private static let typeMask: UInt8 = 0x30
+        fileprivate static let typeMask: UInt8 = 0x30
 
         let base: Base
 
@@ -83,13 +81,43 @@ struct QUICPacketHeader: Hashable, Sendable {
             self.init(base)
         }
 
-        init(firstByteAlreadyMasked: UInt8, version: Version) throws {
+        /// Parse the packet type from the byte of the packet.
+        init(firstByte: UInt8, version: Version) {
+            // RFC 9000 § 17.2: "The most significant bit (0x80) of byte 0
+            // (the first byte) is set to 1 for long headers."
+            guard firstByte.indicatesLongHeader else {
+                // RFC 9000 § 17.3: "The most significant bit (0x80) of
+                // byte 0 is set to 0 for the short header."
+                self = .short
+                return
+            }
+
+            // The first byte contains two bits for header types.
+            // Mask them and shift them to the right to switch over them.
+            //
+            // Long Header Packet {
+            //   Header Form (1) = 1,
+            //   Fixed Bit (1) = 1,
+            //   Long Packet Type (2), // <-- These two
+            //   ...
+            // }
+            //
+            // The meaning of these bits is QUIC version dependent.
+            // QUIC v1 (RFC 9000) and QUIC v2 (RFC 9369) use the same
+            // header types, but the bit patterns that indicate them
+            // differ. As a result the version is important to identify
+            // the packet type.
+            //
+            // A version negotation packet (RFC 9000 § 17.2.1) carries
+            // a version of "0x00000000".
+            let maskedByte = firstByte.maskedLongHeaderPacketType
+
             switch version {
             case Version.negotiation:
                 self = .versionNegotiation
 
             case Version.v1:
-                switch firstByteAlreadyMasked {
+                switch maskedByte {
                 case 0b00:
                     self = .initial
                 case 0b01:
@@ -99,11 +127,11 @@ struct QUICPacketHeader: Hashable, Sendable {
                 case 0b11:
                     self = .retry
                 default:
-                    fatalError("Unknown packet type: \(firstByteAlreadyMasked)")
+                    fatalError("Unknown packet type: \(maskedByte)")
                 }
 
             case Version.v2:
-                switch firstByteAlreadyMasked {
+                switch maskedByte {
                 case 0b01:
                     self = .initial
                 case 0b10:
@@ -113,7 +141,7 @@ struct QUICPacketHeader: Hashable, Sendable {
                 case 0b00:
                     self = .retry
                 default:
-                    fatalError("Unknown packet type: \(firstByteAlreadyMasked)")
+                    fatalError("Unknown packet type: \(maskedByte)")
                 }
 
             default:
@@ -128,11 +156,7 @@ struct QUICPacketHeader: Hashable, Sendable {
                 //   described in Section 6.1."
                 self = .versionNegotiation
             }
-        }
 
-        init(firstByte: UInt8, version: Version) throws {
-            let firstByteAlreadyMasked: UInt8 = (firstByte & Self.typeMask) >> 4
-            try self.init(firstByteAlreadyMasked: firstByteAlreadyMasked, version: version)
         }
 
         /// Initial packet.
@@ -164,29 +188,25 @@ struct QUICPacketHeader: Hashable, Sendable {
     /// The address verification token of the packet. Only present when the type is `initial`
     /// or `retry` .
     var token: [UInt8]
-    /// Returns if the version of the header is supported by SwiftQUIC.
-    var isVersionSupported: Bool {
-        version?.headerVersionField == QUICVersion.v1.rawValue
-    }
-
-    // TODO: grab this from somewhere?
-    // Possibly SwiftTLS.TLSRecordProtector.aesTagLengthBytes
-    fileprivate static let AES128GCMTagLength: Int = 16
 }
 
 @available(anyAppleOS 26, *)
 extension NIOCore.ByteBuffer {
 
     /// A method to parse a `QUICPacketHeader` from the `ByteBuffer`, mainly to parse the destinationConnectionID only for routing.
-    /// Falls back to getQUICPacketHeader if the dcid cannot be parsed
     ///
     /// - Parameters:
     ///   - shortHeaderDCIDLength: The length of the destination connection ID. Required to parse short header packets.
-    /// - Returns: The parsed `QUICPacketHeader` or `nil` if the not enough bytes were readable.
+    /// - Returns: The parsed `QUICPacketHeader` or `nil`.
     func parseQUICPacketHeader(
         destinationIDLength shortHeaderDCIDLength: Int
-    ) throws -> QUICPacketHeader? {
-        let routingHeader: QUICPacketHeader? = try self.withUnsafeReadableBytes { buffer in
+    ) -> QUICPacketHeader? {
+        self.withUnsafeReadableBytes { buffer in
+            // Needed to decide if this is a long or short header packet.
+            guard let firstByte = buffer.first else {
+                return nil
+            }
+
             let header = QUICConnectionUtilities.parseInboundPacket(
                 buffer,
                 shortHeaderDestinationCIDLength: Int(shortHeaderDCIDLength)
@@ -196,19 +216,24 @@ extension NIOCore.ByteBuffer {
                 return nil
             }
 
-            let headerTypeBits = header.type ?? 0
+            // NOTE: This will swollow unknown versions. Since the header is only parsed
+            // for connection routing (accept new, forward to existing, stateless reset),
+            // the accuracy here is not important.
             var version: QUICPacketHeader.Version = .v1
             if let rawVersion = header.version {
                 version = QUICPacketHeader.Version(rawVersion)
             }
-            let packetType: QUICPacketHeader.PacketType = try QUICPacketHeader.PacketType(
-                firstByteAlreadyMasked: headerTypeBits,
+
+            let packetType: QUICPacketHeader.PacketType = QUICPacketHeader.PacketType(
+                firstByte: firstByte,
                 version: version
             )
+
             var scid: QUICConnectionID? = nil
             if let parsedSCID = header.sourceConnectionID {
                 scid = QUICConnectionID(parsedSCID)
             }
+
             return QUICPacketHeader(
                 type: packetType,
                 version: version,
@@ -217,149 +242,5 @@ extension NIOCore.ByteBuffer {
                 token: header.token
             )
         }
-
-        if let routingHeader {
-            return routingHeader
-        } else {
-            return try self.getQUICPacketHeader(
-                destinationIDLength: shortHeaderDCIDLength
-            )
-        }
-    }
-
-    /// A method to parse a `QUICPacketHeader` from the `ByteBuffer`.
-    ///
-    /// - Parameters:
-    ///   - shortHeaderDCIDLength: The length of the destination connection ID. Required to parse short header packets.
-    /// - Returns: The parsed `QUICPacketHeader` or `nil` if the not enough bytes were readable.
-    func getQUICPacketHeader(
-        destinationIDLength shortHeaderDCIDLength: Int
-    ) throws -> QUICPacketHeader? {
-        let packetType: QUICPacketHeader.PacketType
-        var sourceConnectionID: QUICConnectionID? = nil
-        var destinationConnectionID = QUICConnectionID.zero
-        var version: QUICPacketHeader.Version?
-        var token: [UInt8] = []
-
-        // to avoid advancing the read index
-        var localBuffer = self
-
-        // READ FIRST BYTE: Extract the first byte to determine packet type
-        guard let firstByteSlice = localBuffer.readBytes(length: 1) else {
-            return nil
-        }
-        let first = firstByteSlice[0]
-
-        // Determine if this is a short or long header packet
-        switch QUICPacketHeader.PacketForm(first) {
-        // SHORT HEADER PARSING: Simpler packet format
-        case .short:
-            packetType = .short
-            let dcidLength = shortHeaderDCIDLength
-
-            guard let dcidSlice = localBuffer.readSlice(length: dcidLength) else {
-                return nil
-            }
-
-            let dcidWrittenBytes = destinationConnectionID.withUnsafeMutableBufferPointer {
-                destinationConnectionIDBytes in
-                dcidSlice.withUnsafeReadableBytes { pointer in
-                    pointer.copyBytes(to: destinationConnectionIDBytes)
-                }
-            }
-            precondition(dcidWrittenBytes == dcidLength)
-            destinationConnectionID.length = dcidLength
-
-        // LONG HEADER PARSING: More complex packet format with version info
-        case .long:
-            // READ VERSION: 32-bit version number
-            guard let longHeaderVersion = localBuffer.readInteger(as: UInt32.self) else {
-                return nil
-            }
-            let parsedHeaderVersion = QUICPacketHeader.Version(longHeaderVersion)
-            version = parsedHeaderVersion
-
-            packetType = try QUICPacketHeader.PacketType(firstByte: first, version: parsedHeaderVersion)
-
-            // DESTINATION CONNECTION ID PARSING
-            guard let longHeaderDCIDLength = localBuffer.readInteger(as: UInt8.self) else {
-                return nil
-            }
-            let dcidLength = Int(longHeaderDCIDLength)
-
-            if longHeaderDCIDLength > QUICConnectionID.maxLength {
-                throw QUICError.invalidConnectionIDLength(Int(longHeaderDCIDLength))
-            }
-            guard let dcidSlice = localBuffer.readSlice(length: dcidLength) else {
-                return nil
-            }
-            let dcidWrittenBytes = destinationConnectionID.withUnsafeMutableBufferPointer {
-                destinationConnectionIDBytes in
-                dcidSlice.withUnsafeReadableBytes { pointer in
-                    pointer.copyBytes(to: destinationConnectionIDBytes)
-                }
-            }
-            precondition(dcidWrittenBytes == dcidLength)
-            destinationConnectionID.length = dcidLength
-
-            // SOURCE CONNECTION ID PARSING: Same pattern as destination ID
-            let headerSCIDLength = localBuffer.readInteger(as: UInt8.self)
-            guard let headerSCIDLength else {
-                return nil
-            }
-            let scidLength = Int(headerSCIDLength)
-
-            if headerSCIDLength > QUICConnectionID.maxLength {
-                throw QUICError.invalidConnectionIDLength(scidLength)
-            }
-
-            guard let scidSlice = localBuffer.readSlice(length: scidLength) else {
-                return nil
-            }
-
-            var scid = QUICConnectionID.zero
-
-            let scidWrittenBytes = scid.withUnsafeMutableBufferPointer { sourceConnectionIDBytes in
-                scidSlice.withUnsafeReadableBytes { pointer in
-                    pointer.copyBytes(to: sourceConnectionIDBytes)
-                }
-            }
-            precondition(scidWrittenBytes == scidLength)
-            scid.length = scidLength
-
-            sourceConnectionID = scid
-
-            var versions: [UInt32] = []  // TODO: not currently used?
-            switch packetType {
-            case .initial:
-                // INITIAL PACKET: Contains a token with variable length encoding
-                guard let tokenLength = localBuffer.readEncodedInteger(as: Int.self, strategy: .quic) else {
-                    return nil
-                }
-                token = localBuffer.readBytes(length: tokenLength) ?? []
-
-            case .retry:
-                // RETRY PACKET: Contains a token but with integrity tag at end
-                let tokenLength = localBuffer.readableBytes - QUICPacketHeader.AES128GCMTagLength
-                token = localBuffer.readBytes(length: tokenLength) ?? []
-
-            case .versionNegotiation:
-                // VERSION NEGOTIATION: Contains list of supported versions
-                while let version = localBuffer.readInteger(as: UInt32.self) {
-                    versions.append(version)
-                }
-
-            default:
-                ()  // do nothing
-            }
-        }
-
-        return QUICPacketHeader(
-            type: packetType,
-            version: version,
-            destinationConnectionID: destinationConnectionID,
-            sourceConnectionID: sourceConnectionID,
-            token: token
-        )
     }
 }

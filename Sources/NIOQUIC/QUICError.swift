@@ -20,9 +20,7 @@ public struct QUICError: Error, Hashable, Sendable {
         case quicHandlerShutdown
         case tlsConfigurationIncomplete
         case invalidConfiguration
-        case invalidConnectionIDLength(Int)
         case invalidStreamTypeForRole
-        case quicPacketHeaderDecodingFailed
         case unknownVersion(UInt32)
         case invalidStreamState
         case streamLimit
@@ -59,16 +57,8 @@ public struct QUICError: Error, Hashable, Sendable {
     /// Indicates that the QUIC configuration is invalid and cannot continue.
     public static let invalidConfiguration: Self = .init(code: .invalidConfiguration)
 
-    /// Indicates that a QUIC packet header contained an invalid connection ID length
-    public static func invalidConnectionIDLength(_ length: Int) -> Self {
-        .init(code: .invalidConnectionIDLength(length))
-    }
-
     /// Indicates that a QUIC stream cannot be opened because its stream type does not match the role.
     public static let invalidStreamTypeForRole: Self = .init(code: .invalidStreamTypeForRole)
-
-    /// Indicates that a QUIC packet header failed decoding
-    public static let quicPacketHeaderDecodingFailed: Self = .init(code: .quicPacketHeaderDecodingFailed)
 
     /// Indicates that a QUIC packet header failed decoding
     public static func unknownVersion(_ version: UInt32) -> Self { .init(code: .unknownVersion(version)) }
