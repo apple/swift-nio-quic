@@ -414,20 +414,27 @@ extension QUICStreamCore {
         bytes: Int,
         _ body: (_ span: borrowing RawSpan) -> Int
     ) -> Int {
-        self.coalescedBytes.removeAll(keepingCapacity: true)
-        self.coalescedBytes.reserveCapacity(bytes)
+        // Move out of 'self' for the fill: Swift 6.3 and earlier fail with a compilation error
+        // otherwise.
+        var coalesced: [UInt8] = []
+        swap(&coalesced, &self.coalescedBytes)
+        coalesced.removeAll(keepingCapacity: true)
+        coalesced.reserveCapacity(bytes)
 
         for index in self.undeliveredReads.indices {
-            let wanted = bytes &- self.coalescedBytes.count
+            let wanted = bytes &- coalesced.count
             if wanted == 0 { break }
 
             if let source = self.undeliveredReads[index].span {
                 let slice = source.extracting(0..<min(source.count, wanted))
                 slice.withUnsafeBufferPointer { pointer in
-                    self.coalescedBytes.append(contentsOf: pointer)
+                    coalesced.append(contentsOf: pointer)
                 }
             }
         }
+
+        // Put back the buffer.
+        swap(&coalesced, &self.coalescedBytes)
 
         let consumed = body(self.coalescedBytes.span.bytes)
         assert(consumed >= 0, "body(_:) claimed to read negative bytes")
