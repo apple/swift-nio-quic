@@ -50,6 +50,11 @@ struct QUICStreamCore: ~Copyable {
     /// is broken in ``close(error:)``.
     private var reference: ProtocolInstanceReference
 
+    #if DEBUG
+    /// Whether attach has been called yet.
+    private var hasAttached: Bool = false
+    #endif
+
     /// Temporary space for coalescing into when the consumer asks for reads to be coalesced and
     /// the leading frame doesn't contain enough bytes.
     private var coalescedBytes: [UInt8]
@@ -86,6 +91,10 @@ struct QUICStreamCore: ~Copyable {
     ///     also what every linkage call is made "from".
     ///   - linkage: The flow the stack attached for this stream.
     mutating func attach(reference: ProtocolInstanceReference, linkage: OutboundStreamLinkage) {
+        #if DEBUG
+        assert(!self.hasAttached, "\(#function) called more than once")
+        self.hasAttached = true
+        #endif
         self.reference = reference
         self.handle = SwiftNetworkStreamHandle(linkage: linkage)
     }
@@ -576,7 +585,7 @@ extension QUICStreamCore {
                     refusalReason = "RESET_STREAM has already been sent"
                 }
             } catch {
-                assert(self.pendingWrities.isEmpty)
+                assert(self.pendingWrites.isEmpty)
                 throw NetworkError(streamStateViolation: "\(error)", operation: "sendFin")
             }
         }
