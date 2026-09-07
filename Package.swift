@@ -34,6 +34,7 @@ let swiftSettings: [SwiftSetting] =
         .enableUpcomingFeature("ExistentialAny"),
         .enableUpcomingFeature("StrictConcurrency"),
         .enableExperimentalFeature("AnyAppleOSAvailability"),
+        .enableExperimentalFeature("Lifetimes"),
     ]
 
 let package = Package(
