@@ -624,11 +624,11 @@ struct QUICStreamStateMachineTests {
         let sm = QUICStreamStateMachine()
         let isConnected = sm.isConnected
         let isFullyClosed = sm.isFullyClosed
-        let isWriteClosed = sm.isWriteClosed
+        let isSendClosed = sm.isSendClosed
         let hasReceivedFin = sm.hasReceivedFin
         #expect(!isConnected)
         #expect(!isFullyClosed)
-        #expect(!isWriteClosed)
+        #expect(!isSendClosed)
         #expect(!hasReceivedFin)
     }
 
@@ -728,16 +728,16 @@ struct QUICStreamStateMachineTests {
         _ = try sm.receiveData()
 
         _ = try sm.sendFin()
-        var isWriteClosed = sm.isWriteClosed
-        #expect(!isWriteClosed)
+        var isSendClosed = sm.isSendClosed
+        #expect(!isSendClosed)
 
         _ = try sm.receiveFin(finalSize: 100)
         let hasReceivedFin = sm.hasReceivedFin
         #expect(hasReceivedFin)
 
         _ = try sm.acknowledgeAllData()
-        isWriteClosed = sm.isWriteClosed
-        #expect(isWriteClosed)
+        isSendClosed = sm.isSendClosed
+        #expect(isSendClosed)
 
         _ = try sm.applicationRead()
 
@@ -857,8 +857,8 @@ struct QUICStreamStateMachineTests {
         var sm = QUICStreamStateMachine()
         _ = sm.streamConnected(direction: .receiveOnly)
 
-        let isWriteClosed = sm.isWriteClosed
-        #expect(isWriteClosed)
+        let isSendClosed = sm.isSendClosed
+        #expect(isSendClosed)
     }
 
     // MARK: - Direction Errors
