@@ -535,7 +535,10 @@ extension QUICStreamCore {
     @usableFromInline
     mutating func write(_ buffer: ByteBuffer) {
         if buffer.readableBytes != 0 {
-            self.pendingWrites.add(frame: Frame(copyBuffer: buffer.readableBytesUInt8Span))
+            var buffer = buffer
+            buffer.withUnsafeMutableReadableBytesWithStorageManagement2 { buffer, owner in
+                self.pendingWrites.add(frame: Frame(customBuffer: buffer, owner: owner))
+            }
         }
     }
 
