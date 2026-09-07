@@ -380,7 +380,7 @@ extension QUICStreamCore {
 
             if firstLength >= effectiveReadLength {
                 if let bytes = self.undeliveredReads[0].bytes {
-                    consumed = min(max(body(bytes), 0), firstLength)
+                    consumed = body(bytes)
                 } else {
                     consumed = 0
                 }
@@ -388,12 +388,14 @@ extension QUICStreamCore {
                 consumed = self.coalesceAndDeliver(bytes: effectiveReadLength, body)
             }
 
-            if consumed == 0 {
+            if consumed <= 0 {
+                assert(consumed == 0, "body(_:) claimed to read negative bytes")
                 // The consumer took nothing, hold on to the bytes.
                 break
             }
 
-            if consumed == available {
+            if consumed >= available {
+                assert(consumed == available, "body(_:) claimed to read more bytes than available")
                 self.undeliveredReads.claimAllBytes()
             } else {
                 self.undeliveredReads.claimLeadingBytes(consumed)
@@ -427,7 +429,9 @@ extension QUICStreamCore {
             }
         }
 
-        let consumed = min(max(body(self.coalescedBytes.span.bytes), 0), self.coalescedBytes.count)
+        let consumed = body(self.coalescedBytes.span.bytes)
+        assert(consumed >= 0, "body(_:) claimed to read negative bytes")
+        assert(consumed <= self.coalescedBytes.count, "body(_:) claimed to read more bytes than available")
         return consumed
     }
 
@@ -485,13 +489,15 @@ extension QUICStreamCore {
     ///   - count: The number of writable bytes to hand to `body`.
     ///   - body: Handed `count` writable bytes, returning how many it wrote.
     @usableFromInline
-    mutating func withWritableSpan(count: Int, _ body: (inout MutableRawSpan) -> Int) {
+    mutating func withWritableSpan(count: Int, _ body: (_ span: inout MutableRawSpan) -> Int) {
         var frame = Frame(allocatingCustomFinalizerBufferOfSize: count)
         var written = 0
 
         if var span = frame.mutableSpan {
             var bytes = span.mutableBytes
             let wrote = body(&bytes)
+            assert(wrote <= count, "body(_:) claimed to write more bytes than there was space for")
+            assert(wrote >= 0, "body(_:) claimed to write negative bytes")
             written = min(max(wrote, 0), count)
         }
 
