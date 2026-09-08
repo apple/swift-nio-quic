@@ -27,6 +27,7 @@ struct QUICStreamConsumerStates<State: ~Copyable>: ~Copyable {
         self._storage = PagedBuffer()
     }
 
+    @inlinable
     deinit {
         self._storage.deinitializeAll()
     }
