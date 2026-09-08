@@ -33,6 +33,9 @@ struct QUICStreamTransportState: ~Copyable {
     @usableFromInline
     var core: QUICStreamCore
 
+    /// Pending events for this slot for `SwiftNetwork`.
+    var eventManager: ProtocolEventManager
+
     /// Why the stream closed, as the consumer sees it.
     @usableFromInline
     var closeError: (any Error)?
@@ -74,6 +77,7 @@ struct QUICStreamTransportState: ~Copyable {
         self.resetCode = nil
         self.stopSendingCode = nil
         self.core = consume core
+        self.eventManager = ProtocolEventManager()
         self._isBorrowed = false
     }
 }

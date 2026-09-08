@@ -141,6 +141,11 @@ extension QUICStreamTable where Consumer: ~Copyable {
         return handle
     }
 
+    /// The reference the `SwiftNetwork` stack routes the given stream's events through.
+    func reference(for handle: QUICStreamHandle) -> ProtocolInstanceReference {
+        ProtocolInstanceReference(custom: self, index: handle.protocolInstanceReferenceIndex)
+    }
+
     /// Records the ID the stack assigned, indexes it, and connects the stream's state machine.
     @usableFromInline
     func assignID(_ id: QUICStreamID, to handle: QUICStreamHandle) {
@@ -213,6 +218,61 @@ extension QUICStreamTable where Consumer: ~Copyable {
         case .serverInitiatedUnidirectional:
             return self.role == .server ? .sendOnly : .receiveOnly
         }
+    }
+}
+
+// MARK: - Stack events
+
+@available(anyAppleOS 26, *)
+extension QUICStreamTable where Consumer: ~Copyable {
+    /// The slot a handle addresses, or `nil` if it has been recycled since.
+    @inlinable
+    func transportState(
+        for handle: QUICStreamHandle
+    ) -> UnsafeMutablePointer<QUICStreamTransportState>? {
+        self._transportStates.pointer(for: handle)
+    }
+
+    /// The stack assigned the stream its ID.
+    func streamConnected(_ handle: QUICStreamHandle) {
+        guard let transport = self._transportStates.pointer(for: handle) else { return }
+
+        if let rawID = transport.pointee.core.metadata()?.streamID {
+            self.assignID(QUICStreamID(rawValue: rawID), to: handle)
+            self._markReady(handle: handle, transport: transport, events: .opened)
+        }
+    }
+
+    /// The stream disconnected.
+    func streamDisconnected(_ handle: QUICStreamHandle, error: NetworkError?) {
+        guard let transport = self._transportStates.pointer(for: handle) else { return }
+
+        transport.pointee.closeError = error
+        transport.pointee.disconnectError = error
+
+        // `.readable` as well: there may be leftover data and this will be the last chance to
+        // get it.
+        self._markReady(handle: handle, transport: transport, events: [.closed, .readable])
+    }
+
+    /// The peer sent RESET\_STREAM.
+    func peerResetStream(_ handle: QUICStreamHandle, code: QUICApplicationErrorCode) {
+        guard let transport = self._transportStates.pointer(for: handle) else { return }
+
+        transport.pointee.core.receiveResetStream(code: code)
+        transport.pointee.resetCode = code
+
+        self._markReady(handle: handle, transport: transport, events: .reset)
+    }
+
+    /// The peer sent STOP\_SENDING.
+    func peerStoppedSending(_ handle: QUICStreamHandle, code: QUICApplicationErrorCode) {
+        guard let transport = self._transportStates.pointer(for: handle) else { return }
+
+        transport.pointee.core.receiveStopSending(code: code)
+        transport.pointee.stopSendingCode = code
+
+        self._markReady(handle: handle, transport: transport, events: .stopSending)
     }
 }
 
