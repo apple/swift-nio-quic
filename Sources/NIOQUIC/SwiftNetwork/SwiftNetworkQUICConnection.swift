@@ -300,7 +300,7 @@ final class SwiftNetworkQUICConnection {
         self.eventLoop = eventLoop
         let networkContext = NetworkContext(
             identifier: "swift-nio-quic-context-\(self.role.description)",
-            externalScheduler: QUICChannelEventLoop(eventLoop: eventLoop)
+            externalScheduler: EventLoopBackedScheduler(eventLoop: eventLoop)
         )
         swiftNetworkParameters.context = networkContext
         self.networkContext = networkContext
