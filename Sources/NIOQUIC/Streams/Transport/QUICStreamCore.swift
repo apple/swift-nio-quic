@@ -209,41 +209,39 @@ extension QUICStreamCore {
     /// closed.
     ///
     /// - Parameters:
-    ///   - maxBytes: The maximum number of bytes to read.
     ///   - minContiguous: The shortest run of contiguous bytes to hand to `body`. Data is
-    ///     coalesced to reach it; `1` never coalesces. A run can still be shorter than
-    ///     `minContiguous` if `maxBytes` is smaller.
+    ///     coalesced to reach it; `1` never coalesces. If there aren't enough bytes available then
+    ///     and the peer hasn't yet sent FIN then `body` won't be called. Note that the when the
+    ///     peer sends FIN then `body` may be called with fewer bytes than `minContiguous`.
     ///   - body: Provided a contiguous block of bytes received from the remote peer, returning how
     ///     many of them it consumed. May be called more then once for each call to `read`.
     /// - Returns: The outcome of the read.
     @usableFromInline
     mutating func read(
-        maxBytes: Int,
         minContiguous: Int,
         _ body: (_ span: borrowing RawSpan) -> Int
     ) -> QUICStreamReadOutcome {
-        let contiguous = min(max(minContiguous, 1), maxBytes)
+        let contiguous = max(minContiguous, 1)
         var totalDelivered = 0
         var totalRead = 0
 
         while true {
-            var askedForBytes = false
-            var bytesRead = 0
+            let askedForBytes: Bool
+            let bytesRead: Int
 
             switch self.state.attemptRead() {
             case .proceedWithRead:
-                let bytesToRead = maxBytes &- totalRead &- self.undeliveredReads.unclaimedLength()
-                if bytesToRead > 0 {
-                    askedForBytes = true
-                    bytesRead = self.fillUndeliveredReads(maxBytes: bytesToRead)
-                    totalRead &+= bytesRead
-                }
+                askedForBytes = true
+                bytesRead = self.fillUndeliveredReads()
+                totalRead &+= bytesRead
 
             case .doNotRead:
-                ()  // Receive side closed: only what is already held here can still be handed over.
+                // Receive side closed: only what is already held here can still be handed over.
+                askedForBytes = false
+                bytesRead = 0
             }
 
-            // Delive the bytes.
+            // Deliver the bytes.
             totalDelivered &+= self.deliver(minContiguous: contiguous, body)
 
             if askedForBytes && bytesRead == 0 {
@@ -297,8 +295,8 @@ extension QUICStreamCore {
     /// Pulls and stores up to `maxBytes` data.
     ///
     /// - Returns: The number of bytes the stack handed over.
-    private mutating func fillUndeliveredReads(maxBytes: Int) -> Int {
-        var pulled = self.receiveFromStack(maxBytes: maxBytes)
+    private mutating func fillUndeliveredReads() -> Int {
+        var pulled = self.receiveFromStack()
         var bytesStored = 0
 
         while var frame = pulled.popFirst() {
@@ -341,7 +339,7 @@ extension QUICStreamCore {
         return bytesStored
     }
 
-    private func receiveFromStack(maxBytes: Int) -> FrameArray {
+    private func receiveFromStack() -> FrameArray {
         let received: FrameArray?
 
         switch self.handle.invokeReceiveStreamData() {
@@ -350,7 +348,7 @@ extension QUICStreamCore {
                 received = try linkage.invokeReceiveStreamData(
                     self.reference,
                     minimumBytes: 1,
-                    maximumBytes: maxBytes
+                    maximumBytes: .max
                 )
             } catch {
                 // Nothing readable: the stack reports what went wrong as a disconnect event

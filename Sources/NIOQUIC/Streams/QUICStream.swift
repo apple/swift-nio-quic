@@ -80,9 +80,6 @@ extension QUICStream where Consumer: ~Copyable {
     /// will return ``QUICStreamReadOutcome/endOfStream(_:)`` each time.
     ///
     /// - Parameters:
-    ///   - maxBytes: The maximum number of bytes to read from the network stack in this call. Note
-    ///     that this isn't a limit on the total number of bytes passed to the span passed to
-    ///     `body`; the actual byte count may differ so you should consider this a hint.
     ///   - minContiguousBytes: The shortest run of contiguous bytes to hand to `body`. Data is
     ///     coalesced to reach it (which may incur additional copies and allocations); `1` never
     ///     coalesces (and therefore does not incur additional copies and allocations).
@@ -91,25 +88,20 @@ extension QUICStream where Consumer: ~Copyable {
     /// - Returns: What was handed over, and whether the peer's data is now exhausted.
     @inlinable
     public mutating func read(
-        maxBytes: Int,
         minContiguousBytes: Int = 1,
         _ body: (_ span: borrowing RawSpan) -> Int
     ) -> QUICStreamReadOutcome {
-        self.transport.pointee.core.read(maxBytes: maxBytes, minContiguous: minContiguousBytes, body)
+        self.transport.pointee.core.read(minContiguous: minContiguousBytes, body)
     }
 
     /// Appends the stream's inbound bytes to `buffer`.
     ///
     /// - Parameters:
-    ///   - maxBytes: The most bytes to take out of the stack.
     ///   - buffer: The buffer to append to.
     /// - Returns: What was appended, and whether the peer's data is now exhausted.
     @inlinable
-    public mutating func read(
-        maxBytes: Int,
-        into buffer: inout ByteBuffer
-    ) -> QUICStreamReadOutcome {
-        self.transport.pointee.core.read(maxBytes: maxBytes, minContiguous: 1) { bytes in
+    public mutating func read(into buffer: inout ByteBuffer) -> QUICStreamReadOutcome {
+        self.transport.pointee.core.read(minContiguous: 1) { bytes in
             buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: bytes.byteCount) { target in
                 bytes.withUnsafeBytes { target.copyMemory(from: $0) }
                 return bytes.byteCount
