@@ -43,7 +43,7 @@ extension QUICStreamProxy: ProtocolInstance where Consumer: ~Copyable {
         self.table.reference(for: self.handle)
     }
 
-    /// The slot's event manager, or the table's spare if the slot has been recycled.
+    /// The slot's event manager.
     var eventManager: ProtocolEventManager {
         // The event manager in each `else` branch _should_ be unreachable: a reference is only
         // ever built for a live handle, and all stack callbacks go via the table which drops
@@ -52,6 +52,7 @@ extension QUICStreamProxy: ProtocolInstance where Consumer: ~Copyable {
             if let transport = self.table.transportState(for: self.handle) {
                 yield transport.pointee.eventManager
             } else {
+                assertionFailure("No eventManager for proxy")
                 let eventManager = ProtocolEventManager()
                 yield eventManager
             }
@@ -60,6 +61,7 @@ extension QUICStreamProxy: ProtocolInstance where Consumer: ~Copyable {
             if let transport = self.table.transportState(for: self.handle) {
                 yield &transport.pointee.eventManager
             } else {
+                assertionFailure("No eventManager for proxy")
                 var eventManager = ProtocolEventManager()
                 yield &eventManager
             }
