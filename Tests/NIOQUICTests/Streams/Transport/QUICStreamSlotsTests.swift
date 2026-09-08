@@ -200,7 +200,7 @@ struct QUICStreamSlotsTests {
         #expect(reusedIsOccupied)
         #expect(staleIsOccupied == false)
 
-        let outOfRangeIsOccupied = store.containsValue(for: QUICStreamHandle(index: .init(999), generation: 1))
+        let outOfRangeIsOccupied = store.containsValue(for: QUICStreamHandle(index: .init(999), generation: .init(1)))
         #expect(outOfRangeIsOccupied == false)
     }
 
@@ -226,18 +226,18 @@ struct QUICStreamSlotsTests {
     func generationsCountSlotReuse() {
         var store = QUICStreamSlots<Int>()
         // Zero is never handed out, so an all-zero handle addresses nothing.
-        #expect(store.containsValue(for: QUICStreamHandle(index: .first, generation: 0)) == false)
+        #expect(store.containsValue(for: QUICStreamHandle(index: .first, generation: .first)) == false)
 
         let first = store.insert(1)
         _ = store.removeValue(for: first)
 
         let second = store.insert(2)
         #expect(second.index == first.index)
-        #expect(second.generation == first.generation &+ 1)
+        #expect(second.generation.rawValue == first.generation.rawValue &+ 1)
 
         _ = store.removeValue(for: second)
         let third = store.insert(3)
         #expect(third.index == first.index)
-        #expect(third.generation == first.generation &+ 2)
+        #expect(third.generation.rawValue == first.generation.rawValue &+ 2)
     }
 }

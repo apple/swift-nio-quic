@@ -16,13 +16,13 @@
 @usableFromInline
 struct QUICStreamSlotRecord {
     @usableFromInline
-    var _generation: UInt32
+    var _generation: QUICStreamHandle.Generation
     @usableFromInline
     var _isOccupied: Bool
 
     /// How many times the slot has been reused.
     @inlinable
-    var generation: UInt32 { self._generation }
+    var generation: QUICStreamHandle.Generation { self._generation }
 
     /// Whether the slot is currently occupied.
     @inlinable
@@ -30,22 +30,20 @@ struct QUICStreamSlotRecord {
 
     @inlinable
     init() {
-        self._generation = 0
+        self._generation = .first
         self._isOccupied = false
     }
 
     @inlinable
-    func isOccupied(by generation: UInt32) -> Bool {
+    func isOccupied(by generation: QUICStreamHandle.Generation) -> Bool {
         self._isOccupied && self._generation == generation
     }
 
     @inlinable
-    mutating func occupy() -> UInt32 {
+    mutating func occupy() -> QUICStreamHandle.Generation {
         assert(!self._isOccupied)
         self._isOccupied = true
-        // Wrapping is fine: it takes ~4 billion reuses of one slot, by which point any handle old
-        // enough to alias is long gone.
-        self._generation &+= 1
+        self._generation.advance()
         return self._generation
     }
 
