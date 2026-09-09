@@ -108,7 +108,7 @@ public struct QUICStreamVisit<Consumer: QUICStreamConsumer & ~Copyable>: ~Copyab
         }
     }
 
-    /// Access to the other streams on this connection.
+    /// Access to all streams on this connection.
     @inlinable
     public var streams: QUICStreams<Consumer> {
         @_lifetime(borrow self)

@@ -474,8 +474,6 @@ struct QUICStreamTableTests {
         #expect(consumer.sightings.map { $0.handle } == [second, first, third])
         #expect(consumer.sightings.allSatisfy { $0.events.contains(.closed) })
         #expect(table.count == 0)
-
-        table.drain(into: &consumer)
     }
 
     @available(anyAppleOS 26, *)
