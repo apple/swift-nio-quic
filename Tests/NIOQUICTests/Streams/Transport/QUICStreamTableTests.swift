@@ -42,7 +42,7 @@ extension QUICStreamTable where Consumer: ~Copyable {
 
 @available(anyAppleOS 26, *)
 private struct RecordingConsumer: QUICStreamConsumer {
-    struct StreamState: ~Copyable {
+    struct StreamState {
         /// Which ``makeStreamState(_:)`` call produced this, counting from one.
         var madeAt: Int
     }
