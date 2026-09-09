@@ -14,6 +14,14 @@
 
 import NIOQUICHelpers
 
+/// A visit to a single QUIC stream returned from a ``QUICStreamIterator``.
+///
+/// During the visit you can find what events have happened on the stream since the last visit
+/// in ``events`` or poll the various properties on the visit object. You can read data from or
+/// write data to the network via the ``stream`` property.
+///
+/// You can also access and modify the consumer state for the stream via ``state``. Note that if
+/// you require simulatenous access to ``stream`` and ``state`` you can use ``withStream(execute:)``.
 @available(anyAppleOS 26, *)
 public struct QUICStreamVisit<Consumer: QUICStreamConsumer & ~Copyable>: ~Copyable, ~Escapable {
     @usableFromInline
