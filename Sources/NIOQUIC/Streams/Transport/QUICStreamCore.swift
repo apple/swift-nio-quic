@@ -45,6 +45,12 @@ struct QUICStreamCore: ~Copyable {
     @usableFromInline
     var _needsReadVisit: Bool
 
+    /// Whether a read left bytes in the stream that the consumer may still want.
+    @inlinable
+    var needsReadVisit: Bool {
+        self._needsReadVisit
+    }
+
     /// The handle used to talk to the SwiftNetwork stack.
     private var handle: SwiftNetworkStreamHandle
 
@@ -227,6 +233,8 @@ extension QUICStreamCore {
         minContiguous: Int,
         _ body: (_ span: borrowing RawSpan) -> Int
     ) -> QUICStreamReadOutcome {
+        self._needsReadVisit = false
+
         let contiguous = max(minContiguous, 1)
         var totalDelivered = 0
         var totalRead = 0
@@ -277,13 +285,6 @@ extension QUICStreamCore {
         }
 
         return outcome
-    }
-
-    /// Whether the stream should be revisited in the next tick because it has unread data.
-    @inlinable
-    mutating func needsReadVisit() -> Bool {
-        defer { self._needsReadVisit = false }
-        return self._needsReadVisit
     }
 
     /// Hands a FIN to the state machine, but only once all data has been handed over to the

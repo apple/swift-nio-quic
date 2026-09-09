@@ -399,7 +399,7 @@ extension QUICStreamTable where Consumer: ~Copyable {
             transport.pointee.events.subtract(presented)
 
             // Visit didn't consume all bytes: it should be readable in the next visit.
-            if transport.pointee.core.needsReadVisit() {
+            if transport.pointee.core.needsReadVisit {
                 transport.pointee.events.insert(.readable)
             }
 
