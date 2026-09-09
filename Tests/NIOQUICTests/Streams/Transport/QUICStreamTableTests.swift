@@ -466,11 +466,12 @@ struct QUICStreamTableTests {
         let second = table.insertSlot(id: 4, state: nil)
         let third = table.insertSlot(id: 8, state: nil)
         table.markReady(handle: second, events: .readable)
-
         table.closeAll(error: Boom(), disconnect: nil, into: &consumer)
 
         #expect(consumer.sightings.count == 3)
-        #expect(consumer.sightings.map { $0.handle } == [first, second, third])
+        // Second is enqueued first (when marked as ready), first and third are added to the
+        // queue by 'closeAll'.
+        #expect(consumer.sightings.map { $0.handle } == [second, first, third])
         #expect(consumer.sightings.allSatisfy { $0.events.contains(.closed) })
         #expect(table.count == 0)
 
