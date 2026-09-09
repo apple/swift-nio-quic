@@ -116,7 +116,7 @@ final class EventLoopBackedScheduler: NetworkContext.Scheduler {
 
         // Only cancel the scheduled task if the new deadline is earlier. If the new deadline is
         // the same as or later than the scheduled deadline then let the original callback fire as
-        // cancellation can be expsneive (it's O(log N) where N is the number of tasks currently
+        // cancellation can be expensive (it's O(log N) where N is the number of tasks currently
         // scheduled) when there are connections. When the original callback fires it will
         // reschedule itself if the deadline hasn't passed yet.
         if wakeup.scheduled.deadline > deadline {
