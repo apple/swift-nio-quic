@@ -33,6 +33,10 @@ final class QUICStreamTable<Consumer: QUICStreamConsumer & ~Copyable> {
     @usableFromInline
     var _ready: Deque<QUICStreamHandle>
 
+    /// The streams the consumer hasn't yet made state for.
+    @usableFromInline
+    var _needsState: Deque<QUICStreamHandle>
+
     /// Stream handles keyed by their ID.
     @usableFromInline
     var _byID: QUICStreamIDDictionary<QUICStreamHandle>
@@ -51,6 +55,7 @@ final class QUICStreamTable<Consumer: QUICStreamConsumer & ~Copyable> {
         self._transportStates = QUICStreamSlots()
         self._consumerStates = QUICStreamConsumerStates()
         self._ready = []
+        self._needsState = []
         self._byID = QUICStreamIDDictionary()
         self._outputPending = false
         self.role = role
@@ -132,7 +137,9 @@ extension QUICStreamTable where Consumer: ~Copyable {
         if let state {
             consumerStatePointer.pointee = consume state
             self._transportStates.withValue(for: handle) { $0.hasState = true }
-        }  // else remote peer opened the stream, state is created before first visiting the stream.
+        } else {
+            self._needsState.append(handle)
+        }
 
         if let id {
             self._byID[id] = handle
@@ -185,13 +192,13 @@ extension QUICStreamTable where Consumer: ~Copyable {
     ///     stream.
     /// - Returns: the result of `body`, or `nil` if the stream wasn't open.
     @inlinable
-    func withStream<Result: ~Copyable>(
+    func withStream<Result: ~Copyable, Failure: Error>(
         handle: QUICStreamHandle,
         execute body: (
             _ stream: inout QUICStream<Consumer>,
             _ state: inout Consumer.StreamState
-        ) -> Result
-    ) -> Result? {
+        ) throws(Failure) -> Result
+    ) throws(Failure) -> Result? {
         guard let pointer = self._transportStates.pointer(for: handle) else { return nil }
         guard pointer.pointee.hasState else { return nil }
 
@@ -205,7 +212,7 @@ extension QUICStreamTable where Consumer: ~Copyable {
 
         let consumerState = self._consumerStates.pointer(at: handle.index)
         var stream = QUICStream<Consumer>(table: self, transport: pointer, handle: handle)
-        return body(&stream, &consumerState.pointee!)  // checked above
+        return try body(&stream, &consumerState.pointee!)  // checked above
     }
 
     /// The direction of a stream from its ID and this endpoint's role.
@@ -276,6 +283,131 @@ extension QUICStreamTable where Consumer: ~Copyable {
     }
 }
 
+// MARK: - Draining
+
+@available(anyAppleOS 26, *)
+extension QUICStreamTable where Consumer: ~Copyable {
+    /// Hand each ready stream to the consumer.
+    @inlinable
+    func drain(into consumer: inout Consumer) {
+        while let handle = self._needsState.popFirst() {
+            guard let transport = self._transportStates.pointer(for: handle) else { continue }
+            assert(!transport.pointee.hasState)
+
+            var stream = QUICStream<Consumer>(table: self, transport: transport, handle: handle)
+            let consumerState = self._consumerStates.pointer(at: handle.index)
+            consumerState.pointee = consumer.makeStreamState(&stream)
+            transport.pointee.hasState = true
+        }
+
+        var iterator = QUICStreamIterator(table: self)
+        consumer.processStreams(&iterator)
+    }
+
+    /// Marks every stream as closed and visits each of them.
+    ///
+    /// - Parameters:
+    ///   - error: Reported to the consumer as the reason each stream closed.
+    ///   - disconnect: Sent to the stack, and through it the peer. Separate from `error` because a
+    ///     connection-level failure is not always a `NetworkError`, and narrowing to one would lose
+    ///     the more useful of the two on the consumer's side.
+    ///   - consumer: The consumer to drain into.
+    func closeAll(
+        error: (any Error)?,
+        disconnect: NetworkError?,
+        into consumer: inout Consumer
+    ) {
+        var index = QUICStreamHandle.Index.first
+        while index.rawValue < self._transportStates.allocated {
+            let transport = self._transportStates.pointer(at: index)
+            let handle = self._transportStates.handle(at: index)
+
+            if let transport, let handle {
+                transport.pointee.closeError = error
+                transport.pointee.disconnectError = disconnect
+                // `.readable` too: this is the last chance for the consumer to pull any data.
+                self._markReady(handle: handle, transport: transport, events: [.closed, .readable])
+            }
+
+            index.advance()
+        }
+
+        self.drain(into: &consumer)
+        self.forceCloseAll(error: disconnect)
+    }
+
+    /// Removes and returns the next stream from the ready queue.
+    @inlinable
+    func nextReadyHandle() -> QUICStreamHandle? {
+        self._ready.popFirst()
+    }
+
+    @usableFromInline
+    struct ReadySlot {
+        @usableFromInline
+        var transport: UnsafeMutablePointer<QUICStreamTransportState>
+        @usableFromInline
+        var state: UnsafeMutablePointer<Consumer.StreamState?>
+        @usableFromInline
+        var events: QUICStreamEvents
+
+        @inlinable
+        init(
+            transport: UnsafeMutablePointer<QUICStreamTransportState>,
+            state: UnsafeMutablePointer<Consumer.StreamState?>,
+            events: QUICStreamEvents
+        ) {
+            self.transport = transport
+            self.state = state
+            self.events = events
+        }
+    }
+
+    /// Returns the state of a ready slot prior to a visit, or `nil` if the handle is invalid.
+    @inlinable
+    func readySlot(
+        for handle: QUICStreamHandle
+    ) -> ReadySlot? {
+        guard let transport = self._transportStates.pointer(for: handle) else {
+            // Possible if the stream gets closed by SwiftNetwork before the first visit.
+            return nil
+        }
+
+        // Streams only get added to the ready queue when they have events.
+        precondition(!transport.pointee.events.isEmpty)
+        // State is created for streams before creating the iterator (which is the only caller of
+        // this function).
+        precondition(transport.pointee.hasState)
+
+        return ReadySlot(
+            transport: transport,
+            state: self._consumerStates.pointer(at: handle.index),
+            events: transport.pointee.events
+        )
+    }
+
+    /// Clears the flags a visit presented and, if that visit was the stream's last, recycles its
+    /// slot.
+    @inlinable
+    func finishVisit(_ handle: QUICStreamHandle, presented: QUICStreamEvents) {
+        if presented.contains(.closed) {
+            self._remove(handle: handle)
+        } else if let transport = self._transportStates.pointer(for: handle) {
+            // Clear the events which were shown in the last visit.
+            transport.pointee.events.subtract(presented)
+
+            // Visit didn't consume all bytes: it should be readable in the next visit.
+            if transport.pointee.core.needsReadVisit() {
+                transport.pointee.events.insert(.readable)
+            }
+
+            if !transport.pointee.events.isEmpty {
+                self._ready.append(handle)
+            }
+        }
+    }
+}
+
 // MARK: - Slot teardown
 
 @available(anyAppleOS 26, *)
@@ -316,6 +448,7 @@ extension QUICStreamTable where Consumer: ~Copyable {
         }
         self._consumerStates.removeAll()
         self._ready.removeAll(keepingCapacity: true)
+        self._needsState.removeAll(keepingCapacity: true)
         self._byID.removeAll()
     }
 }

@@ -41,6 +41,10 @@ struct QUICStreamCore: ~Copyable {
     /// Data received from `SwiftNetwork` which the application hasn't consumed yet.
     private var undeliveredReads: UniqueDeque<Frame>
 
+    /// Whether a read left bytes in the stream that the consumer may still want.
+    @usableFromInline
+    var _needsReadVisit: Bool
+
     /// The handle used to talk to the SwiftNetwork stack.
     private var handle: SwiftNetworkStreamHandle
 
@@ -68,6 +72,7 @@ struct QUICStreamCore: ~Copyable {
         self.undeliveredReads = UniqueDeque()
         self.finPending = false
         self.coalescedBytes = []
+        self._needsReadVisit = false
     }
 
     /// Creates a stream core which is not yet wired to the stack.
@@ -83,6 +88,7 @@ struct QUICStreamCore: ~Copyable {
         self.undeliveredReads = UniqueDeque()
         self.finPending = false
         self.coalescedBytes = []
+        self._needsReadVisit = false
     }
 
     /// Attaches this stream core to the stack.
@@ -265,7 +271,19 @@ extension QUICStreamCore {
             outcome = .nothingAvailable
         }
 
+        // Bytes are leftover: the stream should be marked as needing another visit.
+        if totalDelivered > 0 && !self.undeliveredReads.isEmpty {
+            self._needsReadVisit = true
+        }
+
         return outcome
+    }
+
+    /// Whether the stream should be revisited in the next tick because it has unread data.
+    @inlinable
+    mutating func needsReadVisit() -> Bool {
+        defer { self._needsReadVisit = false }
+        return self._needsReadVisit
     }
 
     /// Hands a FIN to the state machine, but only once all data has been handed over to the
