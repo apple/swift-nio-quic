@@ -16,9 +16,9 @@ import NIOQUICHelpers
 
 /// An iterator for streams to visit.
 ///
-/// Consuming a stream from the iterator means its events are considered consumer and won't be
-/// presented again. If a stream _isn't_ consumed by the iterator then it will be included in the
-/// next visit.
+/// Pulling a stream from the iterator with ``next()`` means its events are considered consumed and
+/// won't be presented again. If a stream _isn't_ pulled from the iterator then it (and its events)
+/// will be included in the next visit.
 @available(anyAppleOS 26, *)
 public struct QUICStreamIterator<Consumer: QUICStreamConsumer & ~Copyable>: ~Copyable, ~Escapable {
     /// The handle and events that the last call to `next()` returned.
