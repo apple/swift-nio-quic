@@ -100,7 +100,7 @@ final class EventLoopBackedScheduler: NetworkContext.Scheduler {
             }
         } else if let scheduled = self.schedule(at: deadline, reference: reference) {
             self.wakeups[reference] = Wakeup(deadline: deadline, task: task, scheduled: scheduled)
-        } //  else: event loop is shutdown.
+        }  //  else: event loop is shutdown.
     }
 
     func _reschedule(
