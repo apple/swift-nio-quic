@@ -21,4 +21,21 @@ public protocol QUICStreamConsumer: SendableMetatype, ~Copyable {
     #else  // 6.3 doesn't support ~Copyable associatedtypes
     associatedtype StreamState
     #endif
+
+    /// Create a ``StreamState`` for the given stream.
+    ///
+    /// This is called once per inbound stream, immediately before it's first visited.
+    ///
+    /// - Parameter stream: The stream the state is for.
+    /// - Returns: The state to store.
+    mutating func makeStreamState(_ stream: inout QUICStream<Self>) -> StreamState
+
+    /// Process every stream with unhandled events.
+    ///
+    /// Use this function to handle streams which have changed state since the last call. If you
+    /// don't process a stream (i.e. do not pull it from the iterator) then it will be included
+    /// in the next visit.
+    ///
+    /// - Parameter streams: The streams to visit.
+    mutating func processStreams(_ streams: inout QUICStreamIterator<Self>)
 }
