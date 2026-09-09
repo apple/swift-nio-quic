@@ -363,7 +363,9 @@ extension QUICStreamTable where Consumer: ~Copyable {
         }
     }
 
-    /// Returns the state of a ready slot prior to a visit, or `nil` if the handle is invalid.
+    /// Returns the ``ReadySlot` for a handle, or `nil` if the handle is invalid.
+    ///
+    /// This is used only by ``QUICStreamIterator`` immediately prior to visiting the stream.
     @inlinable
     func readySlot(
         for handle: QUICStreamHandle
