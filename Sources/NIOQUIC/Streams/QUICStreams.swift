@@ -26,6 +26,21 @@ public struct QUICStreams<Consumer: QUICStreamConsumer & ~Copyable>: ~Copyable, 
         self._table = table
     }
 
+    /// Opens a stream.
+    ///
+    /// - Parameters:
+    ///   - type: The type of stream to open.
+    ///   - state: The consumer's state for the new stream.
+    /// - Returns: The handle for the new stream. Its ID is assigned by the stack, which reports it
+    ///   as a ``QUICStreamReadyEvents/opened`` visit.
+    /// - Throws: If the stream could not be opened, in which case `state` is destroyed.
+    public mutating func open(
+        _ type: QUICStreamType,
+        state: consuming Consumer.StreamState
+    ) throws -> QUICStreamHandle {
+        try self._table.open(type, state: consume state)
+    }
+
     /// Runs `body` on a stream and its state.
     ///
     /// - Parameters:

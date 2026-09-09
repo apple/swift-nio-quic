@@ -45,6 +45,10 @@ final class QUICStreamTable<Consumer: QUICStreamConsumer & ~Copyable> {
     @usableFromInline
     var _outputPending: Bool
 
+    /// Used for attaching locally opened streams to the `SwiftNetwork` stack. Returns `nil` if
+    /// the table isn't associated with a connection.
+    var opener: QUICStreamOpener?
+
     /// The role of the local peer.
     let role: Role
 
@@ -58,6 +62,7 @@ final class QUICStreamTable<Consumer: QUICStreamConsumer & ~Copyable> {
         self._needsState = []
         self._byID = QUICStreamIDDictionary()
         self._outputPending = false
+        self.opener = nil
         self.role = role
         self.context = context
     }
