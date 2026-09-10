@@ -448,12 +448,13 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
 
     // Send a STOP_SENDING frame to close the read (Note, this stream will receive a RESET_STREAM in return)
     internal func abortInbound(error: NetworkError?) {
-        self.fromExternal {
+        let reference = self.reference
+        reference.fromExternal {
             do throws(NetworkError) {
                 self.log("abortInbound")
                 switch self.swiftNetworkStreamHandle.invokeAbortInbound() {
                 case .proceed(let linkage):
-                    try linkage.invokeAbortInbound(self.reference, error: error)
+                    try linkage.invokeAbortInbound(reference, error: error)
                 case .ignore:
                     break
                 }
@@ -466,11 +467,12 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
 
     // Send a RESET_STREAM frame to close the write
     internal func abortOutbound(error: NetworkError?) {
-        self.fromExternal {
+        let reference = self.reference
+        reference.fromExternal {
             do throws(NetworkError) {
                 switch self.swiftNetworkStreamHandle.invokeAbortOutbound() {
                 case .proceed(let linkage):
-                    try linkage.invokeAbortOutbound(self.reference, error: error)
+                    try linkage.invokeAbortOutbound(reference, error: error)
                 case .ignore:
                     break
                 }
@@ -883,10 +885,11 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
 
     // Get metadata about the stream from the internal QUIC stack
     private final func getMetadata<P: NetworkProtocol>() -> ProtocolMetadata<P>? {
-        self.fromExternal {
+        let reference = self.reference
+        return reference.fromExternal {
             switch self.swiftNetworkStreamHandle.invokeGetMetadata() {
             case .proceed(let linkage):
-                return linkage.invokeGetMetadata(self.reference) as ProtocolMetadata<P>?
+                return linkage.invokeGetMetadata(reference) as ProtocolMetadata<P>?
             case .ignore:
                 return nil
             }

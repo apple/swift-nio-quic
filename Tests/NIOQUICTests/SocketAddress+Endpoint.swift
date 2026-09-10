@@ -48,25 +48,7 @@ struct SocketAddress_EndpointTests {
 
     @available(anyAppleOS 26, *)
     @Test(
-        "Convert a IPv6 SocketAddress to an Host Endpoint"
-    )
-    func convertIPv6AddressToHostEndpoint() throws {
-        let address = try SocketAddress(ipAddress: testIPv6Address, port: testPort)
-        let endpoint = address.toEndpoint()
-
-        switch endpoint.type {
-        case .host(let hostEndpoint):
-            #expect(hostEndpoint.name == testIPv6Address)
-            #expect(hostEndpoint.port == testPort)
-        default:
-            #expect(Bool(false))
-        }
-    }
-
-    @available(anyAppleOS 26, *)
-    @Test(
-        "Convert a IPv6 SocketAddress to an Endpoint",
-        .disabled("Requirement: Implement conversion to address type")
+        "Convert a IPv6 SocketAddress to an Endpoint"
     )
     func convertIPv6AddressToEndpoint() throws {
         let address = try SocketAddress(ipAddress: testIPv6Address, port: testPort)

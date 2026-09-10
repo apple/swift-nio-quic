@@ -93,8 +93,9 @@ final class QUICChannelOutputHandler: ProtocolInstanceContainer, OutboundDatagra
     // Called from SwiftNetworkQUICConnection to notify the stack that there are inbound packets available.
     // This function is important for getting data into the stack
     func invokeInputAvailable() {
-        self.fromExternal {
-            self.upperProtocol.deliverInboundDataAvailableEvent(self.reference)
+        let reference = self.reference
+        reference.fromExternal {
+            self.upperProtocol.deliverInboundDataAvailableEvent(reference)
         }
     }
 
