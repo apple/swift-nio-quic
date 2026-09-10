@@ -905,15 +905,6 @@ extension QUICConnectionChannel {
             self._connection.receivePacketsComplete()
         }
 
-        // Disable outbound batching so that SwiftQUIC emits frames into the connection. They'll
-        // be picked up when draining starts a few lines below. Re-enable again (i.e. disable
-        // temporarily) if there are pending streams as they may also produce output during their
-        // init.
-        self._connection.withLiveOnly { connection in
-            let hasPendingStreams = !self._pendingStreams.isEmpty
-            connection.flushOutboundBatch(resumeBatching: hasPendingStreams)
-        }
-
         self.drainAndReconcileLifecycle()
         self.processPendingInboundStreams()
 

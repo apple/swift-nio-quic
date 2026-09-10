@@ -116,13 +116,6 @@ final class SwiftNetworkQUICConnection {
         newFlowHandler.outboundBatching(enabled)
     }
 
-    internal func flushOutboundBatch(resumeBatching: Bool) {
-        self.setOutboundBatching(false)
-        if resumeBatching {
-            self.setOutboundBatching(true)
-        }
-    }
-
     /// Sets the connection channel and propagates it as the parent channel for inbound streams
     /// (via the new flow handler) and any pre-created outbound stream (the initial client stream).
     ///
