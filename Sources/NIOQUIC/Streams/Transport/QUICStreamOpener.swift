@@ -23,9 +23,7 @@ struct QUICStreamOpener {
     /// The stack's connection instance.
     let connection: ProtocolInstanceReference
 
-    let context: SwiftNetwork.NetworkContext
-    let local: Endpoint
-    let remote: Endpoint
+    let context: NetworkContext
 
     /// Attaches a new outbound flow for a stream.
     ///
@@ -48,8 +46,8 @@ struct QUICStreamOpener {
 
         return try self.listener.invokeAttachUpperStreamProtocolToNewFlow(
             reference,
-            remote: self.remote,
-            local: self.local,
+            remote: nil,
+            local: nil,
             parameters: parameters,
             path: path
         )

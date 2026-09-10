@@ -45,7 +45,7 @@ final class QUICStreamTable<Consumer: QUICStreamConsumer & ~Copyable> {
     @usableFromInline
     var _outputPending: Bool
 
-    /// Used for attaching locally opened streams to the `SwiftNetwork` stack. Returns `nil` if
+    /// Used for attaching locally opened streams to the `SwiftNetwork` stack. `nil` if
     /// the table isn't associated with a connection.
     var opener: QUICStreamOpener?
 
