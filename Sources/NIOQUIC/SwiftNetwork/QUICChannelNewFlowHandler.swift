@@ -134,8 +134,9 @@ final class QUICChannelNewFlowHandler: ProtocolInstanceContainer, InboundFlowHan
     func start(_ view: SwiftNetworkQUICConnection.NewFlowView) {
         log("start")
         self.connectionView = view
-        self.fromExternal {
-            self.lowerProtocol.invokeConnect(self.reference)
+        let reference = self.reference
+        reference.fromExternal {
+            self.lowerProtocol.invokeConnect(reference)
         }
     }
 
@@ -143,24 +144,27 @@ final class QUICChannelNewFlowHandler: ProtocolInstanceContainer, InboundFlowHan
     // `connectionMetadata.activeConnectionIDLimit` is the peer's advertised cap
     // on how many connection IDs we may issue (RFC 9000 §18.2).
     func getConnectionMetadata() -> ProtocolMetadata<QUICProtocol>? {
-        self.fromExternal {
-            self.lowerProtocol.invokeGetMetadata(self.reference) as? ProtocolMetadata<QUICProtocol>
+        let reference = self.reference
+        return reference.fromExternal {
+            self.lowerProtocol.invokeGetMetadata(reference) as? ProtocolMetadata<QUICProtocol>
         }
     }
 
     // Stop the new flow handler
     func stop(error: NetworkError? = nil) {
         log("stop")
-        self.fromExternal {
-            self.lowerProtocol.invokeDisconnect(self.reference, error: error)
+        let reference = self.reference
+        reference.fromExternal {
+            self.lowerProtocol.invokeDisconnect(reference, error: error)
         }
     }
 
     // Teardown the new flow handler
     internal func teardown() {
-        self.fromExternal {
+        let reference = self.reference
+        reference.fromExternal {
             do throws(NetworkError) {
-                try self.lowerProtocol.invokeDetach(self.reference)
+                try self.lowerProtocol.invokeDetach(reference)
                 self.lowerProtocol = .init(reference: .init())
             } catch {
                 self.log("Failed to detach lower protocol: \(error)")
@@ -170,8 +174,9 @@ final class QUICChannelNewFlowHandler: ProtocolInstanceContainer, InboundFlowHan
 
     func outboundBatching(_ isEnabled: Bool) {
         let event: ApplicationEvent = isEnabled ? .outboundDataBatchStart : .outboundDataBatchEnd
-        self.fromExternal {
-            self.lowerProtocol.invokeApplicationEvent(self.reference, event: event)
+        let reference = self.reference
+        reference.fromExternal {
+            self.lowerProtocol.invokeApplicationEvent(reference, event: event)
         }
     }
 
@@ -303,8 +308,9 @@ extension QUICChannelNewFlowHandler: UpperProtocolHandler {
         )
         let event = ApplicationEvent(quicEvent: quicEvent)
 
-        self.fromExternal {
-            self.lowerProtocol.invokeApplicationEvent(self.reference, event: event)
+        let reference = self.reference
+        reference.fromExternal {
+            self.lowerProtocol.invokeApplicationEvent(reference, event: event)
         }
     }
 
@@ -316,8 +322,9 @@ extension QUICChannelNewFlowHandler: UpperProtocolHandler {
         let quicEvent = QUICApplicationEvent.retireOutboundConnectionID(cid)
         let event = ApplicationEvent(quicEvent: quicEvent)
 
-        self.fromExternal {
-            self.lowerProtocol.invokeApplicationEvent(self.reference, event: event)
+        let reference = self.reference
+        reference.fromExternal {
+            self.lowerProtocol.invokeApplicationEvent(reference, event: event)
         }
     }
 }
