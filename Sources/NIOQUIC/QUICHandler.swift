@@ -18,7 +18,9 @@ import X509
 
 @available(anyAppleOS 26, *)
 private enum MultiplexerContinuation<Consumer: QUICStreamConsumer & ~Copyable> {
-    case connectionMultiplexerContinuation(any ConnectionMultiplexerContinuation<Consumer>)
+    case connectionMultiplexerContinuation(
+        any ConnectionMultiplexerContinuation<QUICConnectionChannel<Consumer>>
+    )
     case closure(
         connectionInitializer: @Sendable (any Channel, QUICStreamCreator) -> EventLoopFuture<Void>,
         inboundStreamInitializer: @Sendable (any Channel) -> EventLoopFuture<Void>,

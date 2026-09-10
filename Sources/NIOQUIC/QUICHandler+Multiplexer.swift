@@ -19,13 +19,13 @@ import NIOCore
 /// in the `QUICHandler` when yielding a new `Channel`. However, this is okay for now otherwise
 /// we would need to make the handler generic as well.
 @available(anyAppleOS 26, *)
-protocol ConnectionMultiplexerContinuation<Consumer>: Sendable {
-    associatedtype Consumer: QUICStreamConsumer & ~Copyable
+protocol ConnectionMultiplexerContinuation<ConnectionChannel>: Sendable {
+    associatedtype ConnectionChannel: AnyObject
 
     /// We have to do a bit of an awkward dance here to carry the `Output` between the initializer and the continuation where
     /// we yield to. That's why we are using `Any` here to avoid making the handler generic.
     func initialize(
-        channel: QUICConnectionChannel<Consumer>,
+        channel: ConnectionChannel,
         logger: Logger
     ) -> EventLoopFuture<any Sendable>
     func yield(connection: any Sendable)

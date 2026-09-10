@@ -20,8 +20,8 @@ import NIOCore
 /// `QUICDatagramTransport` directly: production code is backed by `QUICDatagramTransport`, while
 /// tests can install a test double.
 @available(anyAppleOS 26, *)
-protocol QUICDatagramProtocol<Consumer> {
-    associatedtype Consumer: QUICStreamConsumer & ~Copyable
+protocol QUICDatagramProtocol<Connection> {
+    associatedtype Connection: AnyObject
 
     /// Buffers `datagram` to be sent on the next `flush()`.
     ///
@@ -41,7 +41,7 @@ protocol QUICDatagramProtocol<Consumer> {
     func close()
 
     /// Sets the connection which receives datagrams and errors from this transport.
-    func setReader(connection: SwiftNetworkQUICConnection<Consumer>)
+    func setReader(connection: Connection)
 
 }
 
@@ -51,7 +51,7 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
     /// (statically dispatched) or an existential test conformance.
     enum DatagramTransport {
         case live(QUICDatagramTransport<Consumer>)
-        case test(any QUICDatagramProtocol<Consumer>)
+        case test(any QUICDatagramProtocol<SwiftNetworkQUICConnection<Consumer>>)
     }
 }
 
