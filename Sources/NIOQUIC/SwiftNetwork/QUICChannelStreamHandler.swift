@@ -500,7 +500,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
     ///   `channelInactive` while an initializer is in flight.
     func initializeInbound(
         streamID: QUICStreamID,
-        initializer: QUICConnectionChannel.StreamInitializer?
+        initializer: QUICInboundStreamInitializer?
     ) -> EventLoopFuture<Void>? {
         self.eventLoop.preconditionInEventLoop()
 

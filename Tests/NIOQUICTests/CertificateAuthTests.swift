@@ -31,24 +31,25 @@ final class CertificateAuthTests: XCTestCase {
         bindPort: Int = 0,
         maxIdleTimeout: Duration = .milliseconds(30000),
         trustStoreFilePath: String
-    ) async throws -> (any Channel, QUICHandler.ConnectionMultiplexer<Never>) {
+    ) async throws -> (any Channel, QUICHandler<QUICStreamChannels>.ConnectionMultiplexer<Never>) {
         let eventLoopGroup = MultiThreadedEventLoopGroup.singleton
         let (channel, multiplexer) = try await DatagramBootstrap(group: eventLoopGroup)
             .channelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
             .bind(host: address, port: bindPort) { channel in
                 channel.eventLoop.makeCompletedFuture {
-                    let (quicHandler, connectionMultiplexer) = try QUICHandler.makeHandlerAndConnectionMultiplexer(
-                        channel: channel,
-                        quicConfiguration: .client(
-                            verificationConfiguration: .x509Certificates(trustRootsFilePath: trustStoreFilePath),
-                            applicationProtocols: ["swift_nio_quic"],
-                            maxIdleTimeout: maxIdleTimeout
-                        ),
-                        logger: Logger(label: "test"),
-                        inboundStreamChannelInitializer: { streamChannel in
-                            channel.eventLoop.makeCompletedFuture { fatalError() }
-                        }
-                    )
+                    let (quicHandler, connectionMultiplexer) = try QUICHandler<QUICStreamChannels>
+                        .makeHandlerAndConnectionMultiplexer(
+                            channel: channel,
+                            quicConfiguration: .client(
+                                verificationConfiguration: .x509Certificates(trustRootsFilePath: trustStoreFilePath),
+                                applicationProtocols: ["swift_nio_quic"],
+                                maxIdleTimeout: maxIdleTimeout
+                            ),
+                            logger: Logger(label: "test"),
+                            inboundStreamChannelInitializer: { streamChannel in
+                                channel.eventLoop.makeCompletedFuture { fatalError() }
+                            }
+                        )
                     try channel.pipeline.syncOperations.addHandler(quicHandler)
                     return (channel, connectionMultiplexer)
                 }
@@ -61,37 +62,40 @@ final class CertificateAuthTests: XCTestCase {
         name: String,
         certificateChainFilePath: String,
         privateKeyFilePath: String
-    ) async throws -> (any Channel, QUICHandler.ConnectionMultiplexer<NIOAsyncChannel<ByteBuffer, ByteBuffer>>) {
+    ) async throws -> (
+        any Channel, QUICHandler<QUICStreamChannels>.ConnectionMultiplexer<NIOAsyncChannel<ByteBuffer, ByteBuffer>>
+    ) {
         let eventLoopGroup = MultiThreadedEventLoopGroup.singleton
         let (channel, multiplexer) = try await DatagramBootstrap(group: eventLoopGroup)
             .channelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
             .bind(host: address, port: 0) { channel in
                 channel.eventLoop.makeCompletedFuture {
-                    let (quicHandler, connectionMultiplexer) = try QUICHandler.makeHandlerAndConnectionMultiplexer(
-                        channel: channel,
-                        quicConfiguration: .server(
-                            serverName: name,
-                            authenticationConfiguration: .x509Certificates(
-                                certificateChainFilePath: certificateChainFilePath,
-                                privateKeyFilePath: privateKeyFilePath
+                    let (quicHandler, connectionMultiplexer) = try QUICHandler<QUICStreamChannels>
+                        .makeHandlerAndConnectionMultiplexer(
+                            channel: channel,
+                            quicConfiguration: .server(
+                                serverName: name,
+                                authenticationConfiguration: .x509Certificates(
+                                    certificateChainFilePath: certificateChainFilePath,
+                                    privateKeyFilePath: privateKeyFilePath
+                                ),
+                                applicationProtocols: ["swift_nio_quic"]
                             ),
-                            applicationProtocols: ["swift_nio_quic"]
-                        ),
-                        logger: Logger(label: "test"),
-                        inboundStreamChannelInitializer: { streamChannel in
-                            streamChannel.eventLoop.makeCompletedFuture {
-                                let asyncChannel = try NIOAsyncChannel(
-                                    wrappingChannelSynchronously: streamChannel,
-                                    configuration: .init(
-                                        isOutboundHalfClosureEnabled: true,
-                                        inboundType: ByteBuffer.self,
-                                        outboundType: ByteBuffer.self
+                            logger: Logger(label: "test"),
+                            inboundStreamChannelInitializer: { streamChannel in
+                                streamChannel.eventLoop.makeCompletedFuture {
+                                    let asyncChannel = try NIOAsyncChannel(
+                                        wrappingChannelSynchronously: streamChannel,
+                                        configuration: .init(
+                                            isOutboundHalfClosureEnabled: true,
+                                            inboundType: ByteBuffer.self,
+                                            outboundType: ByteBuffer.self
+                                        )
                                     )
-                                )
-                                return asyncChannel
+                                    return asyncChannel
+                                }
                             }
-                        }
-                    )
+                        )
                     try channel.pipeline.syncOperations.addHandler(quicHandler)
                     return (channel, connectionMultiplexer)
                 }

@@ -29,10 +29,10 @@ private func makeChannel(
     registrar: any QUICConnectionIDRegistrar = RecordingRegistrar(),
     transport: any QUICTransport = RecordingTransport(),
     initializer: ((any Channel) -> EventLoopFuture<Void>)? = nil
-) throws -> QUICConnectionChannel {
+) throws -> QUICConnectionChannel<QUICStreamChannels> {
     let connection = connection ?? NoOpConnection()
 
-    let channel = QUICConnectionChannel(
+    let channel = QUICConnectionChannel<QUICStreamChannels>(
         udpChannel: parent,
         connection: .test(connection),
         registrar: .test(registrar),
@@ -900,7 +900,7 @@ extension SocketAddress {
 }
 
 @available(anyAppleOS 26, *)
-extension QUICConnectionChannel {
+extension QUICConnectionChannel<QUICStreamChannels> {
     fileprivate var embeddedEventLoop: EmbeddedEventLoop {
         self.eventLoop as! EmbeddedEventLoop
     }

@@ -79,7 +79,7 @@ struct Example {
         privateKeyPath: String,
         logger: Logger
     ) async throws -> (
-        any Channel, QUICHandler.ConnectionMultiplexer<NIOAsyncChannel<ByteBuffer, ByteBuffer>>
+        any Channel, QUICHandler<QUICStreamChannels>.ConnectionMultiplexer<NIOAsyncChannel<ByteBuffer, ByteBuffer>>
     ) {
         try await DatagramBootstrap(group: .singletonMultiThreadedEventLoopGroup)
             .channelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
@@ -117,7 +117,7 @@ struct Example {
     }
 
     private static func runQUICServer(
-        multiplexer: QUICHandler.ConnectionMultiplexer<NIOAsyncChannel<ByteBuffer, ByteBuffer>>,
+        multiplexer: QUICHandler<QUICStreamChannels>.ConnectionMultiplexer<NIOAsyncChannel<ByteBuffer, ByteBuffer>>,
         logger: Logger,
         streamHandler: @Sendable @escaping (NIOAsyncChannel<ByteBuffer, ByteBuffer>) async throws -> Void
     ) async throws {
@@ -151,7 +151,7 @@ struct Example {
         .bind(
             host: "127.0.0.1",
             port: 0
-        ) { channel -> EventLoopFuture<(any Channel, QUICHandler.ConnectionMultiplexer<Never>)> in
+        ) { channel -> EventLoopFuture<(any Channel, QUICHandler<QUICStreamChannels>.ConnectionMultiplexer<Never>)> in
             channel.eventLoop.makeCompletedFuture {
                 let quicConfiguration = QUICConfiguration.client(
                     verificationConfiguration: .x509Certificates(trustRootsFilePath: trustStorePath),

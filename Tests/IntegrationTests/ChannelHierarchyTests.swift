@@ -83,22 +83,24 @@ final class ChannelHierarchyTests: XCTestCase {
 
         // Open an outbound connection so we can hook the connection initializer
         // and add ConnectionMarker before any stream is created.
-        let (connectionChannel, streamCreator) = try await clientChannel.pipeline.handler(type: QUICHandler.self)
-            .flatMap {
-                quicHandler in
-                quicHandler.createOutboundConnection(
-                    serverName: "\(host):\(serverPort)",
-                    remoteAddress: try! .init(ipAddress: host, port: serverPort),
-                    connectionInitializer: { connectionChannel, _ in
-                        connectionChannel.eventLoop.makeCompletedFuture {
-                            try connectionChannel.pipeline.syncOperations.addHandler(ConnectionMarker())
-                        }
-                    },
-                    inboundStreamInitializer: { streamChannel in
-                        streamChannel.eventLoop.makeSucceededVoidFuture()
+        let (connectionChannel, streamCreator) = try await clientChannel.pipeline.handler(
+            type: QUICHandler<QUICStreamChannels>.self
+        )
+        .flatMap {
+            quicHandler in
+            quicHandler.createOutboundConnection(
+                serverName: "\(host):\(serverPort)",
+                remoteAddress: try! .init(ipAddress: host, port: serverPort),
+                connectionInitializer: { connectionChannel, _ in
+                    connectionChannel.eventLoop.makeCompletedFuture {
+                        try connectionChannel.pipeline.syncOperations.addHandler(ConnectionMarker())
                     }
-                )
-            }.get()
+                },
+                inboundStreamInitializer: { streamChannel in
+                    streamChannel.eventLoop.makeSucceededVoidFuture()
+                }
+            )
+        }.get()
 
         // Open an outbound stream and verify hierarchy in its initializer.
         let streamChannel = try await streamCreator.createBidirectionalStream { parameters in

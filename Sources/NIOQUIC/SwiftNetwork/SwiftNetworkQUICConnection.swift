@@ -43,10 +43,27 @@ extension NIOCore.ByteBuffer {
     }
 }
 
+@available(anyAppleOS 26, *)
+private enum ConnectionConstants {
+    /// The RFC gives a minimum number of connection IDs that implementations should support.
+    /// Exception: Connections with zero-length connection IDs should not advertise additional ones.
+    static let minimumConnectionIDs: Int = 2
+
+    /// Even if our peer supports more connection IDs, we will only advertise up to this limit.
+    static let maximumAnnouncedConnectionIDs: Int = 8
+
+    /// Track IDs for qlog files to ensure connections write individual logs.
+    private static let clientConnectionQLogIDCounter = Atomic<Int>(1)
+
+    static func nextClientConnectionQLogID() -> Int {
+        Self.clientConnectionQLogIDCounter.wrappingAdd(1, ordering: .relaxed).oldValue
+    }
+}
+
 /// A wrapper around the objects and state we need to keep track of and access a QUIC connection in SwiftNetwork.
 /// Holds the references required to access QUIC connections and streams
 @available(anyAppleOS 26, *)
-final class SwiftNetworkQUICConnection {
+final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable> {
     private var swiftNetworkQUICConnection: SwiftNetwork.QUICConnection
     let localAddress: SocketAddress
     let remoteAddress: SocketAddress
@@ -64,7 +81,7 @@ final class SwiftNetworkQUICConnection {
     // To prevent that we buffer removal of the last ID until we receive a new one.
     private var scidPendingDeletion: QUICConnectionID?
 
-    private var connectionNewFlowHandler: QUICChannelNewFlowHandler?
+    private var connectionNewFlowHandler: QUICChannelNewFlowHandler<Consumer>?
     private var streamInputHandlers = QUICStreamIDDictionary<QUICChannelStreamHandler>()
     private var pendingInitialClientStream: QUICChannelStreamHandler?
 
@@ -84,7 +101,7 @@ final class SwiftNetworkQUICConnection {
 
     /// The connection channel. Used to drive out-of-band output drains when SwiftNetwork
     /// finalizes frames outside any drain bracket initiated by the channel.
-    internal var channelView: QUICConnectionChannel.ConnectionView?
+    internal var channelView: QUICConnectionChannel<Consumer>.ConnectionView?
 
     /// Whether the connection is in a read-loop.
     ///
@@ -121,7 +138,7 @@ final class SwiftNetworkQUICConnection {
     ///
     /// Must be called once the connection child channel has been created and before any
     /// inbound packet is fed into the connection.
-    internal func setDriver(_ channel: QUICConnectionChannel) {
+    internal func setDriver(_ channel: QUICConnectionChannel<Consumer>) {
         self.channelView = channel.connectionView
         self.connectionNewFlowHandler?.setConnectionChannel(channel)
         self.pendingInitialClientStream?.setConnectionChannel(channel)
@@ -136,18 +153,6 @@ final class SwiftNetworkQUICConnection {
     private func nextQLogPrefixID() -> Int {
         _qlogPrefixIDCounter.wrappingAdd(1, ordering: .relaxed).newValue
     }
-
-    /// Track IDs for qlog files to ensure connections write individual logs.
-    private static let _clientConnectionQLogIDCounter = Atomic<Int>(1)
-    private static func nextClientConnectionQLogID() -> Int {
-        Self._clientConnectionQLogIDCounter.wrappingAdd(1, ordering: .relaxed).oldValue
-    }
-
-    // The RFC gives a minimum number of connection IDs that implementations should support.
-    // Exception: Connections with zero-length connection IDs should not advertise additional ones.
-    private static let QUIC_MIN_CONNECTION_IDS: Int = 2
-    // Even if our peer supports more connection IDs, we will only advertise up to this limit.
-    private static let SWIFT_NIO_QUIC_MAX_ANNOUNCE_CIDS: Int = 8
 
     private let connectionQLogID: Int
 
@@ -196,7 +201,7 @@ final class SwiftNetworkQUICConnection {
         remoteAddress: SocketAddress,
         eventLoop: any EventLoop,
         logger: Logger
-    ) throws -> SwiftNetworkQUICConnection {
+    ) throws -> SwiftNetworkQUICConnection<Consumer> {
         // TODO: Verify that the serverName is always required and reflect that in the type system.
         // See also: https://github.com/apple/swift-nio-quic/issues/6
         guard let serverName = serverName else {
@@ -358,7 +363,7 @@ final class SwiftNetworkQUICConnection {
             maxSegments: maxSegments
         )
 
-        self.connectionQLogID = Self.nextClientConnectionQLogID()
+        self.connectionQLogID = ConnectionConstants.nextClientConnectionQLogID()
         let prefix = role == .server ? "L" : "C"
         quicOptions.setLogID(prefix: prefix, parent: "1", protocolLogIDNumber: self.connectionQLogID)
         quicOptions.setProtocolInstance(swiftNetworkQUICConnection.reference)
@@ -371,7 +376,7 @@ final class SwiftNetworkQUICConnection {
         let streamListenerLinkage = StreamListenerLinkage(reference: self.swiftNetworkQUICConnection.reference)
         let datagramListenerLinkage = DatagramListenerLinkage(reference: self.swiftNetworkQUICConnection.reference)
 
-        let newFlowHandler = QUICChannelNewFlowHandler(
+        let newFlowHandler = QUICChannelNewFlowHandler<Consumer>(
             local: localEndpoint,
             remote: remoteEndpoint,
             parameters: swiftNetworkParameters,
@@ -953,7 +958,7 @@ final class SwiftNetworkQUICConnection {
 }
 
 @available(anyAppleOS 26, *)
-extension SwiftNetworkQUICConnection {
+extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
 
     /// Schedule a connection close due to a given error. This can be called from callbacks
     /// and avoids tearing down the state of the caller directly.
@@ -1140,7 +1145,7 @@ extension SwiftNetworkQUICConnection {
 
 // Callbacks coming from QUICChannelStreamHandler and QUICChannelNewFlowHandler
 @available(anyAppleOS 26, *)
-extension SwiftNetworkQUICConnection {
+extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
 
     /// Handle disconnected events from SwiftNetwork for individual stream handlers.
     ///
@@ -1161,8 +1166,8 @@ extension SwiftNetworkQUICConnection {
         localAnnouncementCap: Int
     ) -> CIDAnnouncementDecision {
         // In the absence of an advertised limit use the RFC default of 2.
-        let peerLimit = peerAnnouncedLimit ?? Self.QUIC_MIN_CONNECTION_IDS
-        if peerLimit < Self.QUIC_MIN_CONNECTION_IDS {
+        let peerLimit = peerAnnouncedLimit ?? ConnectionConstants.minimumConnectionIDs
+        if peerLimit < ConnectionConstants.minimumConnectionIDs {
             return .closeTransportParameterError(
                 reason: "advertised active_connection_id_limit must be at least 2"
             )
@@ -1203,7 +1208,7 @@ extension SwiftNetworkQUICConnection {
 
             let action = Self.decideCIDAnnouncementCount(
                 peerAnnouncedLimit: announcedPeerLimit,
-                localAnnouncementCap: Self.SWIFT_NIO_QUIC_MAX_ANNOUNCE_CIDS
+                localAnnouncementCap: ConnectionConstants.maximumAnnouncedConnectionIDs
             )
             switch action {
             case .closeTransportParameterError(let reason):
@@ -1317,7 +1322,7 @@ extension SwiftNetworkQUICConnection {
 
 // Callbacks coming from QUICChannelNewFlowHandler
 @available(anyAppleOS 26, *)
-extension SwiftNetworkQUICConnection {
+extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
 
     /// Marks a new server stream as newly connected and adds the new stream to streamInputHandlers
     /// This is done to make sure the state machine sets up a new server side stream for this stream handler.
@@ -1341,7 +1346,7 @@ extension SwiftNetworkQUICConnection {
 }
 
 @available(anyAppleOS 26, *)
-extension SwiftNetworkQUICConnection {
+extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
     /// Request retiring a connection ID that we are using to address our peer.
     func requestRetirementOfConnectionID(_ connectionID: QUICConnectionID) throws {
         guard let flowHandler = self.connectionNewFlowHandler else {
@@ -1371,7 +1376,7 @@ extension SwiftNetworkQUICConnection {
 }
 
 @available(anyAppleOS 26, *)
-extension SwiftNetworkQUICConnection {
+extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
     #if DEBUG  // For testing purposes only
     /// Injects a connection ID into the retired set. Useful for testing because it allows
     /// triggering the protocol violation path when the peer reissues this ID.
@@ -1407,7 +1412,7 @@ extension SwiftNetworkQUICConnection {
 
 // Callbacks coming from QUICChannelOutputHandler
 @available(anyAppleOS 26, *)
-extension SwiftNetworkQUICConnection {
+extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
     /// Consumes the inputPacketQueue and transforms the ByteBuffers from receivePacket to frames.
     ///
     /// These frames are to be consumed by the QUIC stack when invokeInputAvailable is called.
@@ -1435,18 +1440,18 @@ extension SwiftNetworkQUICConnection {
 
     /// Trigger outbound writes that drain `finalizedOutput`. This should only be called when no outbound drain is in progress.
     func triggerOutOfBandWriteEvent() {
-        switch self.connectionStateMachine.receiveOutOfBandWriteRequest(connectionChannel: self.channelView) {
+        switch self.connectionStateMachine.receiveOutOfBandWriteRequest(hasView: self.channelView != nil) {
         case .ignoreRequest:
             log("Ignoring request to trigger write")
         case .unexpectedRequest:
             // Not worth more than a trace: this is called for every batch of frames finalized, so
             // it's expected once the connection is closed or has dropped its channel.
             log("Dropping unexpected request to trigger write")
-        case .triggerEvent(let channelView):
+        case .triggerEvent:
             log("Triggering out-of-band outbound write event")
             // When handling out-of-band write, we should only drain and not avoid
             // firing events that might enter SwiftNetwork.
-            channelView.drainOutbound()
+            self.channelView!.drainOutbound()
         }
     }
 }
@@ -1497,7 +1502,7 @@ extension Frame {
 }
 
 @available(anyAppleOS 26, *)
-extension SwiftNetworkQUICConnection {
+extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
     /// A view over the connection for the `QUICChannelNewFlowHandler`.
     struct NewFlowView {
         private let connection: SwiftNetworkQUICConnection
@@ -1541,7 +1546,7 @@ extension SwiftNetworkQUICConnection {
 // MARK: - Inbound datagrams
 
 @available(anyAppleOS 26, *)
-extension SwiftNetworkQUICConnection {
+extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
     /// A datagram arrived on the connection's datagram flow: hand it to the channel, which fires it
     /// as a `channelRead`.
     ///
@@ -1557,7 +1562,7 @@ extension SwiftNetworkQUICConnection {
 }
 
 @available(anyAppleOS 26, *)
-extension SwiftNetworkQUICConnection: QUICConnectionProtocol {
+extension SwiftNetworkQUICConnection: QUICConnectionProtocol where Consumer: ~Copyable {
     func close(isApplicationClose: Bool, errorCode: Int64, reason: String) -> Bool {
         let action = self.close(
             sendApplicationClose: isApplicationClose,

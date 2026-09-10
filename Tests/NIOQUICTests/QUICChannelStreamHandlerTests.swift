@@ -485,7 +485,7 @@ extension QUICChannelStreamHandlerTests {
         streamID: UInt64 = 0,
         direction: QUICStreamDirection = .bidirectional,
         autoRead: Bool = true,
-        body: (SwiftNetworkQUICConnection, QUICChannelStreamHandler) throws -> Void
+        body: (SwiftNetworkQUICConnection<QUICStreamChannels>, QUICChannelStreamHandler) throws -> Void
     ) throws {
         let testPrivateKeyPath = Bundle.module.url(forResource: "privateKey", withExtension: "der")!.path
         let testPublicKeyPath = Bundle.module.url(forResource: "publicKey", withExtension: "der")!.path
@@ -495,7 +495,7 @@ extension QUICChannelStreamHandlerTests {
         let eventLoop = EmbeddedEventLoop()
         let udpChannel = EmbeddedChannel(loop: eventLoop)
 
-        let connection = try SwiftNetworkQUICConnection.server(
+        let connection = try SwiftNetworkQUICConnection<QUICStreamChannels>.server(
             configuration: .server(
                 serverName: "quic-test.local",
                 authenticationConfiguration: .rawPublicKeys(
@@ -515,7 +515,7 @@ extension QUICChannelStreamHandlerTests {
 
         // Constructing the channel wires it into the connection via setDriver, which
         // registerConnectedStubStreamHandler relies on through the connection's back-ref.
-        _ = QUICConnectionChannel(
+        _ = QUICConnectionChannel<QUICStreamChannels>(
             udpChannel: udpChannel,
             connection: .live(connection),
             registrar: .test(NoOpConnectionIDRegistrar()),

@@ -131,8 +131,23 @@ struct ConnectionRegistry<Value> {
     }
 }
 
+/// What the registry needs from a connection.
 @available(anyAppleOS 26, *)
-extension ConnectionRegistry where Value == QUICConnectionChannel.TransportView {
+protocol QUICConnectionRegistryView {
+    func shutdown(promise: EventLoopPromise<Void>?)
+    func forceClose()
+    func parentChannelInactive()
+    func parentChannelWritabilityChanged(to writable: Bool)
+    func parentChannelUserInboundEventTriggered(_ event: Any)
+}
+
+/// A class because a local `var` trips up CMO.
+private final class ShutdownRace {
+    var finished = false
+}
+
+@available(anyAppleOS 26, *)
+extension ConnectionRegistry where Value: QUICConnectionRegistryView {
     /// Shut down every registered connection, racing graceful completion against `deadline`.
     ///
     /// If all connections drain before the deadline, `promise` succeeds. If the deadline wins,
@@ -161,12 +176,12 @@ extension ConnectionRegistry where Value == QUICConnectionChannel.TransportView 
 
         let allCompleteFuture = EventLoopFuture.andAllComplete(futures, on: eventLoop)
         let connectionsSnapshot = Array(self.values)
-        var raceFinished = false
+        let race = ShutdownRace()
 
         // Start a timeout which races with the connections closing before the deadline.
         let timeoutTask = eventLoop.assumeIsolated().scheduleTask(deadline: deadline) {
-            if raceFinished { return }
-            raceFinished = true
+            if race.finished { return }
+            race.finished = true
 
             for view in connectionsSnapshot {
                 view.forceClose()
@@ -176,8 +191,8 @@ extension ConnectionRegistry where Value == QUICConnectionChannel.TransportView 
         }
 
         allCompleteFuture.assumeIsolated().whenComplete { _ in
-            if raceFinished { return }
-            raceFinished = true
+            if race.finished { return }
+            race.finished = true
 
             timeoutTask.cancel()
             promise.succeed(())
