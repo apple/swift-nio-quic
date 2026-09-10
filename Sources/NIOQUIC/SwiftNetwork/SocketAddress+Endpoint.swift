@@ -17,7 +17,7 @@ import NIOCore
 
 @available(anyAppleOS 26, *)
 extension SocketAddress {
-    /// Returns an `Endpoint` set to a `HostEndpoint` created from this `SocketAddress`.
+    /// Returns an `Endpoint` created from this `SocketAddress`.
     func toEndpoint() -> Endpoint {
         switch self {
         case .v4(let addr):
@@ -26,10 +26,12 @@ extension SocketAddress {
                 address: SwiftNetwork.IPv4Address(UInt32(addr.address.sin_addr.s_addr)),
                 port: UInt16(self.port!)
             )
-        case .v6(_):
-            precondition(self.ipAddress != nil && self.port != nil)
-            // TODO: IPv6Address does not (yet) provide the same initializer as v4.
-            return Endpoint(HostEndpoint(name: self.ipAddress!, port: UInt16(self.port!)))
+        case .v6(let addr):
+            precondition(self.port != nil)
+            let tuple = withUnsafeBytes(of: addr.address.sin6_addr) {
+                $0.loadUnaligned(as: (UInt32, UInt32, UInt32, UInt32).self)
+            }
+            return Endpoint(address: SwiftNetwork.IPv6Address(tuple), port: UInt16(self.port!))
         case .unixDomainSocket(_):
             // TODO: We would like to have an initializer for `sockaddr_un`.
             // The URL endpoint initializer requires an URL and recognizes it as a UNIX URL if it starts
