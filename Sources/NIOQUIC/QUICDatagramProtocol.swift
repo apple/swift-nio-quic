@@ -20,7 +20,8 @@ import NIOCore
 /// `QUICDatagramTransport` directly: production code is backed by `QUICDatagramTransport`, while
 /// tests can install a test double.
 @available(anyAppleOS 26, *)
-protocol QUICDatagramProtocol {
+protocol QUICDatagramProtocol<Connection> {
+    associatedtype Connection: AnyObject
 
     /// Buffers `datagram` to be sent on the next `flush()`.
     ///
@@ -40,22 +41,22 @@ protocol QUICDatagramProtocol {
     func close()
 
     /// Sets the connection which receives datagrams and errors from this transport.
-    func setReader(connection: SwiftNetworkQUICConnection)
+    func setReader(connection: Connection)
 
 }
 
 @available(anyAppleOS 26, *)
-extension SwiftNetworkQUICConnection {
+extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
     /// The connection's datagram transport, either the real SwiftNetwork-backed flow
     /// (statically dispatched) or an existential test conformance.
     enum DatagramTransport {
-        case live(QUICDatagramTransport)
-        case test(any QUICDatagramProtocol)
+        case live(QUICDatagramTransport<Consumer>)
+        case test(any QUICDatagramProtocol<SwiftNetworkQUICConnection<Consumer>>)
     }
 }
 
 @available(anyAppleOS 26, *)
-extension SwiftNetworkQUICConnection.DatagramTransport: QUICDatagramProtocol {
+extension SwiftNetworkQUICConnection.DatagramTransport: QUICDatagramProtocol where Consumer: ~Copyable {
     func write(datagram: ByteBuffer) -> Bool {
         switch self {
         case .live(let transport):
@@ -83,7 +84,7 @@ extension SwiftNetworkQUICConnection.DatagramTransport: QUICDatagramProtocol {
         }
     }
 
-    func setReader(connection: SwiftNetworkQUICConnection) {
+    func setReader(connection: SwiftNetworkQUICConnection<Consumer>) {
         switch self {
         case .live(let transport):
             transport.setReader(connection: connection)

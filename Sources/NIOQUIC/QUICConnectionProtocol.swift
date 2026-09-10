@@ -90,16 +90,16 @@ protocol QUICConnectionProtocol {
 }
 
 @available(anyAppleOS 26, *)
-extension QUICConnectionChannel {
+extension QUICConnectionChannel where Consumer: ~Copyable {
     /// The channel's connection, either the real SwiftNetwork-backed connection
     /// (statically dispatched) or an existential test conformance.
     enum Connection {
-        case live(SwiftNetworkQUICConnection)
+        case live(SwiftNetworkQUICConnection<Consumer>)
         case test(any QUICConnectionProtocol)
 
         func withLiveOnly(
             promise: EventLoopPromise<Void>? = nil,
-            execute body: (SwiftNetworkQUICConnection) throws -> Void
+            execute body: (SwiftNetworkQUICConnection<Consumer>) throws -> Void
         ) {
             switch self {
             case .live(let connection):
@@ -117,7 +117,7 @@ extension QUICConnectionChannel {
 }
 
 @available(anyAppleOS 26, *)
-extension QUICConnectionChannel.Connection: QUICConnectionProtocol {
+extension QUICConnectionChannel.Connection: QUICConnectionProtocol where Consumer: ~Copyable {
     var localAddress: SocketAddress {
         switch self {
         case .live(let connection):

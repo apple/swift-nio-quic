@@ -26,7 +26,7 @@ final class QUICHandlerTests: XCTestCase {
 
     private var eventLoop: EmbeddedEventLoop!
     private var channel: EmbeddedChannel!
-    private var serverHandler: QUICHandler!
+    private var serverHandler: QUICHandler<QUICStreamChannels>!
     private var channelHandler: MockChannelHandler!
     private var randomNumberGenerator: (any RandomNumberGenerator)!
 
@@ -52,8 +52,8 @@ final class QUICHandlerTests: XCTestCase {
         channel: EmbeddedChannel,
         channelHandler: NIOLoopBound<MockChannelHandler>,
         connectionIDLength: Int
-    ) throws -> QUICHandler {
-        let (handler, _) = try QUICHandler.makeHandlerAndConnectionMultiplexer(
+    ) throws -> QUICHandler<QUICStreamChannels> {
+        let (handler, _) = try QUICHandler<QUICStreamChannels>.makeHandlerAndConnectionMultiplexer(
             channel: channel,
             quicConfiguration: .server(
                 serverName: "quic-test.local",

@@ -554,7 +554,7 @@ func connectOutbound(
         _ in connectionChannel.eventLoop.makeSucceededVoidFuture()
     }
 ) async throws -> (any Channel, QUICStreamCreator) {
-    try await clientChannel.pipeline.handler(type: QUICHandler.self).flatMap { quicHandler in
+    try await clientChannel.pipeline.handler(type: QUICHandler<QUICStreamChannels>.self).flatMap { quicHandler in
         quicHandler.createOutboundConnection(
             serverName: "\(host):\(port)",
             remoteAddress: try! .init(ipAddress: host, port: port),

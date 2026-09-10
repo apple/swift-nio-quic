@@ -34,9 +34,9 @@ protocol QUICTransport {
 }
 
 @available(anyAppleOS 26, *)
-extension QUICConnectionChannel {
+extension QUICConnectionChannel where Consumer: ~Copyable {
     enum Transport: QUICTransport {
-        case live(QUICHandler.ChildView)
+        case live(QUICHandler<Consumer>.ChildView)
         case test(any QUICTransport)
 
         func writeDatagram(_ envelope: AddressedEnvelope<ByteBuffer>, promise: EventLoopPromise<Void>?) {

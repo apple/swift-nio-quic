@@ -928,20 +928,22 @@ final class SyncIntegrationTests: XCTestCase {
             logger: loggers.clientLogger
         ).get()
 
-        let (clientConnectionChannel, streamCreator) = try await clientChannel.pipeline.handler(type: QUICHandler.self)
-            .flatMap {
-                quicHandler in
-                quicHandler.createOutboundConnection(
-                    serverName: "\(host):\(serverPort)",
-                    remoteAddress: try! .init(ipAddress: host, port: serverPort),
-                    connectionInitializer: { connectionChannel, _ in
-                        connectionChannel.eventLoop.makeSucceededVoidFuture()
-                    },
-                    inboundStreamInitializer: { streamChannel in
-                        streamChannel.eventLoop.makeSucceededVoidFuture()
-                    }
-                )
-            }.get()
+        let (clientConnectionChannel, streamCreator) = try await clientChannel.pipeline.handler(
+            type: QUICHandler<QUICStreamChannels>.self
+        )
+        .flatMap {
+            quicHandler in
+            quicHandler.createOutboundConnection(
+                serverName: "\(host):\(serverPort)",
+                remoteAddress: try! .init(ipAddress: host, port: serverPort),
+                connectionInitializer: { connectionChannel, _ in
+                    connectionChannel.eventLoop.makeSucceededVoidFuture()
+                },
+                inboundStreamInitializer: { streamChannel in
+                    streamChannel.eventLoop.makeSucceededVoidFuture()
+                }
+            )
+        }.get()
 
         let clientCloseFutures: [EventLoopFuture<Void>] = (0..<requestCount).map { requestNumber in
             let streamID: NIOLoopBoundBox<UInt64> = NIOLoopBoundBox.makeBoxSendingValue(
@@ -1027,20 +1029,22 @@ final class SyncIntegrationTests: XCTestCase {
             logger: loggers.clientLogger
         ).get()
 
-        let (clientConnectionChannel, streamCreator) = try await clientChannel.pipeline.handler(type: QUICHandler.self)
-            .flatMap {
-                quicHandler in
-                quicHandler.createOutboundConnection(
-                    serverName: "\(host):\(serverPort)",
-                    remoteAddress: try! .init(ipAddress: host, port: serverPort),
-                    connectionInitializer: { connectionChannel, _ in
-                        connectionChannel.eventLoop.makeSucceededVoidFuture()
-                    },
-                    inboundStreamInitializer: { streamChannel in
-                        streamChannel.eventLoop.makeSucceededVoidFuture()
-                    }
-                )
-            }.get()
+        let (clientConnectionChannel, streamCreator) = try await clientChannel.pipeline.handler(
+            type: QUICHandler<QUICStreamChannels>.self
+        )
+        .flatMap {
+            quicHandler in
+            quicHandler.createOutboundConnection(
+                serverName: "\(host):\(serverPort)",
+                remoteAddress: try! .init(ipAddress: host, port: serverPort),
+                connectionInitializer: { connectionChannel, _ in
+                    connectionChannel.eventLoop.makeSucceededVoidFuture()
+                },
+                inboundStreamInitializer: { streamChannel in
+                    streamChannel.eventLoop.makeSucceededVoidFuture()
+                }
+            )
+        }.get()
 
         var clientCloseFutures: [EventLoopFuture<Void>] = []
         for requestNumber in (0..<requestCount) {
@@ -1130,7 +1134,7 @@ final class SyncIntegrationTests: XCTestCase {
             logger: loggers.clientLogger
         ).get()
 
-        let (_, streamCreator) = try await clientChannel.pipeline.handler(type: QUICHandler.self)
+        let (_, streamCreator) = try await clientChannel.pipeline.handler(type: QUICHandler<QUICStreamChannels>.self)
             .flatMap {
                 quicHandler in
                 quicHandler.createOutboundConnection(
@@ -1225,7 +1229,7 @@ final class SyncIntegrationTests: XCTestCase {
             logger: loggers.clientLogger
         ).get()
 
-        let (_, streamCreator) = try await clientChannel.pipeline.handler(type: QUICHandler.self)
+        let (_, streamCreator) = try await clientChannel.pipeline.handler(type: QUICHandler<QUICStreamChannels>.self)
             .flatMap {
                 quicHandler in
                 quicHandler.createOutboundConnection(
@@ -1308,22 +1312,24 @@ final class SyncIntegrationTests: XCTestCase {
 
         let errorCatcher = ErrorCatchingHandler(eventLoop: clientChannel.eventLoop)
 
-        let (clientConnectionChannel, streamCreator) = try await clientChannel.pipeline.handler(type: QUICHandler.self)
-            .flatMap {
-                quicHandler in
-                quicHandler.createOutboundConnection(
-                    serverName: "\(host):\(serverPort)",
-                    remoteAddress: try! .init(ipAddress: host, port: serverPort),
-                    connectionInitializer: { connectionChannel, _ in
-                        connectionChannel.eventLoop.makeCompletedFuture {
-                            try connectionChannel.pipeline.syncOperations.addHandler(errorCatcher)
-                        }
-                    },
-                    inboundStreamInitializer: { streamChannel in
-                        streamChannel.eventLoop.makeSucceededVoidFuture()
+        let (clientConnectionChannel, streamCreator) = try await clientChannel.pipeline.handler(
+            type: QUICHandler<QUICStreamChannels>.self
+        )
+        .flatMap {
+            quicHandler in
+            quicHandler.createOutboundConnection(
+                serverName: "\(host):\(serverPort)",
+                remoteAddress: try! .init(ipAddress: host, port: serverPort),
+                connectionInitializer: { connectionChannel, _ in
+                    connectionChannel.eventLoop.makeCompletedFuture {
+                        try connectionChannel.pipeline.syncOperations.addHandler(errorCatcher)
                     }
-                )
-            }.get()
+                },
+                inboundStreamInitializer: { streamChannel in
+                    streamChannel.eventLoop.makeSucceededVoidFuture()
+                }
+            )
+        }.get()
 
         let _ = streamCreator.createBidirectionalStream { streamInitializer in
             XCTAssertEqual(streamInitializer.streamID.type, .clientInitiatedBidirectional)
@@ -1379,20 +1385,22 @@ final class SyncIntegrationTests: XCTestCase {
             logger: loggers.clientLogger
         ).get()
 
-        let (clientConnectionChannel, streamCreator) = try await clientChannel.pipeline.handler(type: QUICHandler.self)
-            .flatMap {
-                quicHandler in
-                quicHandler.createOutboundConnection(
-                    serverName: "\(host):\(serverPort)",
-                    remoteAddress: try! .init(ipAddress: host, port: serverPort),
-                    connectionInitializer: { connectionChannel, _ in
-                        connectionChannel.eventLoop.makeSucceededVoidFuture()
-                    },
-                    inboundStreamInitializer: { streamChannel in
-                        streamChannel.eventLoop.makeSucceededVoidFuture()
-                    }
-                )
-            }.get()
+        let (clientConnectionChannel, streamCreator) = try await clientChannel.pipeline.handler(
+            type: QUICHandler<QUICStreamChannels>.self
+        )
+        .flatMap {
+            quicHandler in
+            quicHandler.createOutboundConnection(
+                serverName: "\(host):\(serverPort)",
+                remoteAddress: try! .init(ipAddress: host, port: serverPort),
+                connectionInitializer: { connectionChannel, _ in
+                    connectionChannel.eventLoop.makeSucceededVoidFuture()
+                },
+                inboundStreamInitializer: { streamChannel in
+                    streamChannel.eventLoop.makeSucceededVoidFuture()
+                }
+            )
+        }.get()
 
         let errorCatcher = ErrorCatchingHandler(eventLoop: clientConnectionChannel.eventLoop)
 
@@ -1462,20 +1470,22 @@ final class SyncIntegrationTests: XCTestCase {
             logger: loggers.clientLogger
         ).get()
 
-        let (clientConnectionChannel, streamCreator) = try await clientChannel.pipeline.handler(type: QUICHandler.self)
-            .flatMap {
-                quicHandler in
-                quicHandler.createOutboundConnection(
-                    serverName: "\(host):\(serverPort)",
-                    remoteAddress: try! .init(ipAddress: host, port: serverPort),
-                    connectionInitializer: { connectionChannel, _ in
-                        connectionChannel.eventLoop.makeSucceededVoidFuture()
-                    },
-                    inboundStreamInitializer: { streamChannel in
-                        streamChannel.eventLoop.makeSucceededVoidFuture()
-                    }
-                )
-            }.get()
+        let (clientConnectionChannel, streamCreator) = try await clientChannel.pipeline.handler(
+            type: QUICHandler<QUICStreamChannels>.self
+        )
+        .flatMap {
+            quicHandler in
+            quicHandler.createOutboundConnection(
+                serverName: "\(host):\(serverPort)",
+                remoteAddress: try! .init(ipAddress: host, port: serverPort),
+                connectionInitializer: { connectionChannel, _ in
+                    connectionChannel.eventLoop.makeSucceededVoidFuture()
+                },
+                inboundStreamInitializer: { streamChannel in
+                    streamChannel.eventLoop.makeSucceededVoidFuture()
+                }
+            )
+        }.get()
 
         let errorCatcher = ErrorCatchingHandler(eventLoop: clientConnectionChannel.eventLoop)
 
@@ -1549,20 +1559,22 @@ final class SyncIntegrationTests: XCTestCase {
             logger: loggers.clientLogger
         ).get()
 
-        let (clientConnectionChannel, streamCreator) = try await clientChannel.pipeline.handler(type: QUICHandler.self)
-            .flatMap {
-                quicHandler in
-                quicHandler.createOutboundConnection(
-                    serverName: "\(host):\(serverPort)",
-                    remoteAddress: try! .init(ipAddress: host, port: serverPort),
-                    connectionInitializer: { connectionChannel, streamCreator in
-                        connectionChannel.eventLoop.makeSucceededVoidFuture()
-                    },
-                    inboundStreamInitializer: { streamChannel in
-                        streamChannel.eventLoop.makeSucceededVoidFuture()
-                    }
-                )
-            }.get()
+        let (clientConnectionChannel, streamCreator) = try await clientChannel.pipeline.handler(
+            type: QUICHandler<QUICStreamChannels>.self
+        )
+        .flatMap {
+            quicHandler in
+            quicHandler.createOutboundConnection(
+                serverName: "\(host):\(serverPort)",
+                remoteAddress: try! .init(ipAddress: host, port: serverPort),
+                connectionInitializer: { connectionChannel, streamCreator in
+                    connectionChannel.eventLoop.makeSucceededVoidFuture()
+                },
+                inboundStreamInitializer: { streamChannel in
+                    streamChannel.eventLoop.makeSucceededVoidFuture()
+                }
+            )
+        }.get()
 
         let errorCatcher = ErrorCatchingHandler(eventLoop: clientConnectionChannel.eventLoop)
 
@@ -1618,7 +1630,7 @@ final class SyncIntegrationTests: XCTestCase {
         ).get()
 
         let (clientConnectionChannel, clientStreamCreator) = try await clientChannel.pipeline.handler(
-            type: QUICHandler.self
+            type: QUICHandler<QUICStreamChannels>.self
         ).flatMap {
             quicHandler in
             quicHandler.createOutboundConnection(
@@ -1693,7 +1705,7 @@ final class SyncIntegrationTests: XCTestCase {
         ).get()
 
         let (clientConnectionChannel, _) = try await clientChannel.pipeline.handler(
-            type: QUICHandler.self
+            type: QUICHandler<QUICStreamChannels>.self
         ).flatMap {
             quicHandler in
             quicHandler.createOutboundConnection(
@@ -1793,7 +1805,7 @@ final class SyncIntegrationTests: XCTestCase {
             logger: loggers.clientLogger
         ).get()
 
-        let (_, streamCreator) = try await clientChannel.pipeline.handler(type: QUICHandler.self)
+        let (_, streamCreator) = try await clientChannel.pipeline.handler(type: QUICHandler<QUICStreamChannels>.self)
             .flatMap {
                 quicHandler in
                 quicHandler.createOutboundConnection(
@@ -1891,7 +1903,7 @@ final class SyncIntegrationTests: XCTestCase {
             logger: loggers.clientLogger
         ).get()
 
-        let (_, streamCreator) = try await clientChannel.pipeline.handler(type: QUICHandler.self)
+        let (_, streamCreator) = try await clientChannel.pipeline.handler(type: QUICHandler<QUICStreamChannels>.self)
             .flatMap {
                 quicHandler in
                 quicHandler.createOutboundConnection(
@@ -1961,19 +1973,21 @@ final class SyncIntegrationTests: XCTestCase {
         // The promise completes when the handshake does, which needs the server to have consumed
         // the INITIAL.
         let start = NIODeadline.now()
-        let (clientConnectionChannel, _) = try await clientChannel.pipeline.handler(type: QUICHandler.self)
-            .flatMap { quicHandler in
-                quicHandler.createOutboundConnection(
-                    serverName: "\(host):\(serverPort)",
-                    remoteAddress: try! .init(ipAddress: host, port: serverPort),
-                    connectionInitializer: { connectionChannel, _ in
-                        connectionChannel.eventLoop.makeSucceededVoidFuture()
-                    },
-                    inboundStreamInitializer: { streamChannel in
-                        streamChannel.eventLoop.makeSucceededVoidFuture()
-                    }
-                )
-            }.get()
+        let (clientConnectionChannel, _) = try await clientChannel.pipeline.handler(
+            type: QUICHandler<QUICStreamChannels>.self
+        )
+        .flatMap { quicHandler in
+            quicHandler.createOutboundConnection(
+                serverName: "\(host):\(serverPort)",
+                remoteAddress: try! .init(ipAddress: host, port: serverPort),
+                connectionInitializer: { connectionChannel, _ in
+                    connectionChannel.eventLoop.makeSucceededVoidFuture()
+                },
+                inboundStreamInitializer: { streamChannel in
+                    streamChannel.eventLoop.makeSucceededVoidFuture()
+                }
+            )
+        }.get()
         let elapsed = NIODeadline.now() - start
 
         // If the queued INITIAL isn't consumed until the next read loop then nothing happens
@@ -2030,7 +2044,7 @@ final class SyncIntegrationTests: XCTestCase {
             logger: loggers.clientLogger
         ).get()
 
-        let (_, streamCreator) = try await clientChannel.pipeline.handler(type: QUICHandler.self)
+        let (_, streamCreator) = try await clientChannel.pipeline.handler(type: QUICHandler<QUICStreamChannels>.self)
             .flatMap {
                 quicHandler in
                 quicHandler.createOutboundConnection(
@@ -2151,20 +2165,22 @@ final class SyncIntegrationTests: XCTestCase {
             logger: loggers.clientLogger
         ).get()
 
-        let (clientConnectionChannel, streamCreator) = try await clientChannel.pipeline.handler(type: QUICHandler.self)
-            .flatMap {
-                quicHandler in
-                quicHandler.createOutboundConnection(
-                    serverName: "\(host):\(serverPort)",
-                    remoteAddress: try! .init(ipAddress: host, port: serverPort),
-                    connectionInitializer: { connectionChannel, _ in
-                        connectionChannel.eventLoop.makeSucceededVoidFuture()
-                    },
-                    inboundStreamInitializer: { streamChannel in
-                        streamChannel.eventLoop.makeSucceededVoidFuture()
-                    }
-                )
-            }.get()
+        let (clientConnectionChannel, streamCreator) = try await clientChannel.pipeline.handler(
+            type: QUICHandler<QUICStreamChannels>.self
+        )
+        .flatMap {
+            quicHandler in
+            quicHandler.createOutboundConnection(
+                serverName: "\(host):\(serverPort)",
+                remoteAddress: try! .init(ipAddress: host, port: serverPort),
+                connectionInitializer: { connectionChannel, _ in
+                    connectionChannel.eventLoop.makeSucceededVoidFuture()
+                },
+                inboundStreamInitializer: { streamChannel in
+                    streamChannel.eventLoop.makeSucceededVoidFuture()
+                }
+            )
+        }.get()
 
         // Create a stream and send stopSending, then verify the channel is still open for writes
         let requestStreamChannel = try await streamCreator.createBidirectionalStream { streamInitializer in
@@ -2225,20 +2241,22 @@ final class SyncIntegrationTests: XCTestCase {
             logger: loggers.clientLogger
         ).get()
 
-        let (clientConnectionChannel, streamCreator) = try await clientChannel.pipeline.handler(type: QUICHandler.self)
-            .flatMap {
-                quicHandler in
-                quicHandler.createOutboundConnection(
-                    serverName: "\(host):\(serverPort)",
-                    remoteAddress: try! .init(ipAddress: host, port: serverPort),
-                    connectionInitializer: { connectionChannel, _ in
-                        connectionChannel.eventLoop.makeSucceededVoidFuture()
-                    },
-                    inboundStreamInitializer: { streamChannel in
-                        streamChannel.eventLoop.makeSucceededVoidFuture()
-                    }
-                )
-            }.get()
+        let (clientConnectionChannel, streamCreator) = try await clientChannel.pipeline.handler(
+            type: QUICHandler<QUICStreamChannels>.self
+        )
+        .flatMap {
+            quicHandler in
+            quicHandler.createOutboundConnection(
+                serverName: "\(host):\(serverPort)",
+                remoteAddress: try! .init(ipAddress: host, port: serverPort),
+                connectionInitializer: { connectionChannel, _ in
+                    connectionChannel.eventLoop.makeSucceededVoidFuture()
+                },
+                inboundStreamInitializer: { streamChannel in
+                    streamChannel.eventLoop.makeSucceededVoidFuture()
+                }
+            )
+        }.get()
 
         let responseBuffer = NIOLockedValueBox(ByteBuffer())
         let gotResponsePromise = clientConnectionChannel.eventLoop.makePromise(of: Void.self)
@@ -2322,20 +2340,22 @@ final class SyncIntegrationTests: XCTestCase {
             logger: loggers.clientLogger
         ).get()
 
-        let (clientConnectionChannel, streamCreator) = try await clientChannel.pipeline.handler(type: QUICHandler.self)
-            .flatMap {
-                quicHandler in
-                quicHandler.createOutboundConnection(
-                    serverName: "\(host):\(serverPort)",
-                    remoteAddress: try! .init(ipAddress: host, port: serverPort),
-                    connectionInitializer: { connectionChannel, streamCreator in
-                        connectionChannel.eventLoop.makeSucceededVoidFuture()
-                    },
-                    inboundStreamInitializer: { streamChannel in
-                        streamChannel.eventLoop.makeSucceededVoidFuture()
-                    }
-                )
-            }.get()
+        let (clientConnectionChannel, streamCreator) = try await clientChannel.pipeline.handler(
+            type: QUICHandler<QUICStreamChannels>.self
+        )
+        .flatMap {
+            quicHandler in
+            quicHandler.createOutboundConnection(
+                serverName: "\(host):\(serverPort)",
+                remoteAddress: try! .init(ipAddress: host, port: serverPort),
+                connectionInitializer: { connectionChannel, streamCreator in
+                    connectionChannel.eventLoop.makeSucceededVoidFuture()
+                },
+                inboundStreamInitializer: { streamChannel in
+                    streamChannel.eventLoop.makeSucceededVoidFuture()
+                }
+            )
+        }.get()
 
         let stopSendingEventReceived = clientConnectionChannel.eventLoop.makePromise(of: Void.self)
         let errorCatcher = ErrorCatchingHandler(eventLoop: clientConnectionChannel.eventLoop)

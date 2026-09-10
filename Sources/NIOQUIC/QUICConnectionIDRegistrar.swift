@@ -38,9 +38,9 @@ protocol QUICConnectionIDRegistrar {
 }
 
 @available(anyAppleOS 26, *)
-extension QUICConnectionChannel {
+extension QUICConnectionChannel where Consumer: ~Copyable {
     enum ConnectionIDRegistrar: QUICConnectionIDRegistrar {
-        case live(QUICHandler.RegistrarView)
+        case live(QUICHandler<Consumer>.RegistrarView)
         case test(any QUICConnectionIDRegistrar)
 
         func associate(_ newID: QUICConnectionID) -> Bool {

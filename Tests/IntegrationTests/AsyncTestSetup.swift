@@ -45,8 +45,8 @@ func makeClientAndServerPair(
 ) async throws -> (
     clientChannel: any Channel,
     serverChannel: any Channel,
-    serverMultiplexer: QUICHandler.ConnectionMultiplexer<NIOAsyncChannel<ByteBuffer, ByteBuffer>>,
-    clientMultiplexer: QUICHandler.ConnectionMultiplexer<Never>
+    serverMultiplexer: QUICHandler<QUICStreamChannels>.ConnectionMultiplexer<NIOAsyncChannel<ByteBuffer, ByteBuffer>>,
+    clientMultiplexer: QUICHandler<QUICStreamChannels>.ConnectionMultiplexer<Never>
 ) {
     let certUID = UUID().uuidString
     let publicKeyPath = FileManager.default.temporaryDirectory.appendingPathComponent(
@@ -103,8 +103,8 @@ func makeMockClientAndServerPair(
 ) async throws -> (
     clientChannel: any Channel,
     serverChannel: any Channel,
-    serverMultiplexer: QUICHandler.ConnectionMultiplexer<NIOAsyncChannel<ByteBuffer, ByteBuffer>>,
-    clientMultiplexer: QUICHandler.ConnectionMultiplexer<Never>
+    serverMultiplexer: QUICHandler<QUICStreamChannels>.ConnectionMultiplexer<NIOAsyncChannel<ByteBuffer, ByteBuffer>>,
+    clientMultiplexer: QUICHandler<QUICStreamChannels>.ConnectionMultiplexer<Never>
 ) {
     // Create testing channels for client and server communication
     let serverChannel = NIOAsyncTestingChannel(loop: testingEventLoop)
@@ -202,8 +202,8 @@ func makeNetworkClientAndServerPair(
 ) async throws -> (
     clientChannel: any Channel,
     serverChannel: any Channel,
-    serverMultiplexer: QUICHandler.ConnectionMultiplexer<NIOAsyncChannel<ByteBuffer, ByteBuffer>>,
-    clientMultiplexer: QUICHandler.ConnectionMultiplexer<Never>
+    serverMultiplexer: QUICHandler<QUICStreamChannels>.ConnectionMultiplexer<NIOAsyncChannel<ByteBuffer, ByteBuffer>>,
+    clientMultiplexer: QUICHandler<QUICStreamChannels>.ConnectionMultiplexer<Never>
 ) {
     let (serverChannel, serverMultiplexer) = try await setUpServerChannelAndConnectionMultiplexer(
         eventLoopGroup: eventLoopGroup,
@@ -251,7 +251,7 @@ private func setUpClientConnectionMultiplexer(
     initialMaxStreamsBidi: Int = 8
 ) async throws -> (
     serverChannel: any Channel,
-    QUICHandler.ConnectionMultiplexer<Never>
+    QUICHandler<QUICStreamChannels>.ConnectionMultiplexer<Never>
 ) {
     let (channel, multiplexer) = try await DatagramBootstrap(group: eventLoopGroup)
         .channelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
@@ -302,7 +302,9 @@ private func setUpServerChannelAndConnectionMultiplexer(
     initialMaxData: Int = 16_777_216,
     initialMaxStreamDataBidi: Int = 2_097_152,
     initialMaxStreamsBidi: Int = 8
-) async throws -> (any Channel, QUICHandler.ConnectionMultiplexer<NIOAsyncChannel<ByteBuffer, ByteBuffer>>) {
+) async throws -> (
+    any Channel, QUICHandler<QUICStreamChannels>.ConnectionMultiplexer<NIOAsyncChannel<ByteBuffer, ByteBuffer>>
+) {
     var mutableLogger = Logger(label: "Testing Server")
     mutableLogger.logLevel = .debug
     let logger = mutableLogger

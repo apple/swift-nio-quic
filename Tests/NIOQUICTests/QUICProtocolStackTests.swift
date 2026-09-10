@@ -35,27 +35,28 @@ final class QUICProtocolStackTests: XCTestCase {
         maxIdleTimeout: Duration = .milliseconds(30000),
         forceVersionNegotiation: Bool = false,
         eventLoopGroup: any EventLoopGroup = MultiThreadedEventLoopGroup.singleton
-    ) async throws -> (any Channel, QUICHandler.ConnectionMultiplexer<Never>) {
+    ) async throws -> (any Channel, QUICHandler<QUICStreamChannels>.ConnectionMultiplexer<Never>) {
         let (channel, multiplexer) = try await DatagramBootstrap(group: eventLoopGroup)
             .channelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
             .channelOption(ChannelOptions.maxMessagesPerRead, value: 32)
             .bind(host: host, port: bindPort) { channel in
                 channel.eventLoop.makeCompletedFuture {
-                    let (quicHandler, connectionMultiplexer) = try QUICHandler.makeHandlerAndConnectionMultiplexer(
-                        channel: channel,
-                        quicConfiguration: .client(
-                            verificationConfiguration: VerificationConfiguration.rawPublicKeys(
-                                publicKeyFilePath: Self.testPublicKeyPath
+                    let (quicHandler, connectionMultiplexer) = try QUICHandler<QUICStreamChannels>
+                        .makeHandlerAndConnectionMultiplexer(
+                            channel: channel,
+                            quicConfiguration: .client(
+                                verificationConfiguration: VerificationConfiguration.rawPublicKeys(
+                                    publicKeyFilePath: Self.testPublicKeyPath
+                                ),
+                                applicationProtocols: ["swift_nio_quic"],
+                                maxIdleTimeout: maxIdleTimeout,
+                                forceVersionNegotiation: forceVersionNegotiation
                             ),
-                            applicationProtocols: ["swift_nio_quic"],
-                            maxIdleTimeout: maxIdleTimeout,
-                            forceVersionNegotiation: forceVersionNegotiation
-                        ),
-                        logger: logger,
-                        inboundStreamChannelInitializer: { streamChannel in
-                            channel.eventLoop.makeCompletedFuture { fatalError() }
-                        }
-                    )
+                            logger: logger,
+                            inboundStreamChannelInitializer: { streamChannel in
+                                channel.eventLoop.makeCompletedFuture { fatalError() }
+                            }
+                        )
                     try channel.pipeline.syncOperations.addHandler(quicHandler)
                     return (channel, connectionMultiplexer)
                 }
@@ -73,47 +74,50 @@ final class QUICProtocolStackTests: XCTestCase {
         sendRetry: Bool = false,
         eventLoopGroup: any EventLoopGroup = MultiThreadedEventLoopGroup.singleton,
         onConnectionChannel: (@Sendable (any Channel) -> Void)? = nil
-    ) async throws -> (any Channel, QUICHandler.ConnectionMultiplexer<NIOAsyncChannel<ByteBuffer, ByteBuffer>>) {
+    ) async throws -> (
+        any Channel, QUICHandler<QUICStreamChannels>.ConnectionMultiplexer<NIOAsyncChannel<ByteBuffer, ByteBuffer>>
+    ) {
         let (channel, multiplexer) = try await DatagramBootstrap(group: eventLoopGroup)
             .channelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
             .channelOption(ChannelOptions.maxMessagesPerRead, value: 32)
             .bind(host: host, port: 0) { channel in
                 channel.eventLoop.makeCompletedFuture {
-                    let (quicHandler, connectionMultiplexer) = try QUICHandler.makeHandlerAndConnectionMultiplexer(
-                        channel: channel,
-                        quicConfiguration: .server(
-                            serverName: host,
-                            authenticationConfiguration: AuthenticationConfiguration.rawPublicKeys(
-                                publicKeyFilePath: Self.testPublicKeyPath,
-                                privateKeyFilePath: Self.testPrivateKeyPath,
+                    let (quicHandler, connectionMultiplexer) = try QUICHandler<QUICStreamChannels>
+                        .makeHandlerAndConnectionMultiplexer(
+                            channel: channel,
+                            quicConfiguration: .server(
+                                serverName: host,
+                                authenticationConfiguration: AuthenticationConfiguration.rawPublicKeys(
+                                    publicKeyFilePath: Self.testPublicKeyPath,
+                                    privateKeyFilePath: Self.testPrivateKeyPath,
+                                ),
+                                applicationProtocols: ["swift_nio_quic"],
+                                maxIdleTimeout: maxIdleTimeout,
+                                initialMaxStreamsBidi: initialMaxBidirectionalStreams,
+                                initialMaxStreamsUni: initialMaxUnidirectionalStreams,
+                                sendRetry: sendRetry,
+                                qLogConfiguration: qlogConfiguration
                             ),
-                            applicationProtocols: ["swift_nio_quic"],
-                            maxIdleTimeout: maxIdleTimeout,
-                            initialMaxStreamsBidi: initialMaxBidirectionalStreams,
-                            initialMaxStreamsUni: initialMaxUnidirectionalStreams,
-                            sendRetry: sendRetry,
-                            qLogConfiguration: qlogConfiguration
-                        ),
-                        logger: logger,
-                        inboundStreamChannelInitializer: { streamChannel in
-                            streamChannel.eventLoop.makeCompletedFuture {
-                                // Hands out the connection channel each time an inbound stream is
-                                // initialized, so a test can get at the server side of a connection.
-                                if let onConnectionChannel, let connectionChannel = streamChannel.parent {
-                                    onConnectionChannel(connectionChannel)
-                                }
-                                let asyncChannel = try NIOAsyncChannel(
-                                    wrappingChannelSynchronously: streamChannel,
-                                    configuration: .init(
-                                        isOutboundHalfClosureEnabled: true,
-                                        inboundType: ByteBuffer.self,
-                                        outboundType: ByteBuffer.self
+                            logger: logger,
+                            inboundStreamChannelInitializer: { streamChannel in
+                                streamChannel.eventLoop.makeCompletedFuture {
+                                    // Hands out the connection channel each time an inbound stream is
+                                    // initialized, so a test can get at the server side of a connection.
+                                    if let onConnectionChannel, let connectionChannel = streamChannel.parent {
+                                        onConnectionChannel(connectionChannel)
+                                    }
+                                    let asyncChannel = try NIOAsyncChannel(
+                                        wrappingChannelSynchronously: streamChannel,
+                                        configuration: .init(
+                                            isOutboundHalfClosureEnabled: true,
+                                            inboundType: ByteBuffer.self,
+                                            outboundType: ByteBuffer.self
+                                        )
                                     )
-                                )
-                                return asyncChannel
+                                    return asyncChannel
+                                }
                             }
-                        }
-                    )
+                        )
                     try channel.pipeline.syncOperations.addHandler(quicHandler)
                     return (channel, connectionMultiplexer)
                 }

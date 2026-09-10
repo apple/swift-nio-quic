@@ -31,7 +31,9 @@ import Musl
 /// This object deals with creating and linking the objects describing a new flow, it creates a new `QUICChannelStreamHandler`
 /// for each new flow, registers it and keeps track of it.
 @available(anyAppleOS 26, *)
-final class QUICChannelNewFlowHandler: ProtocolInstanceContainer, InboundFlowHandler {
+final class QUICChannelNewFlowHandler<Consumer: QUICStreamConsumer & ~Copyable>:
+    ProtocolInstanceContainer, InboundFlowHandler
+{
 
     internal typealias LowerProtocol = StreamListenerLinkage
     typealias UpperStreamHandlerType = QUICChannelStreamHandler
@@ -59,7 +61,7 @@ final class QUICChannelNewFlowHandler: ProtocolInstanceContainer, InboundFlowHan
     // This view is set in the call the `start` and is required for operation. It uses
     // an implicitly unwrapped optionals because Swift's initialization rules prevent
     // passing 'self' method references during init.
-    private var connectionView: SwiftNetworkQUICConnection.NewFlowView!
+    private var connectionView: SwiftNetworkQUICConnection<Consumer>.NewFlowView!
     private var lowerProtocol = LowerProtocol(reference: .init())
 
     private var datagramListener: DatagramListenerLinkage
@@ -131,7 +133,7 @@ final class QUICChannelNewFlowHandler: ProtocolInstanceContainer, InboundFlowHan
     }
 
     // Start the new flow handler
-    func start(_ view: SwiftNetworkQUICConnection.NewFlowView) {
+    func start(_ view: SwiftNetworkQUICConnection<Consumer>.NewFlowView) {
         log("start")
         self.connectionView = view
         let reference = self.reference
@@ -243,7 +245,7 @@ final class QUICChannelNewFlowHandler: ProtocolInstanceContainer, InboundFlowHan
 }
 
 @available(anyAppleOS 26, *)
-extension QUICChannelNewFlowHandler: UpperProtocolHandler {
+extension QUICChannelNewFlowHandler: UpperProtocolHandler where Consumer: ~Copyable {
     func handleNetworkProtocolEvent(
         _ from: SwiftNetwork.ProtocolInstanceReference,
         event: SwiftNetwork.NetworkProtocolEvent
@@ -330,7 +332,7 @@ extension QUICChannelNewFlowHandler: UpperProtocolHandler {
 }
 
 @available(anyAppleOS 26, *)
-extension QUICChannelNewFlowHandler {
+extension QUICChannelNewFlowHandler where Consumer: ~Copyable {
     /// Attach the datagram flow to the connection.
     ///
     /// Note: This must run after the peer's transport parameters are applied: SwiftNetwork computes the
@@ -339,9 +341,9 @@ extension QUICChannelNewFlowHandler {
     /// freezes the usable size at `0` and datagrams can never be sent.
     ///
     /// - Returns: The transport for the attached flow, or `nil` if it could not be attached.
-    func attachDatagramFlow() -> QUICDatagramTransport? {
+    func attachDatagramFlow() -> QUICDatagramTransport<Consumer>? {
         do {
-            let transport = QUICDatagramTransport(
+            let transport = QUICDatagramTransport<Consumer>(
                 role: self.role,
                 logger: self.logger,
                 context: self.context

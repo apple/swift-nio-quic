@@ -205,7 +205,9 @@ final class IntegrationTests: XCTestCase {
                 for try await buffer in inbound {
                     XCTAssertEqual(buffer, .init(string: "<b>Success</b>"))
 
-                    let serverHandle = try await serverChannel.pipeline.handler(type: QUICHandler.self).map {
+                    let serverHandle = try await serverChannel.pipeline.handler(
+                        type: QUICHandler<QUICStreamChannels>.self
+                    ).map {
                         $0.makeHandle()
                     }.get()
 

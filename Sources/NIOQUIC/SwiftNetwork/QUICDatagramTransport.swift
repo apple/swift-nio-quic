@@ -30,7 +30,9 @@ import Musl
 /// `ProtocolInstanceContainer` to be addressable as a protocol instance; the connection which owns
 /// it talks to it only through `QUICDatagramProtocol`.
 @available(anyAppleOS 26, *)
-final class QUICDatagramTransport: ProtocolInstanceContainer, InboundDatagramHandler {
+final class QUICDatagramTransport<Consumer: QUICStreamConsumer & ~Copyable>:
+    ProtocolInstanceContainer, InboundDatagramHandler
+{
 
     typealias LowerProtocol = OutboundDatagramLinkage
 
@@ -48,7 +50,7 @@ final class QUICDatagramTransport: ProtocolInstanceContainer, InboundDatagramHan
     private var bufferedDatagrams: TinyArray<ByteBuffer> = []
 
     /// The connection notified of inbound datagrams and errors.
-    private var reader: SwiftNetworkQUICConnection?
+    private var reader: SwiftNetworkQUICConnection<Consumer>?
 
     init(role: Role, logger: Logger, context: NetworkContext) {
         self.logPrefix = "[\(role.description)][DatagramTransport]"
@@ -70,7 +72,7 @@ final class QUICDatagramTransport: ProtocolInstanceContainer, InboundDatagramHan
 }
 
 @available(anyAppleOS 26, *)
-extension QUICDatagramTransport: QUICDatagramProtocol {
+extension QUICDatagramTransport: QUICDatagramProtocol where Consumer: ~Copyable {
     /// Buffers `datagram` for the next `flush()`, always returning `true`.
     ///
     /// Datagram delivery is unreliable: buffering here always succeeds, but the datagram may still
@@ -128,13 +130,13 @@ extension QUICDatagramTransport: QUICDatagramProtocol {
     /// Register the connection which owns this transport as its reader.
     ///
     /// This can only hold one endpoint. Each call overwrite the previously set reader.
-    func setReader(connection: SwiftNetworkQUICConnection) {
+    func setReader(connection: SwiftNetworkQUICConnection<Consumer>) {
         self.reader = connection
     }
 }
 
 @available(anyAppleOS 26, *)
-extension QUICDatagramTransport {
+extension QUICDatagramTransport where Consumer: ~Copyable {
     /// Drains all datagrams currently available on the flow and forwards each to the reader.
     /// Does nothing if no reader has been set.
     func handleInboundDataAvailableEvent(_ from: ProtocolInstanceReference) {
@@ -170,7 +172,7 @@ extension QUICDatagramTransport {
 
 // Connection events are already handled by the `QUICChannelNewFlowHandler`.
 @available(anyAppleOS 26, *)
-extension QUICDatagramTransport {
+extension QUICDatagramTransport where Consumer: ~Copyable {
     func attachLowerDatagramProtocol(
         _ lowerProtocol: SwiftNetwork.ProtocolInstanceReference,
         remote: SwiftNetwork.Endpoint?,

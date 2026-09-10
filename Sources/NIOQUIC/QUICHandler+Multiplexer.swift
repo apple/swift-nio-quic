@@ -19,11 +19,13 @@ import NIOCore
 /// in the `QUICHandler` when yielding a new `Channel`. However, this is okay for now otherwise
 /// we would need to make the handler generic as well.
 @available(anyAppleOS 26, *)
-protocol ConnectionMultiplexerContinuation: Sendable {
+protocol ConnectionMultiplexerContinuation<ConnectionChannel>: Sendable {
+    associatedtype ConnectionChannel: AnyObject
+
     /// We have to do a bit of an awkward dance here to carry the `Output` between the initializer and the continuation where
     /// we yield to. That's why we are using `Any` here to avoid making the handler generic.
     func initialize(
-        channel: QUICConnectionChannel,
+        channel: ConnectionChannel,
         logger: Logger
     ) -> EventLoopFuture<any Sendable>
     func yield(connection: any Sendable)
@@ -31,7 +33,7 @@ protocol ConnectionMultiplexerContinuation: Sendable {
 }
 
 @available(anyAppleOS 26, *)
-extension QUICHandler {
+extension QUICHandler where Consumer: ~Copyable {
     /// A multiplexer for the QUIC connections of a ``QUICHandler``.
     ///
     /// This type allows to iterate the incoming connections and create new connections in the case of being a client.
@@ -46,12 +48,12 @@ extension QUICHandler {
         private let role: Role
         /// Creates a new outbound connection: the handler's 'createNewConnection'.
         typealias CreateNewConnection = (
-            _ promise: EventLoopPromise<(QUICConnectionChannel, QUICStreamCreator)>,
+            _ promise: EventLoopPromise<(QUICConnectionChannel<Consumer>, QUICStreamCreator)>,
             _ serverName: String,
             _ remoteAddress: SocketAddress,
             _ channelInitializer:
                 @Sendable @escaping (
-                    _ channel: QUICConnectionChannel,
+                    _ channel: QUICConnectionChannel<Consumer>,
                     _ streamCreator: QUICStreamCreator
                 ) -> EventLoopFuture<Void>
         ) throws -> Void
@@ -78,7 +80,7 @@ extension QUICHandler {
         }
 
         func initialize(
-            channel: QUICConnectionChannel,
+            channel: QUICConnectionChannel<Consumer>,
             logger: Logger
         ) -> EventLoopFuture<any Sendable> {
             channel.eventLoop.makeCompletedFuture {
@@ -114,7 +116,9 @@ extension QUICHandler {
                     InitializerOutput
                 >
         ) async throws -> QUICConnection<InitializerOutput> {
-            let channelPromise = self.eventLoop.makePromise(of: (QUICConnectionChannel, QUICStreamCreator).self)
+            let channelPromise = self.eventLoop.makePromise(
+                of: (QUICConnectionChannel<Consumer>, QUICStreamCreator).self
+            )
             let outputPromise = self.eventLoop.makePromise(of: QUICConnection<InitializerOutput>.self)
             channelPromise.futureResult.cascadeFailure(to: outputPromise)
             // We have to await both futures here because of two reasons:
@@ -175,4 +179,4 @@ extension QUICHandler {
 }
 
 @available(*, unavailable)
-extension QUICHandler.ConnectionMultiplexer.InboundConnections.AsyncIterator: Sendable {}
+extension QUICHandler.ConnectionMultiplexer.InboundConnections.AsyncIterator: Sendable where Consumer: ~Copyable {}

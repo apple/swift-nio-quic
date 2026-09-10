@@ -289,12 +289,12 @@ extension QUICConnectionChannelDatagramTests {
     /// Builds an initialized (but not yet active) server connection channel over a
     /// `RecordingConnection`, with a `DatagramRecorder` in its pipeline.
     static func withChannel(
-        body: (QUICConnectionChannel, RecordingConnection, DatagramRecorder) throws -> Void
+        body: (QUICConnectionChannel<QUICStreamChannels>, RecordingConnection, DatagramRecorder) throws -> Void
     ) throws {
         let connection = RecordingConnection()
         let recorder = DatagramRecorder()
 
-        let channel = QUICConnectionChannel(
+        let channel = QUICConnectionChannel<QUICStreamChannels>(
             udpChannel: EmbeddedChannel(),
             connection: .test(connection),
             registrar: .test(RecordingRegistrar()),
@@ -316,7 +316,7 @@ extension QUICConnectionChannelDatagramTests {
     /// via `setDatagramTransport(_:)`. Exercises the connection <-> transport seam without a real
     /// SwiftNetwork datagram flow.
     static func withLiveConnection(
-        body: (SwiftNetworkQUICConnection, DatagramTestTransport, DatagramRecorder) throws -> Void
+        body: (SwiftNetworkQUICConnection<QUICStreamChannels>, DatagramTestTransport, DatagramRecorder) throws -> Void
     ) throws {
         let privateKeyPath = Bundle.module.url(forResource: "privateKey", withExtension: "der")!.path
         let publicKeyPath = Bundle.module.url(forResource: "publicKey", withExtension: "der")!.path
@@ -325,7 +325,7 @@ extension QUICConnectionChannelDatagramTests {
         let eventLoop = EmbeddedEventLoop()
         let udpChannel = EmbeddedChannel(loop: eventLoop)
 
-        let connection = try SwiftNetworkQUICConnection.server(
+        let connection = try SwiftNetworkQUICConnection<QUICStreamChannels>.server(
             configuration: .server(
                 serverName: "quic-test.local",
                 authenticationConfiguration: .rawPublicKeys(
@@ -345,7 +345,7 @@ extension QUICConnectionChannelDatagramTests {
 
         // Constructing the channel wires it into the connection via setDriver; the connection needs
         // it to hand inbound datagrams and flow errors to the pipeline.
-        let channel = QUICConnectionChannel(
+        let channel = QUICConnectionChannel<QUICStreamChannels>(
             udpChannel: udpChannel,
             connection: .live(connection),
             registrar: .test(RecordingRegistrar()),
@@ -365,7 +365,10 @@ extension QUICConnectionChannelDatagramTests {
 
     /// Writes and flushes `buffer` on the channel, returning the write's future so the test can
     /// inspect whether it succeeded, failed, or is still buffered.
-    static func write(_ channel: QUICConnectionChannel, _ buffer: ByteBuffer) -> EventLoopFuture<Void> {
+    static func write(
+        _ channel: QUICConnectionChannel<QUICStreamChannels>,
+        _ buffer: ByteBuffer
+    ) -> EventLoopFuture<Void> {
         let promise = channel.eventLoop.makePromise(of: Void.self)
         channel.writeAndFlush(buffer, promise: promise)
         return promise.futureResult
@@ -404,7 +407,7 @@ final class DatagramTestTransport: QUICDatagramProtocol {
     private(set) var writtenDatagrams: [ByteBuffer] = []
     private(set) var flushCount = 0
     private(set) var closeCount = 0
-    private var reader: SwiftNetworkQUICConnection?
+    private var reader: SwiftNetworkQUICConnection<QUICStreamChannels>?
 
     func write(datagram: ByteBuffer) -> Bool {
         self.writtenDatagrams.append(datagram)
@@ -422,7 +425,7 @@ final class DatagramTestTransport: QUICDatagramProtocol {
         self.reader = nil
     }
 
-    func setReader(connection: SwiftNetworkQUICConnection) {
+    func setReader(connection: SwiftNetworkQUICConnection<QUICStreamChannels>) {
         self.reader = connection
     }
 
