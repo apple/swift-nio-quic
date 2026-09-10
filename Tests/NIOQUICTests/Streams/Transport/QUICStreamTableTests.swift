@@ -490,6 +490,37 @@ struct QUICStreamTableTests {
         #expect(table.count == 0)
     }
 
+    // MARK: - Opening
+
+    @available(anyAppleOS 26, *)
+    @Test(
+        arguments: [
+            (Role.client, QUICStreamType.serverInitiatedBidirectional),
+            (.client, .serverInitiatedUnidirectional),
+            (.server, .clientInitiatedBidirectional),
+            (.server, .clientInitiatedUnidirectional),
+        ]
+    )
+    func openRejectsAStreamTypeThisRoleCannotInitiate(role: Role, type: QUICStreamType) {
+        let table = Self.makeRecordingTable(role: role)
+
+        #expect(throws: QUICError.invalidStreamTypeForRole) {
+            _ = try table.open(type, state: .init(madeAt: 1))
+        }
+        #expect(table.count == 0)
+    }
+
+    @available(anyAppleOS 26, *)
+    @Test
+    func openWithoutAConnectionBehindTheTableThrows() {
+        let table = Self.makeRecordingTable(role: .client)
+
+        #expect(throws: QUICError.invalidStreamState) {
+            _ = try table.open(.clientInitiatedBidirectional, state: .init(madeAt: 1))
+        }
+        #expect(table.count == 0)
+    }
+
     // MARK: - Stack events
 
     @available(anyAppleOS 26, *)
