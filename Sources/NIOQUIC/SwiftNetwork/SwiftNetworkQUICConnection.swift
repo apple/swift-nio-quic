@@ -835,20 +835,25 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
         // Now tell SwiftNetwork to send CONNECTION_CLOSE and clean up streams
         // newFlowHandler.stop() will synchronously trigger handleConnectionDisconnected()
         // which will see we're in .closing state and transition to .closed
+        let didStop: Bool
         if sendApplicationClose {
             newFlowHandler.stop(error: NetworkError(quicApplicationError: UInt64(errorCode), reason: reason))
+            didStop = true
         } else {
             if let transportError = QUICTransportError(UInt64(errorCode), reason) {
                 newFlowHandler.stop(error: NetworkError(quicTransportError: transportError))
+                didStop = true
+            } else {
+                didStop = false
             }
         }
         // The channel reference is dropped in 'dropChannelReferences()' once the channel has gone
         // inactive: it's still needed here to deliver 'connectionClosed' back to the channel.
-        newFlowHandler.teardown()
         log("close sentApplicationClose: \(sendApplicationClose), errorCode: \(errorCode), reason: \(reason)")
 
-        // For connections that never established (still in idle or early handshake states),
-        // clean up synchronously.
+        // For connections that never established (still in idle or early handshake states), and
+        // for those which weren't stopped above (so won't be given a disconnected event), clean up
+        // synchronously.
         if !hasEstablishedConnection {
             // Never established - clean up synchronously
             self.tearDownConnectionState()
@@ -856,6 +861,8 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
                 self.connectionStateMachine.stateDescription == "disconnected",
                 "State should be closed after teardown"
             )
+        } else if !didStop {
+            self.tearDownConnectionState()
         }
         // For established connections, teardown happens via handleConnectionDisconnected (called by newFlowHandler.stop above)
         return .closeInitiated

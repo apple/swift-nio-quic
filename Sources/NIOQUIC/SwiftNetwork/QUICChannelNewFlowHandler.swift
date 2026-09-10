@@ -62,7 +62,7 @@ final class QUICChannelNewFlowHandler<Consumer: QUICStreamConsumer & ~Copyable>:
     // an implicitly unwrapped optionals because Swift's initialization rules prevent
     // passing 'self' method references during init.
     private var connectionView: SwiftNetworkQUICConnection<Consumer>.NewFlowView!
-    private var lowerProtocol = LowerProtocol(reference: .init())
+    private var lowerProtocol: LowerProtocol?
 
     private var datagramListener: DatagramListenerLinkage
 
@@ -138,7 +138,7 @@ final class QUICChannelNewFlowHandler<Consumer: QUICStreamConsumer & ~Copyable>:
         self.connectionView = view
         let reference = self.reference
         reference.fromExternal {
-            self.lowerProtocol.invokeConnect(reference)
+            self.lowerProtocol?.invokeConnect(reference)
         }
     }
 
@@ -148,7 +148,7 @@ final class QUICChannelNewFlowHandler<Consumer: QUICStreamConsumer & ~Copyable>:
     func getConnectionMetadata() -> ProtocolMetadata<QUICProtocol>? {
         let reference = self.reference
         return reference.fromExternal {
-            self.lowerProtocol.invokeGetMetadata(reference) as? ProtocolMetadata<QUICProtocol>
+            self.lowerProtocol?.invokeGetMetadata(reference) as? ProtocolMetadata<QUICProtocol>
         }
     }
 
@@ -157,7 +157,7 @@ final class QUICChannelNewFlowHandler<Consumer: QUICStreamConsumer & ~Copyable>:
         log("stop")
         let reference = self.reference
         reference.fromExternal {
-            self.lowerProtocol.invokeDisconnect(reference, error: error)
+            self.lowerProtocol?.invokeDisconnect(reference, error: error)
         }
     }
 
@@ -166,8 +166,8 @@ final class QUICChannelNewFlowHandler<Consumer: QUICStreamConsumer & ~Copyable>:
         let reference = self.reference
         reference.fromExternal {
             do throws(NetworkError) {
-                try self.lowerProtocol.invokeDetach(reference)
-                self.lowerProtocol = .init(reference: .init())
+                let lower = self.lowerProtocol.take()
+                try lower?.invokeDetach(reference)
             } catch {
                 self.log("Failed to detach lower protocol: \(error)")
             }
@@ -178,7 +178,7 @@ final class QUICChannelNewFlowHandler<Consumer: QUICStreamConsumer & ~Copyable>:
         let event: ApplicationEvent = isEnabled ? .outboundDataBatchStart : .outboundDataBatchEnd
         let reference = self.reference
         reference.fromExternal {
-            self.lowerProtocol.invokeApplicationEvent(reference, event: event)
+            self.lowerProtocol?.invokeApplicationEvent(reference, event: event)
         }
     }
 
@@ -207,6 +207,11 @@ final class QUICChannelNewFlowHandler<Consumer: QUICStreamConsumer & ~Copyable>:
             fatalError("connection channel is not available")
         }
 
+        guard let lowerProtocol = self.lowerProtocol else {
+            self.log("Dropping new inbound flow: lower protocol has been detached")
+            return
+        }
+
         do throws(NetworkError) {
             guard let metadata = flowMetadata as? ProtocolMetadata<QUICProtocol>,
                 let inputHandlerStreamID = metadata.streamID
@@ -225,7 +230,7 @@ final class QUICChannelNewFlowHandler<Consumer: QUICStreamConsumer & ~Copyable>:
                 keepAliveInterval: keepAliveInterval
             )
 
-            let linkage = try self.lowerProtocol.invokeAttachUpperStreamProtocolToExistingFlow(
+            let linkage = try lowerProtocol.invokeAttachUpperStreamProtocolToExistingFlow(
                 streamHandler.reference,
                 flowReference: flowReference
             )
@@ -312,7 +317,7 @@ extension QUICChannelNewFlowHandler: UpperProtocolHandler where Consumer: ~Copya
 
         let reference = self.reference
         reference.fromExternal {
-            self.lowerProtocol.invokeApplicationEvent(reference, event: event)
+            self.lowerProtocol?.invokeApplicationEvent(reference, event: event)
         }
     }
 
@@ -326,7 +331,7 @@ extension QUICChannelNewFlowHandler: UpperProtocolHandler where Consumer: ~Copya
 
         let reference = self.reference
         reference.fromExternal {
-            self.lowerProtocol.invokeApplicationEvent(reference, event: event)
+            self.lowerProtocol?.invokeApplicationEvent(reference, event: event)
         }
     }
 }
