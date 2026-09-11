@@ -95,10 +95,10 @@ public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
     ///   - quicConfiguration: The quic configuration to use for this handler.
     ///   - asyncVerifier: Callback provider for SwiftTLS certificate verification.
     ///   - logger: The logger.
-    ///   - connectionIDGenerator: The generator used for creating source connection IDs.
-    ///   - statelessResetTokenGenerator: The generator used to derive stateless reset tokens for each connection ID.
     ///   - makeConsumer: Builds the consumer servicing a connection's streams, or nil
     ///     when streams are surfaced as child channels.
+    ///   - connectionIDGenerator: The generator used for creating source connection IDs.
+    ///   - statelessResetTokenGenerator: The generator used to derive stateless reset tokens for each connection ID.
     init(
         channel: any Channel,
         quicConfiguration: QUICConfiguration,
