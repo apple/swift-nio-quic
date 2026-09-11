@@ -851,17 +851,9 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
         // inactive: it's still needed here to deliver 'connectionClosed' back to the channel.
         log("close sentApplicationClose: \(sendApplicationClose), errorCode: \(errorCode), reason: \(reason)")
 
-        // For connections that never established (still in idle or early handshake states), and
-        // for those which weren't stopped above (so won't be given a disconnected event), clean up
-        // synchronously.
-        if !hasEstablishedConnection {
-            // Never established - clean up synchronously
-            self.tearDownConnectionState()
-            assert(
-                self.connectionStateMachine.stateDescription == "disconnected",
-                "State should be closed after teardown"
-            )
-        } else if !didStop {
+        // For connections that never established (still in idle or early handshake states), or
+        // which weren't stopped above, clean up synchronously: neither gets a disconnected event.
+        if !didStop || !hasEstablishedConnection {
             self.tearDownConnectionState()
         }
         // For established connections, teardown happens via handleConnectionDisconnected (called by newFlowHandler.stop above)
