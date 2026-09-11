@@ -450,7 +450,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
                 context: swiftNetworkParameters.context
             )
 
-            // The same references an outbound child-channel stream attaches through in
+            // The same references an outbound child-channel stream attaches in
             // 'addNewOutboundStreamInputHandler'.
             table.opener = QUICStreamOpener(
                 listener: streamListenerLinkage,

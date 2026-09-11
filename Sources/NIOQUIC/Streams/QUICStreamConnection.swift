@@ -59,7 +59,7 @@ public struct QUICStreamConnection<Consumer: QUICStreamConsumer & ~Copyable>: @u
         }
     }
 
-    /// Returns a view over over the connection assuming the caller is on the ``eventLoop``.
+    /// Returns a view over the connection assuming the caller is on the ``eventLoop``.
     public func assumeIsolated() -> Isolated {
         self.eventLoop.assertInEventLoop()
         return Isolated(self)
