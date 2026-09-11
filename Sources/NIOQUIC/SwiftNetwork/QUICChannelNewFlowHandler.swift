@@ -69,6 +69,10 @@ final class QUICChannelNewFlowHandler<Consumer: QUICStreamConsumer & ~Copyable>:
     // Internal mutable state
     var keepAliveInterval: Duration?
 
+    /// The stream table inbound flows attach to, or nil if inbound streams become
+    /// child channels.
+    var streamTable: QUICStreamTable<Consumer>?
+
     internal init?(
         local: Endpoint,
         remote: Endpoint,
@@ -195,7 +199,8 @@ final class QUICChannelNewFlowHandler<Consumer: QUICStreamConsumer & ~Copyable>:
         self.connectionView = nil
     }
 
-    // Receive a new inbound flow to create a QUICChannelStreamHandler from.
+    // Receive a new inbound flow and either give it a slot in the stream table or
+    // create a QUICChannelStreamHandler for it.
     internal func handleNewInboundFlowEvent(
         _ from: ProtocolInstanceReference,
         flowReference: ProtocolInstanceReference,
@@ -203,49 +208,91 @@ final class QUICChannelNewFlowHandler<Consumer: QUICStreamConsumer & ~Copyable>:
     ) {
         log("received new inbound flow")
 
-        guard let connectionChannel = self.connectionChannel else {
-            fatalError("connection channel is not available")
-        }
-
         guard let lowerProtocol = self.lowerProtocol else {
             self.log("Dropping new inbound flow: lower protocol has been detached")
             return
         }
 
-        do throws(NetworkError) {
-            guard let metadata = flowMetadata as? ProtocolMetadata<QUICProtocol>,
-                let inputHandlerStreamID = metadata.streamID
-            else {
-                logger.error("Could not create new stream handler: invalid metadata")
-                return
-            }
-            let streamHandler = QUICChannelStreamHandler(
-                role: self.role,
-                parameters: self.parameters,
-                streamID: QUICStreamID(rawValue: inputHandlerStreamID),
-                logger: self.logger,
-                remoteAddress: self.remoteAddress,
-                localAddress: self.localAddress,
-                connectionChannel: connectionChannel,
-                keepAliveInterval: keepAliveInterval
-            )
-
-            let linkage = try lowerProtocol.invokeAttachUpperStreamProtocolToExistingFlow(
-                streamHandler.reference,
-                flowReference: flowReference
-            )
-            streamHandler.swiftNetworkStreamHandle = SwiftNetworkStreamHandle(linkage: linkage)
-            streamHandler.setNewFlowMetadata(metadata)
-            streamHandler.start(fromNewFlowHandler: true)
-            self.connectionView.newInboundStream(streamHandler)
-
-            // For new inbound flows, only set the keep-alive interval once for the connection.
-            // That means only the first flow should send the interval into QUICChannelStreamHandler
-            self.keepAliveInterval = nil
-        } catch {
-            self.log("Failed to attach new inbound flow: \(error)")
+        guard let metadata = flowMetadata as? ProtocolMetadata<QUICProtocol>,
+            let inputHandlerStreamID = metadata.streamID
+        else {
+            logger.error("Could not create new stream handler: invalid metadata")
             return
         }
+
+        // Before the connection channel is required below: a connection using a stream
+        // table has no child channel to parent the stream to.
+        if let table = self.streamTable {
+            self.attachInboundFlowToTable(
+                table,
+                lowerProtocol: lowerProtocol,
+                flowReference: flowReference,
+                streamID: QUICStreamID(rawValue: inputHandlerStreamID)
+            )
+        } else if let connectionChannel = self.connectionChannel {
+            do throws(NetworkError) {
+                let streamHandler = QUICChannelStreamHandler(
+                    role: self.role,
+                    parameters: self.parameters,
+                    streamID: QUICStreamID(rawValue: inputHandlerStreamID),
+                    logger: self.logger,
+                    remoteAddress: self.remoteAddress,
+                    localAddress: self.localAddress,
+                    connectionChannel: connectionChannel,
+                    keepAliveInterval: keepAliveInterval
+                )
+
+                let linkage = try lowerProtocol.invokeAttachUpperStreamProtocolToExistingFlow(
+                    streamHandler.reference,
+                    flowReference: flowReference
+                )
+                streamHandler.swiftNetworkStreamHandle = SwiftNetworkStreamHandle(linkage: linkage)
+                streamHandler.setNewFlowMetadata(metadata)
+                streamHandler.start(fromNewFlowHandler: true)
+                self.connectionView.newInboundStream(streamHandler)
+
+                // For new inbound flows, only set the keep-alive interval once for the connection.
+                // That means only the first flow should send the interval into QUICChannelStreamHandler
+                self.keepAliveInterval = nil
+            } catch {
+                self.log("Failed to attach new inbound flow: \(error)")
+            }
+        } else {
+            fatalError("connection channel is not available")
+        }
+    }
+
+    private func attachInboundFlowToTable(
+        _ table: QUICStreamTable<Consumer>,
+        lowerProtocol: LowerProtocol,
+        flowReference: ProtocolInstanceReference,
+        streamID: QUICStreamID
+    ) {
+        // No state: the consumer makes it in 'makeStreamState' before the first visit.
+        let handle = table.insertSlot(id: streamID, state: nil)
+        let reference = table.reference(for: handle)
+
+        let linkage: OutboundStreamLinkage
+        do throws(NetworkError) {
+            linkage = try lowerProtocol.invokeAttachUpperStreamProtocolToExistingFlow(
+                reference,
+                flowReference: flowReference
+            )
+        } catch {
+            self.log("Failed to attach new inbound flow: \(error)")
+            table.vacateSlot(handle)
+            return
+        }
+
+        guard let transport = table.transportState(for: handle) else {
+            preconditionFailure("slot for \(handle) was recycled while its flow was attaching")
+        }
+
+        transport.pointee.core.attach(reference: reference, linkage: linkage)
+
+        table.assignID(streamID, to: handle)
+        linkage.invokeConnect(reference)
+        table.markReady(handle: handle, events: [.opened, .readable])
     }
 }
 

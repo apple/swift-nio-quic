@@ -82,6 +82,10 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
     private var scidPendingDeletion: QUICConnectionID?
 
     private var connectionNewFlowHandler: QUICChannelNewFlowHandler<Consumer>?
+
+    /// The connection's stream table, or nil if its streams are serviced as child
+    /// channels.
+    private(set) var streamTable: QUICStreamTable<Consumer>?
     private var streamInputHandlers = QUICStreamIDDictionary<QUICChannelStreamHandler>()
     private var pendingInitialClientStream: QUICChannelStreamHandler?
 
@@ -200,7 +204,8 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
         localAddress: SocketAddress,
         remoteAddress: SocketAddress,
         eventLoop: any EventLoop,
-        logger: Logger
+        logger: Logger,
+        usesStreamTable: Bool = false
     ) throws -> SwiftNetworkQUICConnection<Consumer> {
         // TODO: Verify that the serverName is always required and reflect that in the type system.
         // See also: https://github.com/apple/swift-nio-quic/issues/6
@@ -217,7 +222,8 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
             remoteAddress: remoteAddress,
             eventLoop: eventLoop,
             mode: .client(asyncVerifier),
-            logger: logger
+            logger: logger,
+            usesStreamTable: usesStreamTable
         )
     }
 
@@ -245,7 +251,8 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
         localAddress: SocketAddress,
         remoteAddress: SocketAddress,
         logger: Logger,
-        eventLoop: any EventLoop
+        eventLoop: any EventLoop,
+        usesStreamTable: Bool = false
     ) throws -> SwiftNetworkQUICConnection {
         guard let serverName = configuration.serverName else {
             throw QUICError.tlsConfigurationIncomplete
@@ -260,7 +267,8 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
             remoteAddress: remoteAddress,
             eventLoop: eventLoop,
             mode: .server(authenticator),
-            logger: logger
+            logger: logger,
+            usesStreamTable: usesStreamTable
         )
     }
 
@@ -278,7 +286,8 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
         remoteAddress: SocketAddress,
         eventLoop: any EventLoop,
         mode: Mode,
-        logger: Logger
+        logger: Logger,
+        usesStreamTable: Bool
     ) throws {
         switch mode {
         case .client:
@@ -388,14 +397,18 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
             streamListenerProtocol: streamListenerLinkage,
             datagramListenerProtocol: datagramListenerLinkage,
             // Keep-alive is driven by the connection flow handler on the server, but by the
-            // initial client stream on the client (set up below).
-            keepAliveInterval: self.role == .server ? configuration.keepAliveInterval : nil
+            // initial client stream on the client (set up below). A client using a stream
+            // table has no initial stream, so its flow handler carries it too.
+            keepAliveInterval: self.role == .server || usesStreamTable
+                ? configuration.keepAliveInterval
+                : nil
         )
         self.connectionNewFlowHandler = newFlowHandler
 
-        // Clients set up an initial bidirectional stream (stream ID 0).
+        // Clients set up an initial bidirectional stream (stream ID 0) so that the first
+        // 'createBidirectionalStream' can reuse it.
         switch mode {
-        case .client:
+        case .client where !usesStreamTable:
             let streamID = QUICStreamID(rawValue: 0)
             let streamListenerLinkage = StreamListenerLinkage(reference: self.swiftNetworkQUICConnection.reference)
             let streamHandler = QUICChannelStreamHandler(
@@ -420,7 +433,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
                 fatalError("Could not create a new stream handler")
             }
 
-        case .server:
+        case .client, .server:
             ()
         }
 
@@ -430,6 +443,24 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
             context: swiftNetworkParameters.context,
             framePool: framePool
         )
+
+        if usesStreamTable {
+            let table = QUICStreamTable<Consumer>(
+                role: self.role,
+                context: swiftNetworkParameters.context
+            )
+
+            // The same references an outbound child-channel stream attaches through in
+            // 'addNewOutboundStreamInputHandler'.
+            table.opener = QUICStreamOpener(
+                listener: streamListenerLinkage,
+                connection: self.swiftNetworkQUICConnection.reference,
+                context: swiftNetworkParameters.context
+            )
+
+            self.streamTable = table
+            newFlowHandler?.streamTable = table
+        }
 
         self.inReadLoop = false
         self.batchingEnabled = false

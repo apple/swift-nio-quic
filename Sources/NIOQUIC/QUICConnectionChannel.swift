@@ -75,6 +75,12 @@ final class QUICConnectionChannel<Consumer: QUICStreamConsumer & ~Copyable>: @un
     /// Initializer for inbound streams.
     private var _streamInitializer: QUICInboundStreamInitializer?
 
+    /// The consumer servicing this connection's streams, or nil is stream channels are used.
+    private var _consumer: Consumer?
+
+    /// The connection's stream table, or nil if stream channels are used.
+    private var _table: QUICStreamTable<Consumer>?
+
     /// Promise to complete when the channel becomes active (or closed if never active).
     private var _readyPromise: EventLoopPromise<Void>?
 
@@ -127,7 +133,8 @@ final class QUICConnectionChannel<Consumer: QUICStreamConsumer & ~Copyable>: @un
         connection: Connection,
         registrar: ConnectionIDRegistrar,
         transport: Transport,
-        isServer: Bool
+        isServer: Bool,
+        table: QUICStreamTable<Consumer>?
     ) {
         self.parent = udpChannel
 
@@ -144,6 +151,7 @@ final class QUICConnectionChannel<Consumer: QUICStreamConsumer & ~Copyable>: @un
         self._connection = connection
         self._registrar = registrar
         self._transport = transport
+        self._table = table
         self._lifecycle = QUICConnectionChannelLifecycle()
         self._autoRead = true
         self._streamInitializer = nil
@@ -793,6 +801,14 @@ extension QUICConnectionChannel where Consumer: ~Copyable {
             self.pipeline.fireErrorCaught(error)
         }
 
+        if let table = self._table {
+            table.closeAll(error: error, disconnect: nil, into: &self._consumer!)
+            // Drop the opener so new streams can't be created.
+            table.opener = nil
+            self.completeChannelInactive(error: error)
+            return
+        }
+
         // Wait for all streams to close before firing inactive.
         let streamCloseFutures = self._connection.closeAllStreams()
 
@@ -835,6 +851,34 @@ extension QUICConnectionChannel where Consumer: ~Copyable {
 
 @available(anyAppleOS 26, *)
 extension QUICConnectionChannel where Consumer: ~Copyable {
+    func setConsumer(_ consumer: consuming Consumer) {
+        self.eventLoop.assertInEventLoop()
+        assert(self._table != nil)
+        self._consumer = consume consumer
+    }
+
+    @inlinable
+    func withStreams<Result: ~Copyable, Failure: Error>(
+        _ body: (inout QUICStreams<Consumer>) throws(Failure) -> Result
+    ) throws(Failure) -> Result? {
+        self.eventLoop.assertInEventLoop()
+        guard let table = self._table else { return nil }
+
+        var streams = QUICStreams(table: table)
+        return try body(&streams)
+    }
+}
+
+@available(anyAppleOS 26, *)
+extension QUICConnectionChannel where Consumer: ~Copyable {
+    fileprivate func drainStreamTable() {
+        self.eventLoop.assertInEventLoop()
+
+        if let table = self._table {
+            table.drain(into: &self._consumer!)
+        }
+    }
+
     fileprivate func _parentChannelBecameInactive() {
         self.eventLoop.assertInEventLoop()
 
@@ -911,6 +955,7 @@ extension QUICConnectionChannel where Consumer: ~Copyable {
         }
 
         self.drainAndReconcileLifecycle()
+        self.drainStreamTable()
         self.processPendingInboundStreams()
 
         // Only fire channelReadComplete after reading a datagram.

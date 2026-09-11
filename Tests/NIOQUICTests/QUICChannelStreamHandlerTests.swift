@@ -520,7 +520,8 @@ extension QUICChannelStreamHandlerTests {
             connection: .live(connection),
             registrar: .test(NoOpConnectionIDRegistrar()),
             transport: .test(RecordingTransport()),
-            isServer: connection.role == .server
+            isServer: connection.role == .server,
+            table: nil
         )
 
         connection.registerConnectedStubStreamHandler(
