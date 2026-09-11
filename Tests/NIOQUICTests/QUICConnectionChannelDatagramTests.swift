@@ -299,7 +299,8 @@ extension QUICConnectionChannelDatagramTests {
             connection: .test(connection),
             registrar: .test(RecordingRegistrar()),
             transport: .test(RecordingTransport()),
-            isServer: true
+            isServer: true,
+            table: nil
         )
 
         // A server channel's initializer promise completes without waiting for the handshake, so
@@ -350,7 +351,8 @@ extension QUICConnectionChannelDatagramTests {
             connection: .live(connection),
             registrar: .test(RecordingRegistrar()),
             transport: .test(RecordingTransport()),
-            isServer: true
+            isServer: true,
+            table: nil
         )
 
         let recorder = DatagramRecorder()

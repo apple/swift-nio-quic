@@ -37,7 +37,8 @@ private func makeChannel(
         connection: .test(connection),
         registrar: .test(registrar),
         transport: .test(transport),
-        isServer: isServer
+        isServer: isServer,
+        table: nil
     )
 
     if let initializer {
