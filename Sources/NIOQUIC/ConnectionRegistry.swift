@@ -22,18 +22,20 @@ import NIOCore
 /// identifiable, and is removed with ``remove(_:)`` when it closes.
 @available(anyAppleOS 26, *)
 struct ConnectionRegistry<Value> {
-    private struct Entry {
-        let value: Value
-        var connectionIDs: [QUICConnectionID]
-    }
+    // Note: 'connections' and 'connectionIDs' are separate: this avoids the  `values` iterator
+    // retaining the IDs array each time it's called (which can be frequent, e.g. on writability
+    // changes).
 
     /// Connections, keyed by their handle.
-    private var connections: [ConnectionHandle: Entry]
+    private var connections: [ConnectionHandle: Value]
+    /// The IDs for a given connection handle.
+    private var connectionIDs: [ConnectionHandle: [QUICConnectionID]]
     /// The handle each connection ID routes to.
     private var handles: [QUICConnectionID: ConnectionHandle]
 
     init() {
         self.connections = [:]
+        self.connectionIDs = [:]
         self.handles = [:]
     }
 
@@ -46,14 +48,14 @@ struct ConnectionRegistry<Value> {
     }
 
     /// Every connection in the registry, in no particular order.
-    var values: some Collection<Value> {
-        self.connections.values.lazy.map { $0.value }
+    var values: [ConnectionHandle: Value].Values {
+        self.connections.values
     }
 
     /// Returns the connection `connectionID` routes to, or `nil` if it routes nowhere.
     subscript(connectionID: QUICConnectionID) -> Value? {
         if let handle = self.handles[connectionID] {
-            return self.connections[handle]?.value
+            return self.connections[handle]
         } else {
             return nil
         }
@@ -69,7 +71,8 @@ struct ConnectionRegistry<Value> {
     mutating func insert(_ value: Value, forHandle handle: ConnectionHandle, connectionID: QUICConnectionID) {
         precondition(!self.connections.keys.contains(handle), "Handle \(handle) is already registered")
         precondition(self.handles[connectionID] == nil, "Connection ID \(connectionID) already routes to a connection")
-        self.connections[handle] = Entry(value: value, connectionIDs: [connectionID])
+        self.connections[handle] = value
+        self.connectionIDs[handle] = [connectionID]
         self.handles[connectionID] = handle
     }
 
@@ -87,7 +90,7 @@ struct ConnectionRegistry<Value> {
 
         self.handles[connectionID] = handle
         // '!' okay: the guard above checked the connection is registered.
-        self.connections[handle]!.connectionIDs.append(connectionID)
+        self.connectionIDs[handle]!.append(connectionID)
 
         return true
     }
@@ -109,7 +112,7 @@ struct ConnectionRegistry<Value> {
 
         self.handles.removeValue(forKey: connectionID)
         // '!' okay: a route always points at a registered connection.
-        self.connections[handle]!.connectionIDs.removeAll { $0 == connectionID }
+        self.connectionIDs[handle]!.removeAll { $0 == connectionID }
 
         return true
     }
@@ -121,13 +124,14 @@ struct ConnectionRegistry<Value> {
     /// - Complexity: O(*c*) where *c* is the number of connection IDs routing to the connection.
     @discardableResult
     mutating func remove(_ handle: ConnectionHandle) -> Value? {
-        guard let entry = self.connections.removeValue(forKey: handle) else { return nil }
+        guard let value = self.connections.removeValue(forKey: handle) else { return nil }
 
-        for connectionID in entry.connectionIDs {
+        // '!' okay: a registered connection always has a list of connection IDs.
+        for connectionID in self.connectionIDs.removeValue(forKey: handle)! {
             self.handles.removeValue(forKey: connectionID)
         }
 
-        return entry.value
+        return value
     }
 }
 
