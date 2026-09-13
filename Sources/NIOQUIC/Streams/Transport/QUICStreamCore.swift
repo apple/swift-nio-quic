@@ -12,7 +12,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-import DequeModule
 import NIOCore
 import NIOQUICHelpers
 @_spi(Essentials) @_spi(ProtocolProvider) import SwiftNetwork
@@ -39,7 +38,7 @@ struct QUICStreamCore: ~Copyable {
     private var pendingWrites: FrameArray
 
     /// Data received from `SwiftNetwork` which the application hasn't consumed yet.
-    private var undeliveredReads: UniqueDeque<Frame>
+    private var undeliveredReads: FrameArray
 
     /// Whether a read left bytes in the stream that the consumer may still want.
     @usableFromInline
@@ -75,7 +74,7 @@ struct QUICStreamCore: ~Copyable {
         self.handle = SwiftNetworkStreamHandle(linkage: linkage)
         self.reference = reference
         self.pendingWrites = FrameArray()
-        self.undeliveredReads = UniqueDeque()
+        self.undeliveredReads = FrameArray()
         self.finPending = false
         self.coalescedBytes = []
         self._needsReadVisit = false
@@ -91,7 +90,7 @@ struct QUICStreamCore: ~Copyable {
         self.handle = SwiftNetworkStreamHandle()
         self.reference = ProtocolInstanceReference()
         self.pendingWrites = FrameArray()
-        self.undeliveredReads = UniqueDeque()
+        self.undeliveredReads = FrameArray()
         self.finPending = false
         self.coalescedBytes = []
         self._needsReadVisit = false
@@ -311,49 +310,62 @@ extension QUICStreamCore {
         }
     }
 
-    /// Pulls and stores up to `maxBytes` data.
+    /// Pulls whatever the stack has and holds it for the consumer.
     ///
     /// - Returns: The number of bytes the stack handed over.
     private mutating func fillUndeliveredReads() -> Int {
         var pulled = self.receiveFromStack()
-        var bytesStored = 0
+        if pulled.isEmpty { return 0 }
 
-        while var frame = pulled.popFirst() {
-            let keepFrame: Bool
+        let bufferData: Bool
 
-            if frame.unclaimedLength > 0 {
-                do {
-                    switch try self.state.receiveData() {
-                    case .bufferData:
-                        keepFrame = true
-                    case .doNotBuffer(.allDataReceived):
-                        // Data past the final size the peer committed to. Only reachable once the
-                        // FIN has been confirmed, so this shouldn't be possible.
-                        assertionFailure("stream data arrived after all data was received")
-                        keepFrame = false
-                    case .doNotBuffer(.streamReset):
-                        assertionFailure("stream data arrived after the stream was reset")
-                        keepFrame = false
-                    }
-                } catch {
-                    keepFrame = false  // Closed, or a direction with no receive side.
+        if pulled.unclaimedLength > 0 {
+            do {
+                switch try self.state.receiveData() {
+                case .bufferData:
+                    bufferData = true
+                case .doNotBuffer(.allDataReceived):
+                    // Data past the final size the peer committed to. Only reachable once the
+                    // FIN has been confirmed, so this shouldn't be possible.
+                    assertionFailure("stream data arrived after all data was received")
+                    bufferData = false
+                case .doNotBuffer(.streamReset):
+                    assertionFailure("stream data arrived after the stream was reset")
+                    bufferData = false
                 }
-            } else {
-                keepFrame = false
+            } catch {
+                bufferData = false  // Closed, or a direction with no receive side.
             }
+        } else {
+            bufferData = false
+        }
 
+        var bytesStored = 0
+        var sawFin = false
+
+        pulled.iterateMutableFrames { frame -> FrameArray.FrameIterationResult in
             if frame.connectionComplete {
-                self.finPending = true
+                sawFin = true
             }
 
-            if keepFrame {
-                bytesStored &+= frame.unclaimedLength
-                self.undeliveredReads.append(frame)
+            let length = frame.unclaimedLength
+
+            if bufferData && length > 0 {
+                bytesStored &+= length
+                return .continueIterating
             } else {
-                // Drop empty frames.
+                // Drop empty frames (or if we didn't expect frames: they still need finalizing).
                 frame.finalize(success: true)
+                return .removeFrameAndContinue
             }
         }
+
+        if sawFin {
+            self.finPending = true
+        }
+
+        // This replaces 'undeliveredReads' if empty and appends otherwise.
+        self.undeliveredReads.add(frames: pulled)
 
         return bytesStored
     }
@@ -393,7 +405,7 @@ extension QUICStreamCore {
         _ body: (_ span: borrowing RawSpan) -> Int
     ) -> Int {
         var delivered = 0
-        var available = self.undeliveredReads.unclaimedLength()
+        var available = self.undeliveredReads.unclaimedLength
 
         while !self.undeliveredReads.isEmpty {
             if available < minContiguous && !(self.finPending || self.state.hasReceivedFin) {
@@ -402,14 +414,16 @@ extension QUICStreamCore {
             }
 
             let effectiveReadLength = min(minContiguous, available)
-            let firstLength = self.undeliveredReads[0].unclaimedLength
+            let firstLength = self.undeliveredReads.peekFirstFrame { $0.unclaimedLength }
             let consumed: Int
 
             if firstLength >= effectiveReadLength {
-                if let bytes = self.undeliveredReads[0].bytes {
-                    consumed = body(bytes)
-                } else {
-                    consumed = 0
+                consumed = self.undeliveredReads.peekFirstFrame { frame -> Int in
+                    if let bytes = frame.bytes {
+                        return body(bytes)
+                    } else {
+                        return 0
+                    }
                 }
             } else {
                 consumed = self.coalesceAndDeliver(bytes: effectiveReadLength, body)
@@ -421,15 +435,12 @@ extension QUICStreamCore {
                 break
             }
 
-            if consumed >= available {
-                assert(consumed == available, "body(_:) claimed to read more bytes than available")
-                self.undeliveredReads.claimAllBytes()
-            } else {
-                self.undeliveredReads.claimLeadingBytes(consumed)
-            }
+            assert(consumed <= available, "body(_:) claimed to read more bytes than available")
+            let claimed = min(consumed, available)
+            _ = self.undeliveredReads.claim(fromStart: claimed, removeClaimedFrames: true)
 
-            delivered &+= consumed
-            available &-= consumed
+            delivered &+= claimed
+            available &-= claimed
         }
 
         return delivered
@@ -448,16 +459,18 @@ extension QUICStreamCore {
         coalesced.removeAll(keepingCapacity: true)
         coalesced.reserveCapacity(bytes)
 
-        for index in self.undeliveredReads.indices {
+        self.undeliveredReads.iterateImmutableFrames { frame -> Bool in
             let wanted = bytes &- coalesced.count
-            if wanted == 0 { break }
+            if wanted == 0 { return false }
 
-            if let source = self.undeliveredReads[index].span {
+            if let source = frame.span {
                 let slice = source.extracting(0..<min(source.count, wanted))
                 slice.withUnsafeBufferPointer { pointer in
                     coalesced.append(contentsOf: pointer)
                 }
             }
+
+            return true
         }
 
         // Put back the buffer.
@@ -700,7 +713,7 @@ extension QUICStreamCore {
         case .markReadClosed:
             // Nothing will read what is held: the receive side is closed to the consumer as of
             // this call.
-            self.undeliveredReads.finalizeAllAsFailed()
+            self.undeliveredReads.finalizeAllFramesAsFailed()
             self.finPending = false
             self.abortInbound(error: NetworkError(quicApplicationError: code.rawValue))
         case .ignoreAlreadyClosed:
@@ -743,7 +756,7 @@ extension QUICStreamCore {
         }
 
         self.pendingWrites.finalizeAllFramesAsFailed()
-        self.undeliveredReads.finalizeAllAsFailed()
+        self.undeliveredReads.finalizeAllFramesAsFailed()
         self.finPending = false
         self.coalescedBytes = []
         // Breaks the cycle through the container which owns this stream's slot.
@@ -778,6 +791,19 @@ extension QUICStreamCore {
 }
 
 @available(anyAppleOS 26, *)
+extension QUICStreamCore {
+    /// Adds `frames` to the undelivered reads, as though the stack had just handed them over.
+    mutating func _forTesting_addUndeliveredReads(_ frames: consuming FrameArray) {
+        self.undeliveredReads.add(frames: frames)
+    }
+
+    /// Whether any frame the stack handed over is still undelivered.
+    var _forTesting_hasUndeliveredReads: Bool {
+        !self.undeliveredReads.isEmpty
+    }
+}
+
+@available(anyAppleOS 26, *)
 extension NetworkError {
     fileprivate init(streamStateViolation reason: String, operation: String) {
         self.init(
@@ -786,57 +812,5 @@ extension NetworkError {
                 description: "\(operation): \(reason)"
             )
         )
-    }
-}
-
-@available(anyAppleOS 26, *)
-extension UniqueDeque where Element == Frame {
-    /// Compute the number of bytes which haven't been claimed.
-    ///
-    /// - Complexity: O(`count`)
-    fileprivate func unclaimedLength() -> Int {
-        var length = 0
-
-        for index in self.indices {
-            length += self[index].unclaimedLength
-        }
-
-        return length
-    }
-
-    /// Claims `bytes` from the leading frames, removing fully claimed frames.
-    ///
-    /// - Parameter bytes: The number of bytes to claim
-    /// - Precondition: `bytes` must not exceed `unclaimedLength()`
-    fileprivate mutating func claimLeadingBytes(_ bytes: Int) {
-        assert(bytes <= self.unclaimedLength())
-        var remaining = bytes
-
-        while !self.isEmpty && remaining > 0 {
-            let available = self[0].unclaimedLength
-
-            if remaining >= available {
-                var frame = self.removeFirst()
-                frame.finalize(success: true)
-                remaining &-= available
-            } else {
-                _ = self[0].claim(fromStart: remaining)
-                remaining = 0
-            }
-        }
-    }
-
-    /// Claims all bytes, removing and finalizing each frame.
-    fileprivate mutating func claimAllBytes() {
-        while var frame = self.popFirst() {
-            frame.finalize(success: true)
-        }
-    }
-
-    /// Empties the deque, finalizing each frame as failed.
-    fileprivate mutating func finalizeAllAsFailed() {
-        while var frame = self.popFirst() {
-            frame.finalize(success: false)
-        }
     }
 }
