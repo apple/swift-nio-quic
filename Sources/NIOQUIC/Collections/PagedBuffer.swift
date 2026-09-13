@@ -25,7 +25,10 @@
 struct PagedBuffer<Value: ~Copyable>: ~Copyable {
     /// The allocated pages.
     @usableFromInline
-    var _pages: [UnsafeMutablePointer<Value>]
+    var _pages: [UnsafeMutableRawPointer]
+    // Note: this is a raw pointer (rather than typed) because the buffer is accessed a lot via
+    // SwiftNetwork and that path is unspecialized. Using the unspecialized typed version would
+    // require recovering the generic metadata for each array operation, which adds up.
 
     /// The number of slots handed out.
     @usableFromInline
@@ -61,7 +64,7 @@ struct PagedBuffer<Value: ~Copyable>: ~Copyable {
     /// - Precondition: `page` must exist.
     @inlinable
     func basePointer(ofPage page: Int) -> UnsafeMutablePointer<Value> {
-        self._pages[page]
+        self._pages[page].assumingMemoryBound(to: Value.self)
     }
 
     /// Grows the buffer by one slot and returns it, allocating a page if the last one is full.
@@ -77,13 +80,14 @@ struct PagedBuffer<Value: ~Copyable>: ~Copyable {
         // Slots are dense, so the new one lands either on the last page or on the very next one.
         if position.pageIndex == self._pages.count {
             let capacity = Page.capacity(ofPage: position.pageIndex)
-            self._pages.append(UnsafeMutablePointer<Value>.allocate(capacity: capacity))
+            let page = UnsafeMutablePointer<Value>.allocate(capacity: capacity)
+            self._pages.append(UnsafeMutableRawPointer(page))
         } else {
             assert(position.pageIndex == self._pages.count - 1)
         }
 
         self._count &+= 1
-        return self._pages[position.pageIndex].advanced(by: position.offset)
+        return self.basePointer(ofPage: position.pageIndex).advanced(by: position.offset)
     }
 
     /// The slot for `index`, which must have already been handed out.
@@ -93,7 +97,7 @@ struct PagedBuffer<Value: ~Copyable>: ~Copyable {
     func pointer(at index: Int) -> UnsafeMutablePointer<Value> {
         assert(index < self._count, "slot \(index) was never handed out")
         let position = Page.position(of: index)
-        return self._pages[position.pageIndex].advanced(by: position.offset)
+        return self.basePointer(ofPage: position.pageIndex).advanced(by: position.offset)
     }
 }
 
@@ -109,7 +113,7 @@ extension PagedBuffer where Value: ExpressibleByNilLiteral & ~Copyable {
         let pointer = self.append()
 
         if self._pages.count > allocated {
-            let page = self._pages[allocated]
+            let page = self.basePointer(ofPage: allocated)
             for offset in 0..<Page.capacity(ofPage: allocated) {
                 page.advanced(by: offset).initialize(to: nil)
             }
@@ -122,7 +126,7 @@ extension PagedBuffer where Value: ExpressibleByNilLiteral & ~Copyable {
     @inlinable
     func setAllToNil() {
         for index in self._pages.indices {
-            let page = self._pages[index]
+            let page = self.basePointer(ofPage: index)
             for offset in 0..<Page.capacity(ofPage: index) {
                 page.advanced(by: offset).pointee = nil
             }
@@ -133,7 +137,7 @@ extension PagedBuffer where Value: ExpressibleByNilLiteral & ~Copyable {
     @inlinable
     func deinitializeAll() {
         for index in self._pages.indices {
-            self._pages[index].deinitialize(count: Page.capacity(ofPage: index))
+            self.basePointer(ofPage: index).deinitialize(count: Page.capacity(ofPage: index))
         }
     }
 }
