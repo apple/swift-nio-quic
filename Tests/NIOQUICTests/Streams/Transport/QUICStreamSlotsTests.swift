@@ -38,10 +38,11 @@ struct QUICStreamSlotsTests {
     }
 
     @Test
-    func removeReturnsValueAndEmptiesSlot() {
+    func removeEmptiesSlot() {
         var store = QUICStreamSlots<Int>()
         let handle = store.insert(7)
-        #expect(store.removeValue(for: handle) == 7)
+        let removed = store.removeValue(for: handle)
+        #expect(removed)
         #expect(store.count == 0)
         #expect(store.withValue(for: handle) { $0 } == nil)
     }
@@ -53,7 +54,7 @@ struct QUICStreamSlotsTests {
         _ = store.removeValue(for: first)
         _ = store.insert(2)
         #expect(store.withValue(for: first) { $0 } == nil)
-        #expect(store.removeValue(for: first) == nil)
+        #expect(store.removeValue(for: first) == false)
     }
 
     @Test
@@ -70,15 +71,16 @@ struct QUICStreamSlotsTests {
     }
 
     @Test
-    func removeTwiceReturnsNilTheSecondTime() {
+    func removeTwiceIsRefusedTheSecondTime() {
         var store = QUICStreamSlots<Int>()
         let handle = store.insert(7)
-        #expect(store.removeValue(for: handle) == 7)
+        let removed = store.removeValue(for: handle)
+        #expect(removed)
         #expect(store.count == 0)
 
-        // The slot is vacant but its generation still matches, so the absent value is the only
+        // The slot is vacant but its generation still matches, so its occupancy is the only
         // thing standing between a second remove and a double free-list push.
-        #expect(store.removeValue(for: handle) == nil)
+        #expect(store.removeValue(for: handle) == false)
         #expect(store.count == 0)
 
         // A double push would hand the same index out twice.

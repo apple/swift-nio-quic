@@ -99,16 +99,20 @@ struct QUICStreamSlots<Value: ~Copyable>: ~Copyable {
         }
     }
 
-    /// Vacates the slot `handle` addresses and returns what was in it.
+    /// Vacates the slot `handle` addresses and destroys its value, if present.
+    ///
+    /// - Returns: Whether a value was removed.
     @inlinable
     @discardableResult
-    mutating func removeValue(for handle: QUICStreamHandle) -> Value? {
-        guard let pointer = self.pointer(for: handle) else { return nil }
+    mutating func removeValue(for handle: QUICStreamHandle) -> Bool {
+        guard let pointer = self.pointer(for: handle) else { return false }
 
         self._slots[handle.index.rawValue].vacate()
         self._freeList.append(handle.index)
         self._count &-= 1
-        return pointer.move()
+        pointer.deinitialize(count: 1)
+
+        return true
     }
 
     /// Vacates every slot, handing each value to `body`.
