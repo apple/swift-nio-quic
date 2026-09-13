@@ -66,14 +66,11 @@ struct GSOCoalescer: ~Copyable {
         self.frames.add(frames: frames)
     }
 
-    private mutating func datagram(from frame: consuming Frame) -> AddressedEnvelope<ByteBuffer> {
-        let buffer: ByteBuffer
-
-        var buf = ByteBuffer()
-        buf.reserveCapacity(frame.unclaimedLength)
-        frame.span?.withUnsafeBufferPointer { _ = buf.writeBytes($0) }
-        self.framePool.storeFrame(frame)
-        buffer = buf
+    private mutating func datagram(from frame: inout Frame) -> AddressedEnvelope<ByteBuffer> {
+        var buffer = ByteBuffer()
+        buffer.reserveCapacity(frame.unclaimedLength)
+        frame.span?.withUnsafeBufferPointer { _ = buffer.writeBytes($0) }
+        self.framePool.storeFrame(&frame)
 
         return AddressedEnvelope(remoteAddress: self.remoteAddress, data: buffer)
     }
@@ -89,8 +86,8 @@ struct GSOCoalescer: ~Copyable {
 
         if self.frames.isEmpty {
             return nil
-        } else if self.maxSegments == 1, let frame = self.frames.popFirst() {
-            return self.datagram(from: frame)
+        } else if self.maxSegments == 1, var frame = self.frames.popFirst() {
+            return self.datagram(from: &frame)
         }
 
         // Try to coalesce as many sequential frames as possible without exceeding:
@@ -140,13 +137,15 @@ struct GSOCoalescer: ~Copyable {
 
         if runLength == 1 {
             // Nothing to coalesce; so just remove and return.
-            let frame = self.frames.popFirst()!
-            return self.datagram(from: frame)
+            var frame = self.frames.popFirst()!
+            return self.datagram(from: &frame)
         } else {
             let (buffer, ()) = self.pool.withBuffer(minimumCapacity: totalSize) { buffer in
                 while runLength > 0 {
                     runLength &-= 1
-                    Self.write(self.frames.popFirst()!, to: &buffer, returningFrameTo: self.framePool)
+                    var frame = self.frames.popFirst()!
+                    frame.span?.withUnsafeBufferPointer { _ = buffer.writeBytes($0) }
+                    self.framePool.storeFrame(&frame)
                 }
             }
 
@@ -160,14 +159,5 @@ struct GSOCoalescer: ~Copyable {
                 )
             )
         }
-    }
-
-    private static func write(
-        _ frame: consuming Frame,
-        to buffer: inout ByteBuffer,
-        returningFrameTo pool: FramePool
-    ) {
-        frame.span?.withUnsafeBufferPointer { _ = buffer.writeBytes($0) }
-        pool.storeFrame(frame)
     }
 }

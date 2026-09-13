@@ -91,7 +91,7 @@ final class FramePool {
     /// - Parameter frame: The frame to store.
     /// - Returns: Whether the frame was stored or not.
     @discardableResult
-    func storeFrame(_ frame: consuming Frame) -> Bool {
+    func storeFrame(_ frame: inout Frame) -> Bool {
         let stored: Bool
 
         if let customFinalizer = frame.takeOwnershipOfCustomFinalizerBuffer() {
