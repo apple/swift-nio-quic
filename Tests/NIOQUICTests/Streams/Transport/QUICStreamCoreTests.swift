@@ -12,6 +12,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+#if DEBUG  // These tests rely on debug only API.
+
 import NIOQUICHelpers
 @_spi(Essentials) @_spi(ProtocolProvider) import SwiftNetwork
 import Testing
@@ -142,3 +144,5 @@ struct QUICStreamCoreTests {
         #expect(nothingHeld)
     }
 }
+
+#endif  // DEBUG

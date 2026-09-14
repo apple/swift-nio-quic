@@ -790,6 +790,7 @@ extension QUICStreamCore {
     }
 }
 
+#if DEBUG
 @available(anyAppleOS 26, *)
 extension QUICStreamCore {
     /// Adds `frames` to the undelivered reads, as though the stack had just handed them over.
@@ -802,6 +803,7 @@ extension QUICStreamCore {
         !self.undeliveredReads.isEmpty
     }
 }
+#endif  // DEBUG
 
 @available(anyAppleOS 26, *)
 extension NetworkError {
