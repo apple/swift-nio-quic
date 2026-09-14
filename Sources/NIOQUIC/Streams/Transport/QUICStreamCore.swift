@@ -514,7 +514,8 @@ extension QUICStreamCore {
     /// rather than refused.
     ///
     /// Note that this returns `0` until the stack has assigned the stream its ID, which is not the
-    /// same as no room: a write before then is legal and is buffered.
+    /// same as no room: writes may be queued before then, but flushing them is refused until the
+    /// ID arrives.
     @usableFromInline
     var writableBytes: Int {
         switch self.handle.invokeSendStreamData() {
@@ -577,13 +578,16 @@ extension QUICStreamCore {
     ///
     /// - Parameter fin: Whether to finish the send side.
     /// - Throws: If the send side can no longer carry what was queued, in which case the queue is
-    ///   dropped; if the stack rejected the write; or if `fin` was asked for before the stack
+    ///   dropped; if the stack rejected the write; or if the flush happened before the stack
     ///   assigned the stream its ID, in which case the queue is left as it was so the flush can be
     ///   repeated.
     @usableFromInline
     mutating func flush(fin: Bool) throws {
         if self.pendingWrites.isEmpty && !fin { return }
 
+        // Refusals drop outbound writes unless there stream doesn't yet have an ID. Callers may
+        // retry the flush once the stream gets an ID.
+        var dropWritesOnRefusal = true
         var refusalReason: String?
 
         do {
@@ -598,9 +602,10 @@ extension QUICStreamCore {
         } catch {
             switch error {
             case .notConnected:
-                // The stack hasn't assigned an ID yet, so nothing can have finished the send side:
-                // data written before then is legal and the stack queues it.
-                ()
+                // The stack hasn't assigned an ID yet, so nothing can have finished the send side,
+                // refuse the flush but keep the pending writes, the flush can be retried later.
+                refusalReason = "the stack hasn't assigned the stream an ID yet"
+                dropWritesOnRefusal = false
             case .wrongDirection:
                 refusalReason = "the stream has no send side"
             }
@@ -625,7 +630,9 @@ extension QUICStreamCore {
         }
 
         if let refusalReason {
-            self.pendingWrites.finalizeAllFramesAsFailed()
+            if dropWritesOnRefusal {
+                self.pendingWrites.finalizeAllFramesAsFailed()
+            }
             throw NetworkError(streamStateViolation: refusalReason, operation: "flush")
         }
 
@@ -801,6 +808,11 @@ extension QUICStreamCore {
     /// Whether any frame the stack handed over is still undelivered.
     var _forTesting_hasUndeliveredReads: Bool {
         !self.undeliveredReads.isEmpty
+    }
+
+    /// Whether any written frame is still queued for a flush.
+    var _forTesting_hasPendingWrites: Bool {
+        !self.pendingWrites.isEmpty
     }
 }
 #endif  // DEBUG
