@@ -585,7 +585,7 @@ extension QUICStreamCore {
     mutating func flush(fin: Bool) throws {
         if self.pendingWrites.isEmpty && !fin { return }
 
-        // Refusals drop outbound writes unless there stream doesn't yet have an ID. Callers may
+        // Refusals drop outbound writes unless the stream doesn't yet have an ID. Callers may
         // retry the flush once the stream gets an ID.
         var dropWritesOnRefusal = true
         var refusalReason: String?
