@@ -14,6 +14,7 @@
 
 #if DEBUG  // These tests rely on debug only API.
 
+import NIOCore
 import NIOQUICHelpers
 @_spi(Essentials) @_spi(ProtocolProvider) import SwiftNetwork
 import Testing
@@ -35,6 +36,15 @@ extension QUICStreamCore {
     fileprivate var holdsNothing: Bool {
         !self._forTesting_hasUndeliveredReads
     }
+
+    fileprivate mutating func expectFlushRefused(fin: Bool) {
+        do {
+            try self.flush(fin: fin)
+            Issue.record("Expected flush to be refused")
+        } catch {
+            ()  // Refused, as expected.
+        }
+    }
 }
 
 @available(anyAppleOS 26, *)
@@ -46,6 +56,7 @@ extension RawSpan {
 
 @Suite
 struct QUICStreamCoreTests {
+    @Test
     @available(anyAppleOS 26, *)
     func partialReadResumesAtOffset() {
         var core = QUICStreamCore(id: nil)
@@ -63,6 +74,7 @@ struct QUICStreamCoreTests {
         core.close(error: nil)
     }
 
+    @Test
     @available(anyAppleOS 26, *)
     func declinedBytesAreHeldForTheNextRead() {
         var core = QUICStreamCore(id: nil)
@@ -93,6 +105,7 @@ struct QUICStreamCoreTests {
         core.close(error: nil)
     }
 
+    @Test
     @available(anyAppleOS 26, *)
     func coalescesAcrossFrames() {
         var core = QUICStreamCore(id: nil)
@@ -120,6 +133,7 @@ struct QUICStreamCoreTests {
         core.close(error: nil)
     }
 
+    @Test
     @available(anyAppleOS 26, *)
     func readWithNothingHeld() {
         var core = QUICStreamCore(id: nil)
@@ -134,6 +148,7 @@ struct QUICStreamCoreTests {
         core.close(error: nil)
     }
 
+    @Test
     @available(anyAppleOS 26, *)
     func closeFinalizesHeldFrames() {
         var core = QUICStreamCore(id: nil)
@@ -142,6 +157,19 @@ struct QUICStreamCoreTests {
 
         let nothingHeld = core.holdsNothing
         #expect(nothingHeld)
+    }
+
+    @Test(arguments: [true, false])
+    @available(anyAppleOS 26, *)
+    func flushOnStreamWIthoutIDIsRefused(fin: Bool) {
+        var core = QUICStreamCore(id: nil)
+        core.write(ByteBuffer(string: "hello"))
+        core.expectFlushRefused(fin: fin)
+
+        let stillQueued = core._forTesting_hasPendingWrites
+        #expect(stillQueued)
+
+        core.close(error: nil)
     }
 }
 
