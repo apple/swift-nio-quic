@@ -99,18 +99,18 @@ struct FramePoolTests {
     func returnedFrameGoesInRightBucket() {
         let pool = self.makeFramePool(smallFrameSize: 100, largeFrameSize: 200)
 
-        let small = pool.takeOrCreateFrame(minimumSize: 100)
-        let storedSmall = pool.storeFrame(small)
+        var small = pool.takeOrCreateFrame(minimumSize: 100)
+        let storedSmall = pool.storeFrame(&small)
         #expect(storedSmall)
         #expect(pool.smallFrameCount == 1)
 
-        let large = pool.takeOrCreateFrame(minimumSize: 200)
-        let storedLarge = pool.storeFrame(large)
+        var large = pool.takeOrCreateFrame(minimumSize: 200)
+        let storedLarge = pool.storeFrame(&large)
         #expect(storedLarge)
         #expect(pool.largeFrameCount == 1)
 
-        let tooLarge = pool.takeOrCreateFrame(minimumSize: 201)
-        let storedTooLarge = pool.storeFrame(tooLarge)
+        var tooLarge = pool.takeOrCreateFrame(minimumSize: 201)
+        let storedTooLarge = pool.storeFrame(&tooLarge)
         #expect(!storedTooLarge)
         // Still 1 each.
         #expect(pool.smallFrameCount == 1)
@@ -136,8 +136,8 @@ struct FramePoolTests {
         }
 
         for expectedCount in 1...4 {
-            let frame = frames.removeLast()
-            let stored = pool.storeFrame(frame)
+            var frame = frames.removeLast()
+            let stored = pool.storeFrame(&frame)
             #expect(stored)
 
             if small {
@@ -149,8 +149,8 @@ struct FramePoolTests {
             }
         }
 
-        let frame = frames.removeLast()
-        let stored = pool.storeFrame(frame)
+        var frame = frames.removeLast()
+        let stored = pool.storeFrame(&frame)
         #expect(!stored)
         if small {
             #expect(pool.smallFrameCount == 4)
@@ -166,8 +166,8 @@ struct FramePoolTests {
     func foreignFrameIsNotStored() {
         let pool = self.makeFramePool(smallFrameSize: 100, largeFrameSize: 200)
         // Right size, wrong backing type.
-        let frame = Frame(count: 100)
-        let stored = pool.storeFrame(frame)
+        var frame = Frame(count: 100)
+        let stored = pool.storeFrame(&frame)
         #expect(!stored)
     }
 }
