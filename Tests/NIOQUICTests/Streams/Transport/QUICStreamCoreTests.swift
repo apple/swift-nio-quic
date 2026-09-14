@@ -52,7 +52,7 @@ struct QUICStreamCoreTests {
         var seen = [String]()
         let outcome = core.read(minContiguous: 1) { span in
             seen.append(span.utf8String)
-            return 2 // consume 2 bytes
+            return 2  // consume 2 bytes
         }
 
         #expect(outcome == .read(6))
