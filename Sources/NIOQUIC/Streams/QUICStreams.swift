@@ -32,7 +32,7 @@ public struct QUICStreams<Consumer: QUICStreamConsumer & ~Copyable>: ~Copyable, 
     ///   - type: The type of stream to open.
     ///   - state: The consumer's state for the new stream.
     /// - Returns: The handle for the new stream. Its ID is assigned by the stack, which reports it
-    ///   as a ``QUICStreamReadyEvents/opened`` visit. The stream can't carry data until then: bytes
+    ///   as a ``QUICStreamEvents/opened`` visit. The stream can't carry data until then: bytes
     ///   may be written to it, but flushing them is refused until the `opened` visit, after which
     ///   the flush can be repeated.
     /// - Throws: If the stream could not be opened, in which case `state` is destroyed.
