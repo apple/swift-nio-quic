@@ -8,7 +8,8 @@ and integrates with [SwiftNIO HTTP/3][swift-nio-http3].
 
 > [!IMPORTANT]
 > This package is still in active development and does not offer a stable API
-> yet.
+> yet. There are no support guarantees until we release a stable version at
+> a later date.
 
 ## Quick Start
 
