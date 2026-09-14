@@ -249,8 +249,19 @@ extension QUICStreamTable where Consumer: ~Copyable {
     func streamConnected(_ handle: QUICStreamHandle) {
         guard let transport = self._transportStates.pointer(for: handle) else { return }
 
-        if let rawID = transport.pointee.core.metadata()?.streamID {
-            self.assignID(QUICStreamID(rawValue: rawID), to: handle)
+        // Inbound streams have the stream core created with an ID; only consult metadata if the ID
+        // isn't already set.
+        let id: QUICStreamID?
+        if let known = transport.pointee.core.id {
+            id = known
+        } else if let rawID = transport.pointee.core.metadata()?.streamID {
+            id = QUICStreamID(rawValue: rawID)
+        } else {
+            id = nil
+        }
+
+        if let id {
+            self.assignID(id, to: handle)
             self._markReady(handle: handle, transport: transport, events: .opened)
         }
     }
