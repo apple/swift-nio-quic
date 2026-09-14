@@ -12,7 +12,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-import DequeModule
 @_spi(CustomByteBufferAllocator) import NIOCore
 @_spi(Essentials) @_spi(ProtocolProvider) import SwiftNetwork
 
@@ -27,7 +26,7 @@ struct GSOCoalescer: ~Copyable {
     var maxCoalescedSize: Int
 
     /// Frames to coalesce.
-    private var frames: UniqueDeque<Frame>
+    private var frames: FrameArray
 
     /// The address of the remote peer to send datagrams to.
     private let remoteAddress: SocketAddress
@@ -49,8 +48,7 @@ struct GSOCoalescer: ~Copyable {
         self.maxSegments = maxSegments
         self.maxCoalescedSize = maxCoalescedSize
 
-        self.frames = UniqueDeque<Frame>()
-        self.frames.reserveCapacity(16)
+        self.frames = FrameArray(capacity: 16)
 
         self.pool = BufferPool(capacity: bufferPoolCapacity, allocator: ByteBufferAllocator())
         self.framePool = framePool
@@ -61,21 +59,11 @@ struct GSOCoalescer: ~Copyable {
     }
 
     mutating func finalizeAllFramesAsFailed() {
-        while var frame = self.frames.popFirst() {
-            frame.finalize(success: false)
-        }
+        self.frames.finalizeAllFramesAsFailed()
     }
 
     mutating func append(frames: consuming FrameArray) {
-        self.frames.reserveCapacity(self.frames.count + frames.count)
-
-        while var frame = frames.popFirst() {
-            if frame.unclaimedLength == 0 {
-                frame.finalize(success: true)
-            } else {
-                self.frames.append(frame)
-            }
-        }
+        self.frames.add(frames: frames)
     }
 
     private mutating func datagram(from frame: consuming Frame) -> AddressedEnvelope<ByteBuffer> {
@@ -92,6 +80,13 @@ struct GSOCoalescer: ~Copyable {
 
     /// Removes and returns the next run of pending datagrams, or `nil` if there are none left.
     mutating func next() -> AddressedEnvelope<ByteBuffer>? {
+        // Drop leading empty frames (if they exist.)
+        while !self.frames.isEmpty, self.frames.peekFirstFrame({ $0.unclaimedLength }) == 0 {
+            assertionFailure("Unexpected empty frame")
+            var frame = self.frames.popFirst()!
+            frame.finalize(success: true)
+        }
+
         if self.frames.isEmpty {
             return nil
         } else if self.maxSegments == 1, let frame = self.frames.popFirst() {
@@ -104,31 +99,43 @@ struct GSOCoalescer: ~Copyable {
         //
         // Frames must be the same length to coalesce although the final frame in a
         // run may be shorter than the rest.
-        var index = self.frames.startIndex
-        let segmentSize = self.frames[index].unclaimedLength
-        self.frames.formIndex(after: &index)
+        let maxSegments = self.maxSegments
+        let maxCoalescedSize = self.maxCoalescedSize
 
-        var totalSize = segmentSize
-        var runLength = 1
-
+        var segmentSize = 0
+        var totalSize = 0
+        var runLength = 0
         // Max segments may be less than the configured max based on the size of the first
         // segment in a run.
-        let effectiveMaxSegments = min(self.maxSegments, max(1, self.maxCoalescedSize / segmentSize))
+        var effectiveMaxSegments = 0
 
-        while index != self.frames.endIndex, runLength < effectiveMaxSegments {
-            let size = self.frames[index].unclaimedLength
+        self.frames.iterateImmutableFrames { frame in
+            let size = frame.unclaimedLength
+
+            if runLength == 0 {
+                segmentSize = size
+                effectiveMaxSegments = min(maxSegments, max(1, maxCoalescedSize / size))
+                totalSize = size
+                runLength = 1
+                return runLength < effectiveMaxSegments
+            }
+
+            if size == 0 {
+                assertionFailure("Unexpected empty frame")
+                return false
+            }
 
             // Bigger; end run without including this frame.
-            if size > segmentSize { break }
+            if size > segmentSize { return false }
 
             totalSize &+= size
             runLength &+= 1
 
             // Smaller; end run the run.
-            if size < segmentSize { break }
+            if size < segmentSize { return false }
 
             // Same size; continue iterating.
-            self.frames.formIndex(after: &index)
+            return runLength < effectiveMaxSegments
         }
 
         if runLength == 1 {
@@ -139,7 +146,7 @@ struct GSOCoalescer: ~Copyable {
             let (buffer, ()) = self.pool.withBuffer(minimumCapacity: totalSize) { buffer in
                 while runLength > 0 {
                     runLength &-= 1
-                    Self.write(self.frames.removeFirst(), to: &buffer, returningFrameTo: self.framePool)
+                    Self.write(self.frames.popFirst()!, to: &buffer, returningFrameTo: self.framePool)
                 }
             }
 
