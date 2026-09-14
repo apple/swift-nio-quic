@@ -82,6 +82,7 @@ struct GSOCoalescer: ~Copyable {
     mutating func next() -> AddressedEnvelope<ByteBuffer>? {
         // Drop leading empty frames (if they exist.)
         while !self.frames.isEmpty, self.frames.peekFirstFrame({ $0.unclaimedLength }) == 0 {
+            assertionFailure("Unexpected empty frame")
             var frame = self.frames.popFirst()!
             frame.finalize(success: true)
         }
@@ -119,7 +120,10 @@ struct GSOCoalescer: ~Copyable {
                 return runLength < effectiveMaxSegments
             }
 
-            if size == 0 { return false }
+            if size == 0 {
+                assertionFailure("Unexpected empty frame")
+                return false
+            }
 
             // Bigger; end run without including this frame.
             if size > segmentSize { return false }
