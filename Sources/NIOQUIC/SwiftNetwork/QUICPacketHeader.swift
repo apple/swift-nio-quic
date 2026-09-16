@@ -39,6 +39,8 @@ struct QUICPacketHeader: Hashable, Sendable {
         static let negotiation = Version(0x0000_0000)
         static let v1 = Version(0x0000_0001)
         static let v2 = Version(0x6b33_43cf)
+        /// RFC 9000 § 15: reserved pattern (0x?a?a?a?a) used to force version negotiation.
+        static let negotiationPattern = Version(0x1a2a_3a4a)
 
         var headerVersionField: UInt32 {
             self.backing
@@ -46,6 +48,16 @@ struct QUICPacketHeader: Hashable, Sendable {
 
         init(_ headerVersionField: UInt32) {
             self.backing = headerVersionField
+        }
+
+        var isSupportedBySwiftNetwork: Bool {
+            switch self {
+            // TODO: Can we get this info from SwiftNetwork?
+            case .v1:
+                return true
+            default:
+                return false
+            }
         }
     }
 
@@ -64,6 +76,8 @@ struct QUICPacketHeader: Hashable, Sendable {
             case short
             /// Version negotiation packet.
             case versionNegotiation
+            /// Unsupported version.
+            case unsupportedVersion
         }
 
         fileprivate static let typeMask: UInt8 = 0x30
@@ -130,7 +144,7 @@ struct QUICPacketHeader: Hashable, Sendable {
                     fatalError("Unknown packet type: \(maskedByte)")
                 }
 
-            case Version.v2:
+            case Version.v2 where version.isSupportedBySwiftNetwork:
                 switch maskedByte {
                 case 0b01:
                     self = .initial
@@ -154,7 +168,7 @@ struct QUICPacketHeader: Hashable, Sendable {
                 //   that indicates an unsupported version and if the packet is large enough to initiate a
                 //   new connection for any supported version, the server Version Negotiation packet as
                 //   described in Section 6.1."
-                self = .versionNegotiation
+                self = .unsupportedVersion
             }
 
         }
@@ -171,6 +185,8 @@ struct QUICPacketHeader: Hashable, Sendable {
         static let short = PacketType(.short)
         /// Version negotiation packet.
         static let versionNegotiation = PacketType(.versionNegotiation)
+        /// Unsupported version
+        static let unsupportedVersion = PacketType(.unsupportedVersion)
 
         var rawValue: UInt8 {
             self.base.rawValue
