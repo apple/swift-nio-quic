@@ -43,7 +43,7 @@ private func makeChannel(
 
     if let initializer {
         let promise = channel.eventLoop.makePromise(of: Void.self)
-        channel.transportView.initialize(promise: promise, initializer: initializer)
+        channel.transportView.initialize(readyPromise: promise, handshakePromise: nil, initializer: initializer)
 
         // Activate the connection.
         channel.connectionView.handshakeCompleted(peerMaxDatagramFrameSize: 0)
@@ -378,7 +378,7 @@ struct QUICConnectionChannelTests {
             let channel = try makeChannel()
             let view = channel.transportView
             let promise = channel.eventLoop.makePromise(of: Void.self)
-            view.initialize(promise: promise) { $0.eventLoop.makeSucceededVoidFuture() }
+            view.initialize(readyPromise: promise, handshakePromise: nil) { $0.eventLoop.makeSucceededVoidFuture() }
             try promise.futureResult.wait()
 
             // Channel isn't active yet.
@@ -392,11 +392,53 @@ struct QUICConnectionChannelTests {
 
         @available(anyAppleOS 26, *)
         @Test
+        func handshakePromiseSucceedsWhenHandshakeCompletes() throws {
+            let channel = try makeChannel()
+            let view = channel.transportView
+            let readyPromise = channel.eventLoop.makePromise(of: Void.self)
+            let handshakePromise = channel.eventLoop.makePromise(of: Void.self)
+            view.initialize(readyPromise: readyPromise, handshakePromise: handshakePromise) {
+                $0.eventLoop.makeSucceededVoidFuture()
+            }
+            try readyPromise.futureResult.wait()
+
+            channel.connectionView.handshakeCompleted(peerMaxDatagramFrameSize: 0)
+            channel.connectionView.drainOutboundAndReconcileLifecycle()
+
+            // Doesn't throw: the handshake promise succeeded.
+            try handshakePromise.futureResult.wait()
+        }
+
+        @available(anyAppleOS 26, *)
+        @Test
+        func handshakePromiseFailsIfClosedBeforeHandshakeCompletes() throws {
+            let channel = try makeChannel()
+            let view = channel.transportView
+            let readyPromise = channel.eventLoop.makePromise(of: Void.self)
+            let handshakePromise = channel.eventLoop.makePromise(of: Void.self)
+            view.initialize(readyPromise: readyPromise, handshakePromise: handshakePromise) {
+                $0.eventLoop.makeSucceededVoidFuture()
+            }
+            try readyPromise.futureResult.wait()
+
+            let closeFuture = channel.close()
+            channel.embeddedEventLoop.run()
+            try closeFuture.wait()
+
+            // The handshake promise is always resolved one way or another: closing before the
+            // handshake completes fails it rather than leaving it pending forever.
+            #expect(throws: ChannelError.alreadyClosed) {
+                try handshakePromise.futureResult.wait()
+            }
+        }
+
+        @available(anyAppleOS 26, *)
+        @Test
         func initializeClientChannel() throws {
             let channel = try makeChannel(isServer: false)
             let view = channel.transportView
             let promise = channel.eventLoop.makePromise(of: Void.self)
-            view.initialize(promise: promise) { $0.eventLoop.makeSucceededVoidFuture() }
+            view.initialize(readyPromise: promise, handshakePromise: nil) { $0.eventLoop.makeSucceededVoidFuture() }
 
             // Only completes when the handshake completes.
             channel.connectionView.handshakeCompleted(peerMaxDatagramFrameSize: 0)
@@ -414,7 +456,7 @@ struct QUICConnectionChannelTests {
             let channel = try makeChannel(isServer: false)
             let view = channel.transportView
             let promise = channel.eventLoop.makePromise(of: Void.self)
-            view.initialize(promise: promise) { $0.eventLoop.makeSucceededVoidFuture() }
+            view.initialize(readyPromise: promise, handshakePromise: nil) { $0.eventLoop.makeSucceededVoidFuture() }
 
             struct Boom: Error {}
             channel.connectionView.connectionClosed(error: Boom())
@@ -434,12 +476,12 @@ struct QUICConnectionChannelTests {
             let channel = try makeChannel()
             let view = channel.transportView
             let p1 = channel.eventLoop.makePromise(of: Void.self)
-            view.initialize(promise: p1) { $0.eventLoop.makeSucceededVoidFuture() }
+            view.initialize(readyPromise: p1, handshakePromise: nil) { $0.eventLoop.makeSucceededVoidFuture() }
             try p1.futureResult.wait()
 
             // Another attempt should fail.
             let p2 = channel.eventLoop.makePromise(of: Void.self)
-            view.initialize(promise: p2) { $0.eventLoop.makeSucceededVoidFuture() }
+            view.initialize(readyPromise: p2, handshakePromise: nil) { $0.eventLoop.makeSucceededVoidFuture() }
             #expect(throws: ChannelError.operationUnsupported) {
                 try p2.futureResult.wait()
             }
