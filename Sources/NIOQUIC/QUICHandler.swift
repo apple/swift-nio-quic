@@ -396,14 +396,15 @@ public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
         //   Source Connection ID (0..2040),
         //   Supported Version (32) ...,
         // }
-        let responsePacketSize = 1 // header form + unused bits
-            + 4 // version field of 0
-            + 1 // DCID length
-            + destinationConnectionID.length // DCID
-            + 1 // SCID length
-            + sourceConnectionID.length // SCID
-            + 4 // v1
-            + 4 // RFC 9000 § 6.3 reserved/grease pattern
+        let responsePacketSize =
+            1  // header form + unused bits
+            + 4  // version field of 0
+            + 1  // DCID length
+            + destinationConnectionID.length  // DCID
+            + 1  // SCID length
+            + sourceConnectionID.length  // SCID
+            + 4  // v1
+            + 4  // RFC 9000 § 6.3 reserved/grease pattern
 
         var buffer = self.udpChannel.allocator.buffer(
             capacity: responsePacketSize
