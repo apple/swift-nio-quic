@@ -356,7 +356,7 @@ public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
     /// * An endpoint MUST NOT send a Version Negotiation packet in response to receiving one
     ///   (RFC 9000 § 6.1).
     /// * A server MUST drop smaller packets that specify unsupported versions rather than
-    ///   respond. RFC 9000 § 5.2.2, § 14.1).
+    ///   respond (RFC 9000 § 5.2.2, § 14.1).
     ///
     /// - Parameters:
     ///   - header: The parsed header of the packet that triggered this.
@@ -375,6 +375,8 @@ public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
         // with a payload that is smaller than the smallest allowed maximum datagram
         // size of 1200 bytes." (RFC 9000 § 14.1)
         guard envelope.data.readableBytes >= 1200 else { return }
+
+        // TODO: Replace this with SwiftNetwork API once available to avoid drift if versions change.
 
         // RFC 9000 § 17.2.1: the server echoes the incoming SCID as its own DCID and the
         // incoming DCID as its own SCID.
@@ -820,7 +822,7 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
                             // This force unwrap is fine. We really need to have a local address at this point
                             localAddress: context.localAddress!
                         )
-                    } else if header.type == .versionNegotiation {
+                    } else if header.type == .unsupportedVersion {
                         self.trySendVersionNegotiation(for: header, triggeredBy: addressedEnvelope)
                     } else {
                         self.logger.trace(

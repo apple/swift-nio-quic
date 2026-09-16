@@ -211,7 +211,7 @@ final class QUICHandlerTests: XCTestCase {
         )
         XCTAssertEqual(outboundHeader?.sourceConnectionID, connectionID)
         XCTAssertEqual(outboundHeader?.destinationConnectionID, connectionID)
-        XCTAssertEqual(outboundHeader?.type, .versionNegotiation)
+        XCTAssertEqual(outboundHeader?.type, .unsupportedVersion)
     }
 
     func testChannelReadComplete_whenNoWrite() throws {
