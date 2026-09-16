@@ -405,7 +405,7 @@ struct StreamTableTests {
 
     @available(anyAppleOS 26, *)
     @Test
-    func testReceivedStopSendingWithOptInHalfClosesOutput() async throws {
+    func testReceivedStopSendingHalfClosesOutput() async throws {
         let code = QUICApplicationErrorCode(10)!
         let recording = StreamRecording()
 
