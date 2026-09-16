@@ -123,6 +123,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
         // to do an explicit drain anyway so no need for an out-of-band write.
         self.setOutboundBatching(false)
         self.inReadLoop = false
+        self.streamTable?.inReadLoop = false
     }
 
     internal func setOutboundBatching(_ enabled: Bool) {
@@ -444,6 +445,9 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
             framePool: framePool
         )
 
+        self.inReadLoop = false
+        self.batchingEnabled = false
+
         if usesStreamTable {
             let table = QUICStreamTable<Consumer>(
                 role: self.role,
@@ -458,12 +462,15 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
                 context: swiftNetworkParameters.context
             )
 
+            // Retain cycle is broken in `tearDownConnectionState()`.
+            table.outOfBandDrain = {
+                self.channelView?.drainStreams()
+            }
+
             self.streamTable = table
             newFlowHandler?.streamTable = table
         }
 
-        self.inReadLoop = false
-        self.batchingEnabled = false
         self.start(
             localEndpoint: localEndpoint,
             remoteEndpoint: remoteEndpoint,
@@ -816,6 +823,8 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
         self.datagramTransport = nil
         // Break cycle with outputHandler, which holds closures that capture self, i.e., the connection.
         self.outputHandler.clearHandlers()
+        // Break cycle with the stream table's 'outOfBandDrain'.
+        self.streamTable?.outOfBandDrain = nil
     }
 
     /// Action returned by `close()` indicating what happened.
@@ -949,6 +958,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
         if !self.inReadLoop {
             self.inReadLoop = true
             self.setOutboundBatching(true)
+            self.streamTable?.inReadLoop = true
         }
 
         var packet = packet
