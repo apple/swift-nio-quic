@@ -49,6 +49,20 @@ final class QUICStreamTable<Consumer: QUICStreamConsumer & ~Copyable> {
     /// the table isn't associated with a connection.
     var opener: QUICStreamOpener?
 
+    /// Requests that the owning connection drains this table out of band.
+    @usableFromInline
+    var outOfBandDrain: (() -> Void)?
+
+    /// Whether an out-of-band drain has been requested.
+    @usableFromInline
+    var outOfBandDrainRequested: Bool
+
+    /// Whether the connection is currently in a read-loop.
+    ///
+    /// This is used to avoid unnecessary out-of-band drain calls.
+    @usableFromInline
+    var inReadLoop: Bool
+
     /// The role of the local peer.
     let role: Role
 
@@ -63,6 +77,8 @@ final class QUICStreamTable<Consumer: QUICStreamConsumer & ~Copyable> {
         self._byID = QUICStreamIDDictionary()
         self._outputPending = false
         self.opener = nil
+        self.inReadLoop = false
+        self.outOfBandDrainRequested = false
         self.role = role
         self.context = context
     }
@@ -108,6 +124,11 @@ extension QUICStreamTable where Consumer: ~Copyable {
 
         if hadNoEvents && !events.isEmpty {
             self._ready.append(handle)
+
+            if !self.inReadLoop && !self.outOfBandDrainRequested {
+                self.outOfBandDrainRequested = true
+                self.outOfBandDrain?()
+            }
         }
     }
 
@@ -306,6 +327,8 @@ extension QUICStreamTable where Consumer: ~Copyable {
     /// Hand each ready stream to the consumer.
     @inlinable
     func drain(into consumer: inout Consumer) {
+        self.outOfBandDrainRequested = false
+
         while let handle = self._needsState.popFirst() {
             guard let transport = self._transportStates.pointer(for: handle) else { continue }
             assert(!transport.pointee.hasState)

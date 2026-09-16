@@ -597,16 +597,25 @@ extension QUICHandler where Consumer: ~Copyable {
     /// Create a new outbound QUIC connection whose streams are serviced by a consumer.
     ///
     /// Streams on the connection, inbound and outbound alike, are surfaced to the consumer
-    /// this handler was built with; there is no per-stream channel and no stream creator.
+    /// the handler's `makeConsumer` closure builds for it; there is no per-stream channel
+    /// and no stream creator.
     ///
     /// - Parameters:
     ///   - serverName: The server to connect to.
     ///   - remoteAddress: The address to connect to.
-    /// - Returns: The initialized connection.
-    func createOutboundConnection(
+    /// - Returns: The initialized connection, or a future which fails with
+    ///   ``QUICError/noStreamConsumer`` if the handler services its streams with `Channel`s
+    ///   instead of a consumer.
+    public func createOutboundConnection(
         serverName: String,
         remoteAddress: SocketAddress
     ) -> EventLoopFuture<QUICStreamConnection<Consumer>> {
+        // No consumer means no stream table (for now.) We'll need to think about this API a bit
+        // more if/when we back stream channels with the table.
+        if self.makeConsumer == nil {
+            return self.eventLoop.makeFailedFuture(QUICError.noStreamConsumer)
+        }
+
         let promise = self.eventLoop.makePromise(
             of: (QUICConnectionChannel<Consumer>, QUICStreamCreator).self
         )

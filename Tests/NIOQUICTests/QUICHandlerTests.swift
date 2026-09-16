@@ -105,6 +105,17 @@ final class QUICHandlerTests: XCTestCase {
         try future2.wait()
     }
 
+    func testCreateOutboundConnection_whenHandlerHasNoConsumer_fails() throws {
+        let future = self.serverHandler.createOutboundConnection(
+            serverName: "quic-test.local",
+            remoteAddress: try SocketAddress(ipAddress: "127.0.0.1", port: 4433)
+        )
+
+        XCTAssertThrowsError(try future.wait()) { error in
+            XCTAssertEqual(error as? QUICError, .noStreamConsumer)
+        }
+    }
+
     func testChannelRead_whenVersionNegotiation() throws {
         let connectionID = QUICConnectionID(
             bytes: [

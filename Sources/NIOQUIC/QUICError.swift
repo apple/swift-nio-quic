@@ -34,6 +34,7 @@ public struct QUICError: Error, Hashable, Sendable {
         case failedToRetireConnectionID
         case streamWriteFailed
         case streamHandlerNotFound
+        case noStreamConsumer
         case datagramTooLarge
         case datagramWriteFailed
         case peerDoesNotAcceptDatagrams
@@ -97,6 +98,10 @@ public struct QUICError: Error, Hashable, Sendable {
 
     /// Indicates that no stream handler was found for the given stream ID.
     public static let streamHandlerNotFound: Self = .init(code: .streamHandlerNotFound)
+
+    /// Indicates that the handler services its streams with `Channel`s rather than a
+    /// ``QUICStreamConsumer``, so it can't create a connection whose streams are consumed.
+    public static let noStreamConsumer: Self = .init(code: .noStreamConsumer)
 
     /// Indicates that the transport rejected a stream write.
     public static let streamWriteFailed: Self = .init(code: .streamWriteFailed)

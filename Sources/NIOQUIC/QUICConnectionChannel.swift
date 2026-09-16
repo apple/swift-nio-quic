@@ -465,6 +465,15 @@ extension QUICConnectionChannel.ConnectionView where Consumer: ~Copyable {
         }
     }
 
+    /// Drains the stream table from outside of a read-loop (waiting until the next read might not
+    /// happen for some time.)
+    func drainStreams() {
+        // Runs on the next loop tick to avoid re-entering SwiftNetwork.
+        self._channel.eventLoop.assumeIsolated().execute {
+            self._channel.drainStreamTable()
+        }
+    }
+
     /// Notifies the connection that the handshake completed.
     ///
     /// - Parameter peerMaxDatagramFrameSize: The peer's advertised `max_datagram_frame_size`

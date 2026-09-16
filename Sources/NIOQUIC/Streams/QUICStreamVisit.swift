@@ -74,7 +74,7 @@ public struct QUICStreamVisit<Consumer: QUICStreamConsumer & ~Copyable>: ~Copyab
     }
 
     /// The error code the peer sent in RESET\_STREAM if ``events`` contains
-    /// ``QUICStreamReadyEvents/reset``, `nil` otherwise.
+    /// ``QUICStreamEvents/reset``, `nil` otherwise.
     @inlinable
     public var resetCode: QUICApplicationErrorCode? {
         if self.events.contains(.reset) {
@@ -85,7 +85,7 @@ public struct QUICStreamVisit<Consumer: QUICStreamConsumer & ~Copyable>: ~Copyab
     }
 
     /// The error code the peer sent in STOP\_SENDING if ``events`` contains
-    /// ``QUICStreamReadyEvents/stopSending``, `nil` otherwise.
+    /// ``QUICStreamEvents/stopSending``, `nil` otherwise.
     @inlinable
     public var stopSendingCode: QUICApplicationErrorCode? {
         if self.events.contains(.stopSending) {

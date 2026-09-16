@@ -125,6 +125,11 @@ final class Counter: Sendable {
         self.value.wrappingAdd(1, ordering: .sequentiallyConsistent).newValue
     }
 
+    @discardableResult
+    func decrement() -> Int {
+        self.value.wrappingSubtract(1, ordering: .sequentiallyConsistent).newValue
+    }
+
     func load() -> Int {
         self.value.load(ordering: .sequentiallyConsistent)
     }
