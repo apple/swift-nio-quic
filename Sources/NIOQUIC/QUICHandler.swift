@@ -348,6 +348,87 @@ public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
             promise: nil
         )
     }
+
+    /// Answers a packet indicating an unsupported version with a Version Negotiation packet
+    /// (RFC 9000 § 6.1).
+    ///
+    /// No packet will be sent if these requirements are not met:
+    /// * An endpoint MUST NOT send a Version Negotiation packet in response to receiving one
+    ///   (RFC 9000 § 6.1).
+    /// * A server MUST drop smaller packets that specify unsupported versions rather than
+    ///   respond. RFC 9000 § 5.2.2, § 14.1).
+    ///
+    /// - Parameters:
+    ///   - header: The parsed header of the packet that triggered this.
+    ///   - envelope: The datagram it arrived in.
+    private func trySendVersionNegotiation(
+        for header: QUICPacketHeader,
+        triggeredBy envelope: AddressedEnvelope<ByteBuffer>
+    ) {
+        self.eventLoop.assertInEventLoop()
+
+        // "The Version field of a Version Negotiation packet MUST be set to 0x00000000."
+        // (RFC 9000 § 17.2.1)
+        guard header.version != .negotiation else { return }
+
+        // "A server MUST discard an Initial packet that is carried in a UDP datagram
+        // with a payload that is smaller than the smallest allowed maximum datagram
+        // size of 1200 bytes." (RFC 9000 § 14.1)
+        guard envelope.data.readableBytes >= 1200 else { return }
+
+        // RFC 9000 § 17.2.1: the server echoes the incoming SCID as its own DCID and the
+        // incoming DCID as its own SCID.
+        let destinationConnectionID =
+            header.sourceConnectionID ?? QUICConnectionID(bytes: InlineArray(repeating: 0), length: 0)
+        let sourceConnectionID = header.destinationConnectionID
+
+        // VN packet layout (RFC 9000 § 17.2.1):
+        //
+        // Version Negotiation Packet {
+        //   Header Form (1) = 1,
+        //   Unused (7),
+        //   Version (32) = 0,
+        //   Destination Connection ID Length (8),
+        //   Destination Connection ID (0..2040),
+        //   Source Connection ID Length (8),
+        //   Source Connection ID (0..2040),
+        //   Supported Version (32) ...,
+        // }
+        let responsePacketSize = 1 // header form + unused bits
+            + 4 // version field of 0
+            + 1 // DCID length
+            + destinationConnectionID.length // DCID
+            + 1 // SCID length
+            + sourceConnectionID.length // SCID
+            + 4 // v1
+            + 4 // RFC 9000 § 6.3 reserved/grease pattern
+
+        var buffer = self.udpChannel.allocator.buffer(
+            capacity: responsePacketSize
+        )
+        buffer.writeInteger(UInt8(0x80))
+        buffer.writeInteger(QUICPacketHeader.Version.negotiation.headerVersionField)
+        buffer.writeInteger(UInt8(destinationConnectionID.length))
+        _ = destinationConnectionID.withUnsafeBufferPointer { buffer.writeBytes($0) }
+        buffer.writeInteger(UInt8(sourceConnectionID.length))
+        _ = sourceConnectionID.withUnsafeBufferPointer { buffer.writeBytes($0) }
+        buffer.writeInteger(QUICPacketHeader.Version.v1.headerVersionField)
+        buffer.writeInteger(QUICPacketHeader.Version.negotiationPattern.headerVersionField)
+
+        self.logger.trace(
+            "QUICHandler sending version negotiation",
+            metadata: [
+                LoggingKeys.addressRemote: "\(envelope.remoteAddress)",
+                LoggingKeys.connectionDCID: "\(header.destinationConnectionID.description)",
+                LoggingKeys.channelOutboundBytes: "\(buffer.readableBytes)",
+            ]
+        )
+
+        self.writeDatagram(
+            AddressedEnvelope(remoteAddress: envelope.remoteAddress, data: buffer),
+            promise: nil
+        )
+    }
 }
 
 @available(*, unavailable)
@@ -728,10 +809,10 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
                 if let view = self.connectionRegistry[header.destinationConnectionID] {
                     self.deliverPacket(addressedEnvelope.data, to: view)
                 } else if self.quicConfiguration.role == .server {
-                    // Only INITIAL packets can create new connections. However, we do need to
-                    // pass packets with unknown versions to Swift QUIC to initiate version
-                    // negotation.
-                    if header.type == .initial || header.type == .versionNegotiation {
+                    // Only INITIAL packets can create new connections. A packet with an
+                    // unsupported version gets a stateless Version Negotiation reply instead
+                    // (RFC 9000 § 6.1): it must not create any connection state.
+                    if header.type == .initial {
                         try self.acceptNewConnection(
                             for: addressedEnvelope,
                             sourceConnectionID: header.sourceConnectionID,
@@ -739,6 +820,8 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
                             // This force unwrap is fine. We really need to have a local address at this point
                             localAddress: context.localAddress!
                         )
+                    } else if header.type == .versionNegotiation {
+                        self.trySendVersionNegotiation(for: header, triggeredBy: addressedEnvelope)
                     } else {
                         self.logger.trace(
                             "QUICHandler dropping non-INITIAL packet without a connection",

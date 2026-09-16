@@ -39,6 +39,8 @@ struct QUICPacketHeader: Hashable, Sendable {
         static let negotiation = Version(0x0000_0000)
         static let v1 = Version(0x0000_0001)
         static let v2 = Version(0x6b33_43cf)
+        /// RFC 9000 § 15: reserved pattern (0x?a?a?a?a) used to force version negotiation.
+        static let negotiationPattern = Version(0x1a2a_3a4a)
 
         var headerVersionField: UInt32 {
             self.backing
