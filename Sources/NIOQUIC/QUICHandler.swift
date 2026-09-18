@@ -1033,7 +1033,9 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
             let initPromise = self.eventLoop.makePromise(of: Void.self)
             let handshakePromise = self.eventLoop.makePromise(of: Void.self)
 
-            view.initialize(readyPromise: initPromise, handshakePromise: handshakePromise) { $0.eventLoop.makeSucceededVoidFuture() }
+            view.initialize(readyPromise: initPromise, handshakePromise: handshakePromise) {
+                $0.eventLoop.makeSucceededVoidFuture()
+            }
 
             initPromise.futureResult.assumeIsolated().whenComplete { result in
                 switch result {
@@ -1233,7 +1235,6 @@ struct ConnectionHandle: Hashable, Sendable {
         return next
     }
 }
-
 
 /// Create a connection admission control for connection limits based on a given QUIC configuration
 @available(anyAppleOS 26, *)
