@@ -407,234 +407,234 @@ final class QUICHandlerTests: XCTestCase {
         XCTAssertNil(try self.channel.readOutbound(as: AddressedEnvelope<ByteBuffer>.self))
     }
 
-        // MARK: - Connection limits
+    // MARK: - Connection limits
 
-        /// Fires an INITIAL packet for `destinationID` and returns whether it is now routable: a
-        /// probing short-header packet for the same ID either gets no reply (routed to a real
-        /// connection) or a stateless reset (never registered, i.e. dropped).
-        private func isRoutable(_ destinationID: QUICConnectionID, on channel: EmbeddedChannel) throws -> Bool {
-            let address = try SocketAddress(ipAddress: "127.0.0.0", port: 443)
-            let probe = QUICPackets.shortHeader(destinationID: destinationID, payloadLength: 31)
-            channel.pipeline.fireChannelRead(
-                AddressedEnvelope<ByteBuffer>(remoteAddress: address, data: ByteBuffer(bytes: probe))
-            )
-            channel.pipeline.fireChannelReadComplete()
-            return try channel.readOutbound(as: AddressedEnvelope<ByteBuffer>.self) == nil
-        }
+    /// Fires an INITIAL packet for `destinationID` and returns whether it is now routable: a
+    /// probing short-header packet for the same ID either gets no reply (routed to a real
+    /// connection) or a stateless reset (never registered, i.e. dropped).
+    private func isRoutable(_ destinationID: QUICConnectionID, on channel: EmbeddedChannel) throws -> Bool {
+        let address = try SocketAddress(ipAddress: "127.0.0.0", port: 443)
+        let probe = QUICPackets.shortHeader(destinationID: destinationID, payloadLength: 31)
+        channel.pipeline.fireChannelRead(
+            AddressedEnvelope<ByteBuffer>(remoteAddress: address, data: ByteBuffer(bytes: probe))
+        )
+        channel.pipeline.fireChannelReadComplete()
+        return try channel.readOutbound(as: AddressedEnvelope<ByteBuffer>.self) == nil
+    }
 
-        private func fireInitial(_ destinationID: QUICConnectionID, on channel: EmbeddedChannel) throws {
-            let address = try SocketAddress(ipAddress: "127.0.0.0", port: 443)
-            let packet = QUICPackets.initial(
-                destinationID: destinationID,
-                sourceID: .random(using: &self.randomNumberGenerator),
-                token: [],
-                version: 1
-            )
-            channel.pipeline.fireChannelRead(
-                AddressedEnvelope<ByteBuffer>(remoteAddress: address, data: ByteBuffer(bytes: packet))
-            )
-            channel.pipeline.fireChannelReadComplete()
-        }
+    private func fireInitial(_ destinationID: QUICConnectionID, on channel: EmbeddedChannel) throws {
+        let address = try SocketAddress(ipAddress: "127.0.0.0", port: 443)
+        let packet = QUICPackets.initial(
+            destinationID: destinationID,
+            sourceID: .random(using: &self.randomNumberGenerator),
+            token: [],
+            version: 1
+        )
+        channel.pipeline.fireChannelRead(
+            AddressedEnvelope<ByteBuffer>(remoteAddress: address, data: ByteBuffer(bytes: packet))
+        )
+        channel.pipeline.fireChannelReadComplete()
+    }
 
-        func testChannelRead_whenActiveConnectionLimitReached_dropsFurtherConnections() throws {
-            let eventLoop = EmbeddedEventLoop()
-            let channel = EmbeddedChannel(loop: eventLoop)
-            channel.localAddress = try SocketAddress(ipAddress: "127.0.0.0", port: 1234)
-            let handler = try Self.makeHandler(
-                channel: channel,
-                channelHandler: NIOLoopBound(MockChannelHandler(), eventLoop: eventLoop),
-                connectionIDLength: Int(QUICConnectionID.randomIDLength),
-                connectionLimit: 2
-            )
-            try channel.pipeline.syncOperations.addHandler(handler)
-            defer { _ = try? channel.finish() }
+    func testChannelRead_whenActiveConnectionLimitReached_dropsFurtherConnections() throws {
+        let eventLoop = EmbeddedEventLoop()
+        let channel = EmbeddedChannel(loop: eventLoop)
+        channel.localAddress = try SocketAddress(ipAddress: "127.0.0.0", port: 1234)
+        let handler = try Self.makeHandler(
+            channel: channel,
+            channelHandler: NIOLoopBound(MockChannelHandler(), eventLoop: eventLoop),
+            connectionIDLength: Int(QUICConnectionID.randomIDLength),
+            connectionLimit: 2
+        )
+        try channel.pipeline.syncOperations.addHandler(handler)
+        defer { _ = try? channel.finish() }
 
-            let accepted1 = QUICConnectionID.random(using: &self.randomNumberGenerator)
-            let accepted2 = QUICConnectionID.random(using: &self.randomNumberGenerator)
-            let dropped = QUICConnectionID.random(using: &self.randomNumberGenerator)
+        let accepted1 = QUICConnectionID.random(using: &self.randomNumberGenerator)
+        let accepted2 = QUICConnectionID.random(using: &self.randomNumberGenerator)
+        let dropped = QUICConnectionID.random(using: &self.randomNumberGenerator)
 
-            try self.fireInitial(accepted1, on: channel)
-            try self.fireInitial(accepted2, on: channel)
-            try self.fireInitial(dropped, on: channel)
+        try self.fireInitial(accepted1, on: channel)
+        try self.fireInitial(accepted2, on: channel)
+        try self.fireInitial(dropped, on: channel)
 
-            XCTAssertTrue(try self.isRoutable(accepted1, on: channel))
-            XCTAssertTrue(try self.isRoutable(accepted2, on: channel))
-            XCTAssertFalse(try self.isRoutable(dropped, on: channel))
-        }
+        XCTAssertTrue(try self.isRoutable(accepted1, on: channel))
+        XCTAssertTrue(try self.isRoutable(accepted2, on: channel))
+        XCTAssertFalse(try self.isRoutable(dropped, on: channel))
+    }
 
-        func testChannelRead_whenHandshakeLimitReached_dropsFurtherConnectionsEvenUnderActiveLimit() throws {
-            let eventLoop = EmbeddedEventLoop()
-            let channel = EmbeddedChannel(loop: eventLoop)
-            channel.localAddress = try SocketAddress(ipAddress: "127.0.0.0", port: 1234)
-            let handler = try Self.makeHandler(
-                channel: channel,
-                channelHandler: NIOLoopBound(MockChannelHandler(), eventLoop: eventLoop),
-                connectionIDLength: Int(QUICConnectionID.randomIDLength),
-                connectionLimit: 10,
-                handshakeConnectionLimit: 1
-            )
-            try channel.pipeline.syncOperations.addHandler(handler)
-            defer { _ = try? channel.finish() }
+    func testChannelRead_whenHandshakeLimitReached_dropsFurtherConnectionsEvenUnderActiveLimit() throws {
+        let eventLoop = EmbeddedEventLoop()
+        let channel = EmbeddedChannel(loop: eventLoop)
+        channel.localAddress = try SocketAddress(ipAddress: "127.0.0.0", port: 1234)
+        let handler = try Self.makeHandler(
+            channel: channel,
+            channelHandler: NIOLoopBound(MockChannelHandler(), eventLoop: eventLoop),
+            connectionIDLength: Int(QUICConnectionID.randomIDLength),
+            connectionLimit: 10,
+            handshakeConnectionLimit: 1
+        )
+        try channel.pipeline.syncOperations.addHandler(handler)
+        defer { _ = try? channel.finish() }
 
-            let accepted = QUICConnectionID.random(using: &self.randomNumberGenerator)
-            let dropped = QUICConnectionID.random(using: &self.randomNumberGenerator)
+        let accepted = QUICConnectionID.random(using: &self.randomNumberGenerator)
+        let dropped = QUICConnectionID.random(using: &self.randomNumberGenerator)
 
-            try self.fireInitial(accepted, on: channel)
-            try self.fireInitial(dropped, on: channel)
+        try self.fireInitial(accepted, on: channel)
+        try self.fireInitial(dropped, on: channel)
 
-            // Dropped for the handshake limit alone: the active limit (10) has plenty of room.
-            XCTAssertTrue(try self.isRoutable(accepted, on: channel))
-            XCTAssertFalse(try self.isRoutable(dropped, on: channel))
-        }
+        // Dropped for the handshake limit alone: the active limit (10) has plenty of room.
+        XCTAssertTrue(try self.isRoutable(accepted, on: channel))
+        XCTAssertFalse(try self.isRoutable(dropped, on: channel))
+    }
 
-        func testChannelRead_whenNewConnectionRateLimitReached_dropsFurtherConnections() throws {
-            let eventLoop = EmbeddedEventLoop()
-            let channel = EmbeddedChannel(loop: eventLoop)
-            channel.localAddress = try SocketAddress(ipAddress: "127.0.0.0", port: 1234)
-            let handler = try Self.makeHandler(
-                channel: channel,
-                channelHandler: NIOLoopBound(MockChannelHandler(), eventLoop: eventLoop),
-                connectionIDLength: Int(QUICConnectionID.randomIDLength),
-                newConnectionRateLimit: 2
-            )
-            try channel.pipeline.syncOperations.addHandler(handler)
-            defer { _ = try? channel.finish() }
+    func testChannelRead_whenNewConnectionRateLimitReached_dropsFurtherConnections() throws {
+        let eventLoop = EmbeddedEventLoop()
+        let channel = EmbeddedChannel(loop: eventLoop)
+        channel.localAddress = try SocketAddress(ipAddress: "127.0.0.0", port: 1234)
+        let handler = try Self.makeHandler(
+            channel: channel,
+            channelHandler: NIOLoopBound(MockChannelHandler(), eventLoop: eventLoop),
+            connectionIDLength: Int(QUICConnectionID.randomIDLength),
+            newConnectionRateLimit: 2
+        )
+        try channel.pipeline.syncOperations.addHandler(handler)
+        defer { _ = try? channel.finish() }
 
-            let accepted1 = QUICConnectionID.random(using: &self.randomNumberGenerator)
-            let accepted2 = QUICConnectionID.random(using: &self.randomNumberGenerator)
-            let dropped = QUICConnectionID.random(using: &self.randomNumberGenerator)
+        let accepted1 = QUICConnectionID.random(using: &self.randomNumberGenerator)
+        let accepted2 = QUICConnectionID.random(using: &self.randomNumberGenerator)
+        let dropped = QUICConnectionID.random(using: &self.randomNumberGenerator)
 
-            // Fired back-to-back, well within the same second: the burst capacity (2, equal to the
-            // configured rate) covers the first two, the third exceeds it.
-            try self.fireInitial(accepted1, on: channel)
-            try self.fireInitial(accepted2, on: channel)
-            try self.fireInitial(dropped, on: channel)
+        // Fired back-to-back, well within the same second: the burst capacity (2, equal to the
+        // configured rate) covers the first two, the third exceeds it.
+        try self.fireInitial(accepted1, on: channel)
+        try self.fireInitial(accepted2, on: channel)
+        try self.fireInitial(dropped, on: channel)
 
-            XCTAssertTrue(try self.isRoutable(accepted1, on: channel))
-            XCTAssertTrue(try self.isRoutable(accepted2, on: channel))
-            XCTAssertFalse(try self.isRoutable(dropped, on: channel))
-        }
+        XCTAssertTrue(try self.isRoutable(accepted1, on: channel))
+        XCTAssertTrue(try self.isRoutable(accepted2, on: channel))
+        XCTAssertFalse(try self.isRoutable(dropped, on: channel))
+    }
 
-        /// Like `makeHandler`, but exposes each accepted connection's channel via
-        /// `onConnectionAccepted`, for tests that need to close a connection or complete its
-        /// handshake to observe a freed admission slot.
-        private static func makeHandlerWithConnectionAccess(
-            channel: EmbeddedChannel,
-            channelHandler: NIOLoopBound<MockChannelHandler>,
-            connectionIDLength: Int,
-            connectionLimit: Int = 0,
-            handshakeConnectionLimit: Int = 0,
-            newConnectionRateLimit: Int = 0,
-            onConnectionAccepted: @escaping @Sendable (any Channel) -> Void
-        ) -> QUICHandler<QUICStreamChannels> {
-            QUICHandler(
-                channel: channel,
-                quicConfiguration: .server(
-                    serverName: "quic-test.local",
-                    authenticationConfiguration: .rawPublicKeys(
-                        publicKeyFilePath: Self.testPublicKeyPath,
-                        privateKeyFilePath: Self.testPrivateKeyPath
-                    ),
-                    applicationProtocols: [],
-                    connectionLimit: connectionLimit,
-                    handshakeConnectionLimit: handshakeConnectionLimit,
-                    newConnectionRateLimit: newConnectionRateLimit
+    /// Like `makeHandler`, but exposes each accepted connection's channel via
+    /// `onConnectionAccepted`, for tests that need to close a connection or complete its
+    /// handshake to observe a freed admission slot.
+    private static func makeHandlerWithConnectionAccess(
+        channel: EmbeddedChannel,
+        channelHandler: NIOLoopBound<MockChannelHandler>,
+        connectionIDLength: Int,
+        connectionLimit: Int = 0,
+        handshakeConnectionLimit: Int = 0,
+        newConnectionRateLimit: Int = 0,
+        onConnectionAccepted: @escaping @Sendable (any Channel) -> Void
+    ) -> QUICHandler<QUICStreamChannels> {
+        QUICHandler(
+            channel: channel,
+            quicConfiguration: .server(
+                serverName: "quic-test.local",
+                authenticationConfiguration: .rawPublicKeys(
+                    publicKeyFilePath: Self.testPublicKeyPath,
+                    privateKeyFilePath: Self.testPrivateKeyPath
                 ),
-                asyncVerifier: nil,
-                authenticator: nil,
-                logger: Logger(label: "Test"),
-                inboundConnectionInitializer: { channel, _ in
-                    onConnectionAccepted(channel)
+                applicationProtocols: [],
+                connectionLimit: connectionLimit,
+                handshakeConnectionLimit: handshakeConnectionLimit,
+                newConnectionRateLimit: newConnectionRateLimit
+            ),
+            asyncVerifier: nil,
+            authenticator: nil,
+            logger: Logger(label: "Test"),
+            inboundConnectionInitializer: { channel, _ in
+                onConnectionAccepted(channel)
+                return channel.eventLoop.makeSucceededVoidFuture()
+            },
+            inboundStreamInitializer: { channel in
+                do {
+                    try channel.pipeline.syncOperations.addHandler(channelHandler.value)
                     return channel.eventLoop.makeSucceededVoidFuture()
-                },
-                inboundStreamInitializer: { channel in
-                    do {
-                        try channel.pipeline.syncOperations.addHandler(channelHandler.value)
-                        return channel.eventLoop.makeSucceededVoidFuture()
-                    } catch {
-                        return channel.eventLoop.makeFailedFuture(error)
-                    }
-                },
-                noMoreConnections: {},
-                connectionIDGenerator: QUICConnectionID.RandomGenerator(
-                    connectionIDLength: connectionIDLength
-                ),
-                statelessResetTokenGenerator: .defaultWithUserProvidedKey(Self.statelessResetKey)
-            )
-        }
+                } catch {
+                    return channel.eventLoop.makeFailedFuture(error)
+                }
+            },
+            noMoreConnections: {},
+            connectionIDGenerator: QUICConnectionID.RandomGenerator(
+                connectionIDLength: connectionIDLength
+            ),
+            statelessResetTokenGenerator: .defaultWithUserProvidedKey(Self.statelessResetKey)
+        )
+    }
 
-        func testChannelRead_whenActiveConnectionLimitReached_acceptsNewConnectionAfterOneCloses() throws {
-            let eventLoop = EmbeddedEventLoop()
-            let channel = EmbeddedChannel(loop: eventLoop)
-            channel.localAddress = try SocketAddress(ipAddress: "127.0.0.0", port: 1234)
+    func testChannelRead_whenActiveConnectionLimitReached_acceptsNewConnectionAfterOneCloses() throws {
+        let eventLoop = EmbeddedEventLoop()
+        let channel = EmbeddedChannel(loop: eventLoop)
+        channel.localAddress = try SocketAddress(ipAddress: "127.0.0.0", port: 1234)
 
-            let acceptedChannels = NIOLockedValueBox<[any Channel]>([])
-            let handler = Self.makeHandlerWithConnectionAccess(
-                channel: channel,
-                channelHandler: NIOLoopBound(MockChannelHandler(), eventLoop: eventLoop),
-                connectionIDLength: Int(QUICConnectionID.randomIDLength),
-                connectionLimit: 1,
-                onConnectionAccepted: { channel in acceptedChannels.withLockedValue { $0.append(channel) } }
-            )
-            try channel.pipeline.syncOperations.addHandler(handler)
-            defer { _ = try? channel.finish() }
+        let acceptedChannels = NIOLockedValueBox<[any Channel]>([])
+        let handler = Self.makeHandlerWithConnectionAccess(
+            channel: channel,
+            channelHandler: NIOLoopBound(MockChannelHandler(), eventLoop: eventLoop),
+            connectionIDLength: Int(QUICConnectionID.randomIDLength),
+            connectionLimit: 1,
+            onConnectionAccepted: { channel in acceptedChannels.withLockedValue { $0.append(channel) } }
+        )
+        try channel.pipeline.syncOperations.addHandler(handler)
+        defer { _ = try? channel.finish() }
 
-            let accepted1 = QUICConnectionID.random(using: &self.randomNumberGenerator)
-            let dropped = QUICConnectionID.random(using: &self.randomNumberGenerator)
-            let accepted2 = QUICConnectionID.random(using: &self.randomNumberGenerator)
+        let accepted1 = QUICConnectionID.random(using: &self.randomNumberGenerator)
+        let dropped = QUICConnectionID.random(using: &self.randomNumberGenerator)
+        let accepted2 = QUICConnectionID.random(using: &self.randomNumberGenerator)
 
-            try self.fireInitial(accepted1, on: channel)
-            try self.fireInitial(dropped, on: channel)
-            XCTAssertTrue(try self.isRoutable(accepted1, on: channel))
-            XCTAssertFalse(try self.isRoutable(dropped, on: channel))
+        try self.fireInitial(accepted1, on: channel)
+        try self.fireInitial(dropped, on: channel)
+        XCTAssertTrue(try self.isRoutable(accepted1, on: channel))
+        XCTAssertFalse(try self.isRoutable(dropped, on: channel))
 
-            // Close the first connection, freeing its active slot.
-            let firstAcceptedChannel = try XCTUnwrap(acceptedChannels.withLockedValue { $0 }.first)
-            let closeFuture = firstAcceptedChannel.close()
-            // Teardown (including releasing the admission slot) completes on the next loop tick.
-            eventLoop.run()
-            try closeFuture.wait()
+        // Close the first connection, freeing its active slot.
+        let firstAcceptedChannel = try XCTUnwrap(acceptedChannels.withLockedValue { $0 }.first)
+        let closeFuture = firstAcceptedChannel.close()
+        // Teardown (including releasing the admission slot) completes on the next loop tick.
+        eventLoop.run()
+        try closeFuture.wait()
 
-            try self.fireInitial(accepted2, on: channel)
-            XCTAssertTrue(try self.isRoutable(accepted2, on: channel))
-        }
+        try self.fireInitial(accepted2, on: channel)
+        XCTAssertTrue(try self.isRoutable(accepted2, on: channel))
+    }
 
-        func testChannelRead_whenHandshakeLimitReached_acceptsNewConnectionAfterHandshakeCompletes() throws {
-            let eventLoop = EmbeddedEventLoop()
-            let channel = EmbeddedChannel(loop: eventLoop)
-            channel.localAddress = try SocketAddress(ipAddress: "127.0.0.0", port: 1234)
+    func testChannelRead_whenHandshakeLimitReached_acceptsNewConnectionAfterHandshakeCompletes() throws {
+        let eventLoop = EmbeddedEventLoop()
+        let channel = EmbeddedChannel(loop: eventLoop)
+        channel.localAddress = try SocketAddress(ipAddress: "127.0.0.0", port: 1234)
 
-            let acceptedChannels = NIOLockedValueBox<[any Channel]>([])
-            let handler = Self.makeHandlerWithConnectionAccess(
-                channel: channel,
-                channelHandler: NIOLoopBound(MockChannelHandler(), eventLoop: eventLoop),
-                connectionIDLength: Int(QUICConnectionID.randomIDLength),
-                connectionLimit: 10,
-                handshakeConnectionLimit: 1,
-                onConnectionAccepted: { channel in acceptedChannels.withLockedValue { $0.append(channel) } }
-            )
-            try channel.pipeline.syncOperations.addHandler(handler)
-            defer { _ = try? channel.finish() }
+        let acceptedChannels = NIOLockedValueBox<[any Channel]>([])
+        let handler = Self.makeHandlerWithConnectionAccess(
+            channel: channel,
+            channelHandler: NIOLoopBound(MockChannelHandler(), eventLoop: eventLoop),
+            connectionIDLength: Int(QUICConnectionID.randomIDLength),
+            connectionLimit: 10,
+            handshakeConnectionLimit: 1,
+            onConnectionAccepted: { channel in acceptedChannels.withLockedValue { $0.append(channel) } }
+        )
+        try channel.pipeline.syncOperations.addHandler(handler)
+        defer { _ = try? channel.finish() }
 
-            let accepted1 = QUICConnectionID.random(using: &self.randomNumberGenerator)
-            let dropped = QUICConnectionID.random(using: &self.randomNumberGenerator)
-            let accepted2 = QUICConnectionID.random(using: &self.randomNumberGenerator)
+        let accepted1 = QUICConnectionID.random(using: &self.randomNumberGenerator)
+        let dropped = QUICConnectionID.random(using: &self.randomNumberGenerator)
+        let accepted2 = QUICConnectionID.random(using: &self.randomNumberGenerator)
 
-            try self.fireInitial(accepted1, on: channel)
-            try self.fireInitial(dropped, on: channel)
-            XCTAssertTrue(try self.isRoutable(accepted1, on: channel))
-            XCTAssertFalse(try self.isRoutable(dropped, on: channel))
+        try self.fireInitial(accepted1, on: channel)
+        try self.fireInitial(dropped, on: channel)
+        XCTAssertTrue(try self.isRoutable(accepted1, on: channel))
+        XCTAssertFalse(try self.isRoutable(dropped, on: channel))
 
-            // Complete the first connection's handshake: it stays active, but frees its handshake
-            // slot (the active limit of 10 has plenty of room regardless).
-            let firstAcceptedChannel = try XCTUnwrap(acceptedChannels.withLockedValue { $0 }.first)
-            let connectionChannel = try XCTUnwrap(firstAcceptedChannel as? QUICConnectionChannel<QUICStreamChannels>)
-            connectionChannel.connectionView.handshakeCompleted(peerMaxDatagramFrameSize: 0)
-            connectionChannel.connectionView.drainOutboundAndReconcileLifecycle()
+        // Complete the first connection's handshake: it stays active, but frees its handshake
+        // slot (the active limit of 10 has plenty of room regardless).
+        let firstAcceptedChannel = try XCTUnwrap(acceptedChannels.withLockedValue { $0 }.first)
+        let connectionChannel = try XCTUnwrap(firstAcceptedChannel as? QUICConnectionChannel<QUICStreamChannels>)
+        connectionChannel.connectionView.handshakeCompleted(peerMaxDatagramFrameSize: 0)
+        connectionChannel.connectionView.drainOutboundAndReconcileLifecycle()
 
-            try self.fireInitial(accepted2, on: channel)
-            XCTAssertTrue(try self.isRoutable(accepted2, on: channel))
-        }
+        try self.fireInitial(accepted2, on: channel)
+        XCTAssertTrue(try self.isRoutable(accepted2, on: channel))
+    }
 
     func testChannelRead_whenNewConnectionRateLimitReached_acceptsNewConnectionAfterRateLimitRefills() throws {
         let eventLoop = EmbeddedEventLoop()
