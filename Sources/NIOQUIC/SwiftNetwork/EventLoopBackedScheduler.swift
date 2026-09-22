@@ -82,10 +82,10 @@ final class EventLoopBackedScheduler: NetworkContext.Scheduler {
     /// was last scheduled with.
     func schedule(
         _ task: @escaping (() -> Void),
-        milliseconds: Int64,
+        after milliseconds: SwiftNetwork.NetworkDuration,
         reference: SwiftNetwork.TimerReference
     ) {
-        let deadline = self.eventLoop.now + .milliseconds(milliseconds)
+        let deadline = self.eventLoop.now + .milliseconds(milliseconds.roundedUpMilliseconds)
 
         if let index = self.wakeups.index(forKey: reference) {
             let keepWakeup = self._reschedule(

@@ -85,7 +85,7 @@ struct EventLoopBackedSchedulerTests {
         let fires = Fires()
         let reference = SwiftNetwork.TimerReference()
 
-        scheduler.schedule({ fires.count &+= 1 }, milliseconds: 100, reference: reference)
+        scheduler.schedule({ fires.count &+= 1 }, after: .milliseconds(100), reference: reference)
 
         loop.advanceTime(by: .milliseconds(99))
         #expect(fires.count == 0)
@@ -107,8 +107,8 @@ struct EventLoopBackedSchedulerTests {
         let fires = Fires()
         let reference = SwiftNetwork.TimerReference()
 
-        scheduler.schedule({ fires.count &+= 1 }, milliseconds: 100, reference: reference)
-        scheduler.schedule({ fires.count &+= 1 }, milliseconds: 300, reference: reference)
+        scheduler.schedule({ fires.count &+= 1 }, after: .milliseconds(100), reference: reference)
+        scheduler.schedule({ fires.count &+= 1 }, after: .milliseconds(300), reference: reference)
 
         loop.advanceTime(by: .milliseconds(100))
         #expect(fires.count == 0)
@@ -127,8 +127,8 @@ struct EventLoopBackedSchedulerTests {
         let fires = Fires()
         let reference = SwiftNetwork.TimerReference()
 
-        scheduler.schedule({ fires.count &+= 1 }, milliseconds: 500, reference: reference)
-        scheduler.schedule({ fires.count &+= 1 }, milliseconds: 50, reference: reference)
+        scheduler.schedule({ fires.count &+= 1 }, after: .milliseconds(500), reference: reference)
+        scheduler.schedule({ fires.count &+= 1 }, after: .milliseconds(50), reference: reference)
 
         loop.advanceTime(by: .milliseconds(50))
         #expect(fires.count == 1)
@@ -145,7 +145,7 @@ struct EventLoopBackedSchedulerTests {
         let fires = Fires()
         let reference = SwiftNetwork.TimerReference()
 
-        scheduler.schedule({ fires.count &+= 1 }, milliseconds: 100, reference: reference)
+        scheduler.schedule({ fires.count &+= 1 }, after: .milliseconds(100), reference: reference)
         scheduler.unschedule(reference: reference)
 
         loop.advanceTime(by: .seconds(1))
@@ -164,8 +164,8 @@ struct EventLoopBackedSchedulerTests {
         let fires = Fires()
         let reference = SwiftNetwork.TimerReference()
 
-        scheduler.schedule({ fires.count &+= 1 }, milliseconds: 100, reference: reference)
-        scheduler.schedule({ fires.count &+= 1 }, milliseconds: 300, reference: reference)
+        scheduler.schedule({ fires.count &+= 1 }, after: .milliseconds(100), reference: reference)
+        scheduler.schedule({ fires.count &+= 1 }, after: .milliseconds(300), reference: reference)
         scheduler.unschedule(reference: reference)
 
         loop.advanceTime(by: .seconds(1))
@@ -189,7 +189,7 @@ struct EventLoopBackedSchedulerTests {
                         arm()
                     }
                 },
-                milliseconds: 100,
+                after: .milliseconds(100),
                 reference: reference
             )
         }
@@ -217,10 +217,10 @@ struct EventLoopBackedSchedulerTests {
         let firstReference = SwiftNetwork.TimerReference()
         let secondReference = SwiftNetwork.TimerReference()
 
-        scheduler.schedule({ first.count &+= 1 }, milliseconds: 100, reference: firstReference)
-        scheduler.schedule({ second.count &+= 1 }, milliseconds: 200, reference: secondReference)
+        scheduler.schedule({ first.count &+= 1 }, after: .milliseconds(100), reference: firstReference)
+        scheduler.schedule({ second.count &+= 1 }, after: .milliseconds(200), reference: secondReference)
         // Pushing the first one out must not disturb the second.
-        scheduler.schedule({ first.count &+= 1 }, milliseconds: 300, reference: firstReference)
+        scheduler.schedule({ first.count &+= 1 }, after: .milliseconds(300), reference: firstReference)
 
         loop.advanceTime(by: .milliseconds(200))
         #expect(first.count == 0)
@@ -243,7 +243,7 @@ struct EventLoopBackedSchedulerTests {
         for step in 1...20 {
             scheduler.schedule(
                 { fires.count &+= 1 },
-                milliseconds: Int64(100 &+ step &* 10),
+                after: .milliseconds(Int64(100 &+ step &* 10)),
                 reference: reference
             )
         }
