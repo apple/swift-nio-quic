@@ -165,7 +165,7 @@ extension QUICChannelOutputHandler: LowerProtocolHandler {
         return asLower
     }
 
-    // Gets the inbound packets from the inputPacketQueue in SwiftNetworkConnection.
+    // Gets the inbound packets from the input queue in QUICConnectionPath.
     func receiveDatagrams(
         _ from: SwiftNetwork.ProtocolInstanceReference,
         maximumDatagramCount: Int
