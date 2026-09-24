@@ -27,8 +27,8 @@ import Musl
 /// One network path for a connection.
 ///
 /// The path is the bridge between SwiftNetwork and our code on the network-side. It is attached to
-/// the SwiftNetwork `QUICConnectionImplementation` as the lower datagram protocol of this path and
-/// deals with both getting bytes in and out of it.
+/// the SwiftNetwork `QUICConnection` as the lower datagram protocol of this path and deals with
+/// both getting bytes in and out of it.
 @available(anyAppleOS 26, *)
 final class QUICConnectionPath<Consumer: QUICStreamConsumer & ~Copyable>:
     ProtocolInstanceContainer, OutboundDatagramHandler
