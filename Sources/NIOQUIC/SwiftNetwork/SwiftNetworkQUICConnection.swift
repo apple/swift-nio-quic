@@ -143,7 +143,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
         // Enabling batching stops the underlying connection from producing (most) datagrams until
         // batching is disabled again, at which point any queued outbound writes will be emitted.
         // This allows outbound writes to be better packed into datagrams. Any outbound writes are
-        // emitted into the finalize handler set up in `wireHandlers(for:)` soon after batching is disabled.
+        // emitted into `outboundDatagramsQueued(on:count:)` soon after batching is disabled.
         newFlowHandler.outboundBatching(enabled)
     }
 
@@ -439,13 +439,9 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
         }
 
         self.activePath = QUICConnectionPath(
+            role: self.role,
             remoteAddress: remoteAddress,
-            outputHandler: QUICChannelOutputHandler(
-                role: self.role,
-                logger: logger,
-                context: swiftNetworkParameters.context,
-                framePool: self.framePool
-            ),
+            context: swiftNetworkParameters.context,
             framePool: self.framePool,
             isValidated: true,
             maxSegments: self.activePathMaxSegments,
@@ -493,11 +489,11 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
         path: SwiftNetwork.PathProperties,
         keyLogPath: String?
     ) {
-        self.wireHandlers(for: self.activePath)
+        self.activePath.setDelegate(self)
 
         do {
             try self.swiftNetworkQUICConnection.attachLowerDatagramProtocolForNewPath(
-                self.activePath.outputHandler.reference,
+                self.activePath.reference,
                 remote: remoteEndpoint,
                 local: localEndpoint,
                 parameters: self.swiftNetworkParameters,
@@ -819,8 +815,8 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
         // Break cycle with the datagram transport, which holds this connection as its reader.
         self.datagramTransport?.close()
         self.datagramTransport = nil
-        // Break cycle with the active path, which holds closures that capture self, i.e., the connection.
-        self.activePath.clearHandlers()
+        // Break cycle with the active path, which holds this connection as its delegate.
+        self.activePath.clearDelegate()
         // Break cycle with the stream table's 'outOfBandDrain'.
         self.streamTable?.outOfBandDrain = nil
     }
@@ -969,7 +965,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
         if !self.activePath.hasQueuedInboundPackets {
             return
         }
-        self.activePath.outputHandler.invokeInputAvailable()
+        self.activePath.invokeInputAvailable()
     }
 
     /// Writes a single QUIC packet to be sent to the peer.
@@ -1445,9 +1441,16 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
     #endif
 }
 
-// Callbacks coming from QUICChannelOutputHandler
+// Callbacks coming from QUICConnectionPath
 @available(anyAppleOS 26, *)
-extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
+extension SwiftNetworkQUICConnection: QUICConnectionPathDelegate where Consumer: ~Copyable {
+    func outboundDatagramsQueued(on path: QUICConnectionPath, count: Int) {
+        self.log("finalizeOutputFrames: \(count)")
+        if !self.inReadLoop, path.hasQueuedOutboundData {
+            self.triggerOutOfBandWriteEvent()
+        }
+    }
+
     /// Trigger outbound writes that drain `finalizedOutput`. This should only be called when no outbound drain is in progress.
     func triggerOutOfBandWriteEvent() {
         switch self.connectionStateMachine.receiveOutOfBandWriteRequest(hasView: self.channelView != nil) {
@@ -1468,7 +1471,7 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
 
 @available(anyAppleOS 26, *)
 extension Frame {
-    /// The frames returned by Swift QUIC were created in `QUICChannelOutputHandler.getDatagramsToSend`. They all hold
+    /// The frames returned by Swift QUIC were created in `QUICConnectionPath.getDatagramsToSend`. They all hold
     /// the same buffer type and a pointer to allocated memory. Any other buffer type is unexpected and a logic error. To take ownership
     /// of the buffer type, ByteBuffer requires the pointer, the offest to start reading and the length of the readable section.
     ///
@@ -1605,25 +1608,5 @@ extension SwiftNetworkQUICConnection: QUICConnectionProtocol where Consumer: ~Co
 
     func flushDatagrams() {
         self.datagramTransport?.flush()
-    }
-}
-
-// MARK: QUIC Connection Path
-
-@available(anyAppleOS 26, *)
-extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
-    /// Wires a path's output handler to drain/append through the path itself, and to trigger
-    /// an out-of-band write when frames become available outside a read loop.
-    private func wireHandlers(for path: QUICConnectionPath) {
-        path.outputHandler.setInputFramesHandler {
-            path.drainInboundFrames(maximumDatagramCount: $0)
-        }
-
-        path.outputHandler.setFinalizeOutputFramesHandler { frames in
-            path.appendOutboundFrames(frames)
-            if !self.inReadLoop, path.hasQueuedOutboundData {
-                self.triggerOutOfBandWriteEvent()
-            }
-        }
     }
 }

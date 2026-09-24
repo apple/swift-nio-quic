@@ -31,15 +31,10 @@ struct QUICConnectionPathTests {
             identifier: "test-context",
             externalScheduler: EventLoopBackedScheduler(eventLoop: eventLoop)
         )
-        let outputHandler = QUICChannelOutputHandler(
-            role: .server,
-            logger: Logger(label: "test"),
-            context: context,
-            framePool: .makePool(forGSO: false)
-        )
         return QUICConnectionPath(
+            role: .server,
             remoteAddress: remoteAddress,
-            outputHandler: outputHandler,
+            context: context,
             framePool: .makePool(forGSO: false),
             isValidated: isValidated,
             maxSegments: 1,
@@ -86,5 +81,46 @@ struct QUICConnectionPathTests {
         if result != nil {
             Issue.record("Expected nil when draining empty queue")
         }
+    }
+
+    @available(anyAppleOS 26, *)
+    @Test
+    func sendDatagramsQueuesAndNotifiesDelegate() throws {
+        let path = self.makePath()
+        let delegate = RecordingPathDelegate()
+        path.setDelegate(delegate)
+
+        if let datagrams = try path.getDatagramsToSend(.init(), maximumDatagramCount: 2, minimumDatagramSize: 100) {
+            try path.sendDatagrams(.init(), datagrams: datagrams)
+        }
+
+        #expect(delegate.queuedCounts == [2])
+        #expect(path.hasQueuedOutboundData)
+    }
+
+    @available(anyAppleOS 26, *)
+    @Test
+    func pathWithoutDelegateDropsDatagrams() throws {
+        let path = self.makePath()
+
+        if let datagrams = try path.getDatagramsToSend(.init(), maximumDatagramCount: 2, minimumDatagramSize: 100) {
+            try path.sendDatagrams(.init(), datagrams: datagrams)
+        }
+        #expect(!path.hasQueuedOutboundData)
+
+        path.enqueueInboundPacket(ByteBuffer(repeating: 0xAA, count: 50))
+        let received = try path.receiveDatagrams(.init(), maximumDatagramCount: 10)
+        if received != nil {
+            Issue.record("Expected no inbound datagrams without a delegate")
+        }
+    }
+}
+
+@available(anyAppleOS 26, *)
+private final class RecordingPathDelegate: QUICConnectionPathDelegate {
+    var queuedCounts: [Int] = []
+
+    func outboundDatagramsQueued(on path: QUICConnectionPath, count: Int) {
+        self.queuedCounts.append(count)
     }
 }
