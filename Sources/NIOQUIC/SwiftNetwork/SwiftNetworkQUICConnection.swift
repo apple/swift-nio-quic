@@ -489,7 +489,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
         path: SwiftNetwork.PathProperties,
         keyLogPath: String?
     ) {
-        self.activePath.setConnectionView(PathView(self))
+        self.activePath.attach(PathView(self))
 
         do {
             try self.swiftNetworkQUICConnection.attachLowerDatagramProtocolForNewPath(
@@ -815,8 +815,8 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
         // Break cycle with the datagram transport, which holds this connection as its reader.
         self.datagramTransport?.close()
         self.datagramTransport = nil
-        // Break cycle with the active path, which holds a view of this connection.
-        self.activePath.clearConnectionView()
+        // Detach the active path: breaks its cycle with this connection and makes it drop late packets.
+        self.activePath.detach()
         // Break cycle with the stream table's 'outOfBandDrain'.
         self.streamTable?.outOfBandDrain = nil
     }

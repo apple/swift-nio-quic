@@ -57,8 +57,16 @@ final class QUICConnectionPath<Consumer: QUICStreamConsumer & ~Copyable>:
     private var upperProtocol = UpperProtocol(reference: .init())
     private var asLower: OutboundDatagramLinkage { .init(reference: reference) }
 
-    /// The view of the connection this path reports to.
-    private var connectionView: SwiftNetworkQUICConnection<Consumer>.PathView?
+    private enum State {
+        /// Not attached to a connection yet.
+        case idle
+        /// Attached to the related connection.
+        case attached(SwiftNetworkQUICConnection<Consumer>.PathView)
+        /// Detached from its connection on teardown.
+        case detached
+    }
+
+    private var state: State = .idle
 
     private let framePool: FramePool
     private var coalescer: GSOCoalescer
@@ -95,17 +103,12 @@ final class QUICConnectionPath<Consumer: QUICStreamConsumer & ~Copyable>:
         self.coalescer.finalizeAllFramesAsFailed()
     }
 
-    /// Sets the view of the connection this path reports to. Each call overwrites the previous view.
-    func setConnectionView(_ view: SwiftNetworkQUICConnection<Consumer>.PathView) {
-        self.connectionView = view
+    /// Attaches the path to the connection behind `view`, which it reports to.
+    func attach(_ view: SwiftNetworkQUICConnection<Consumer>.PathView) {
+        self.state = .attached(view)
     }
 
-    /// Local logging function to debug the datapath
-    ///
-    /// This layer adds the context and fetches the message only if the debug flags are enabled.
-    ///
-    /// - Parameters:
-    ///     - logMessage: The logMessage that is fetched by an autoclosure.  For performance reasons we could gate this behind a flag.
+    /// Log a message. Disabled in DEBUG builds.
     func log(_ logMessage: @autoclosure () -> String) {
         #if DEBUG
         let message = logMessage()
@@ -134,9 +137,15 @@ final class QUICConnectionPath<Consumer: QUICStreamConsumer & ~Copyable>:
     }
 
     func enqueueInboundPacket(_ packet: NIOCore.ByteBuffer) {
-        var packet = packet
-        packet.withUnsafeMutableReadableBytesWithStorageManagement2 { buffer, owner in
-            self.inputPacketQueue.add(frame: Frame(customBuffer: buffer, owner: owner))
+        switch self.state {
+        case .idle, .attached:
+            var packet = packet
+            packet.withUnsafeMutableReadableBytesWithStorageManagement2 { buffer, owner in
+                self.inputPacketQueue.add(frame: Frame(customBuffer: buffer, owner: owner))
+            }
+        case .detached:
+            // A late packet for a torn-down connection: drop it instead of holding it until deinit.
+            return
         }
     }
 
@@ -171,9 +180,10 @@ final class QUICConnectionPath<Consumer: QUICStreamConsumer & ~Copyable>:
 
     // MARK: - Teardown
 
-    /// Drops the view of the connection, breaking the cycle with it.
-    func clearConnectionView() {
-        self.connectionView = nil
+    /// Detaches the path from its connection, breaking the cycle with it. A detached path drops inbound
+    /// packets and outbound datagrams.
+    func detach() {
+        self.state = .detached
     }
 }
 
@@ -237,15 +247,12 @@ extension QUICConnectionPath: LowerProtocolHandler where Consumer: ~Copyable {
         return asLower
     }
 
-    // Gets the inbound packets queued by `enqueueInboundPacket(_:)`. A detached path delivers none.
+    // Gets the inbound packets queued by `enqueueInboundPacket(_:)`.
     func receiveDatagrams(
         _ from: SwiftNetwork.ProtocolInstanceReference,
         maximumDatagramCount: Int
     ) throws(SwiftNetwork.NetworkError) -> SwiftNetwork.FrameArray? {
-        if self.connectionView == nil {
-            return nil
-        }
-        return self.drainInboundFrames(maximumDatagramCount: maximumDatagramCount)
+        self.drainInboundFrames(maximumDatagramCount: maximumDatagramCount)
     }
 
     // Allocates storage for a default frame array to be filled with data
@@ -270,13 +277,14 @@ extension QUICConnectionPath: LowerProtocolHandler where Consumer: ~Copyable {
         datagrams: consuming SwiftNetwork.FrameArray
     ) throws(SwiftNetwork.NetworkError) {
         log("received finalize output frames")
-        guard let connectionView = self.connectionView else {
-            self.logger.error("path has no connection view: dropping frame array with \(datagrams.count) frames")
+        switch self.state {
+        case .attached(let connectionView):
+            let count = datagrams.count
+            self.appendOutboundFrames(datagrams)
+            connectionView.outboundDatagramsQueued(on: self, count: count)
+        case .idle, .detached:
+            self.logger.error("path is not attached: dropping frame array with \(datagrams.count) frames")
             datagrams.finalizeAllFramesAsFailed()
-            return
         }
-        let count = datagrams.count
-        self.appendOutboundFrames(datagrams)
-        connectionView.outboundDatagramsQueued(on: self, count: count)
     }
 }

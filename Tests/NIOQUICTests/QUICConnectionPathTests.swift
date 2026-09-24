@@ -85,18 +85,22 @@ struct QUICConnectionPathTests {
 
     @available(anyAppleOS 26, *)
     @Test
-    func pathWithoutConnectionViewDropsDatagrams() throws {
+    func idlePathDropsOutboundDatagrams() throws {
         let path = self.makePath()
 
         if let datagrams = try path.getDatagramsToSend(.init(), maximumDatagramCount: 2, minimumDatagramSize: 100) {
             try path.sendDatagrams(.init(), datagrams: datagrams)
         }
         #expect(!path.hasQueuedOutboundData)
+    }
+
+    @available(anyAppleOS 26, *)
+    @Test
+    func detachedPathDropsInboundPackets() {
+        let path = self.makePath()
+        path.detach()
 
         path.enqueueInboundPacket(ByteBuffer(repeating: 0xAA, count: 50))
-        let received = try path.receiveDatagrams(.init(), maximumDatagramCount: 10)
-        if received != nil {
-            Issue.record("Expected no inbound datagrams without a connection view")
-        }
+        #expect(!path.hasQueuedInboundPackets)
     }
 }
