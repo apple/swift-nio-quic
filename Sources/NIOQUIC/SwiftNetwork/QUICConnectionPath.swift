@@ -43,17 +43,13 @@ final class QUICConnectionPath<Consumer: QUICStreamConsumer & ~Copyable>:
     /// QUIC path validation status.
     var isValidated: Bool
 
-    // Private Constant state
     private let logger: Logger
-    private let defaultFrameSize: Int = 1400
+    private var logPrefix: String
 
-    // Internal Mutable state
-    internal var logPrefix: String
+    // SwiftNetwork requirements for protocol conformance
     internal var reference: ProtocolInstanceReference { ProtocolInstanceReference(custom: self) }
     internal var eventManager = ProtocolEventManager()
     internal var context: SwiftNetwork.NetworkContext
-
-    // Private mutable state
     private var upperProtocol = UpperProtocol(reference: .init())
     private var asLower: OutboundDatagramLinkage { .init(reference: reference) }
 
