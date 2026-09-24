@@ -48,6 +48,8 @@ public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
 
     /// A registry of connections.
     private var connectionRegistry: ConnectionRegistry<QUICConnectionChannel<Consumer>.TransportView>
+    /// Decides whether new connections may be admitted, and tracks the state that depends on.
+    private var connectionAdmissionController: ConnectionAdmissionController
 
     /// How new connections are surfaced to the user: either a multiplexer continuation or a pair
     /// of initializer closures.
@@ -122,6 +124,11 @@ public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
         self.connectionHandle = .initial
         self.connectionRegistry = ConnectionRegistry()
         self.makeConsumer = makeConsumer
+        self.connectionAdmissionController = makeConnectionAdmissionController(
+            for: quicConfiguration,
+            logger: logger,
+            eventLoop: channel.eventLoop
+        )
     }
 
     /// Shuts the server down gracefully.
@@ -224,7 +231,9 @@ public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
 
             let streamCreator = channel.makeStreamCreator(role: self.quicConfiguration.role)
             let activePromise = self.eventLoop.makePromise(of: Void.self)
-            view.initialize(promise: activePromise) { channel in
+            let handshakePromise = self.eventLoop.makePromise(of: Void.self)
+
+            view.initialize(readyPromise: activePromise, handshakePromise: handshakePromise) { channel in
                 connectionInitializer(channel, streamCreator)
             }
 
@@ -238,6 +247,11 @@ public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
                         promise.fail(error)
                     }
                 }
+
+            handshakePromise.futureResult.assumeIsolated().whenComplete { _ in
+                // Make sure we release the slot for new connections.
+                self.connectionAdmissionController.finishedHandshake()
+            }
 
             channel.closeFuture.assumeIsolated().whenComplete { _ in
                 self.connectionDidClose(handle)
@@ -732,13 +746,25 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
                     // pass packets with unknown versions to Swift QUIC to initiate version
                     // negotation.
                     if header.type == .initial || header.type == .versionNegotiation {
-                        try self.acceptNewConnection(
-                            for: addressedEnvelope,
-                            sourceConnectionID: header.sourceConnectionID,
-                            destinationConnectionID: header.destinationConnectionID,
-                            // This force unwrap is fine. We really need to have a local address at this point
-                            localAddress: context.localAddress!
-                        )
+                        switch self.connectionAdmissionController.acceptNewConnection() {
+                        case .accept:
+                            try self.acceptNewConnection(
+                                for: addressedEnvelope,
+                                sourceConnectionID: header.sourceConnectionID,
+                                destinationConnectionID: header.destinationConnectionID,
+                                // This force unwrap is fine. We really need to have a local address at this point
+                                localAddress: context.localAddress!
+                            )
+                        case .drop(let reason):
+                            self.logger.trace(
+                                "QUICHandler dropping new connection: \(reason)",
+                                metadata: [
+                                    LoggingKeys.addressRemote: "\(addressedEnvelope.remoteAddress)",
+                                    LoggingKeys.connectionDCID:
+                                        "\(header.destinationConnectionID.description)",
+                                ]
+                            )
+                        }
                     } else {
                         self.logger.trace(
                             "QUICHandler dropping non-INITIAL packet without a connection",
@@ -895,6 +921,7 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
 
             let view = channel.transportView
             self.connectionRegistry.insert(view, forHandle: handle, connectionID: newSourceConnectionID)
+
             // Keep track of the original DCID the peer used in case they retransmit or send
             // additional INITIAL packets.
             // TODO: Remove the DCID alias from multiplexing.
@@ -904,7 +931,9 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
 
             let streamCreator = channel.makeStreamCreator(role: role)
             let initPromise = self.eventLoop.makePromise(of: Void.self)
-            view.initialize(promise: initPromise) { ch in
+            let handshakePromise = self.eventLoop.makePromise(of: Void.self)
+
+            view.initialize(readyPromise: initPromise, handshakePromise: handshakePromise) { ch in
                 connectionInitializer(ch, streamCreator)
             }
 
@@ -919,7 +948,13 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
                 }
             }
 
+            handshakePromise.futureResult.assumeIsolated().whenComplete { _ in
+                // Make sure we release the slot for new connections.
+                self.connectionAdmissionController.finishedHandshake()
+            }
+
             channel.closeFuture.assumeIsolated().whenComplete { _ in
+                self.connectionAdmissionController.closingConnection()
                 self.connectionDidClose(handle)
             }
 
@@ -930,6 +965,7 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
             )
             let view = channel.transportView
             self.connectionRegistry.insert(view, forHandle: handle, connectionID: newSourceConnectionID)
+
             // Keep track of the original DCID the peer used in case they retransmit or send
             // additional INITIAL packets.
             // TODO: Remove the DCID alias from multiplexing.
@@ -940,8 +976,9 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
             let outputPromise = self.eventLoop.makePromise(of: (any Sendable).self)
             let initPromise = self.eventLoop.makePromise(of: Void.self)
             initPromise.futureResult.cascadeFailure(to: outputPromise)
+            let handshakePromise = self.eventLoop.makePromise(of: Void.self)
 
-            view.initialize(promise: initPromise) { _ in
+            view.initialize(readyPromise: initPromise, handshakePromise: handshakePromise) { _ in
                 multiplexerContinuation.initialize(
                     channel: channel,
                     logger: connectionLogger
@@ -967,7 +1004,13 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
                     }
                 }
 
+            handshakePromise.futureResult.assumeIsolated().whenComplete { _ in
+                // Make sure we release the slot for new connections.
+                self.connectionAdmissionController.finishedHandshake()
+            }
+
             channel.closeFuture.assumeIsolated().whenComplete { _ in
+                self.connectionAdmissionController.closingConnection()
                 self.connectionDidClose(handle)
             }
 
@@ -984,7 +1027,11 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
             }
 
             let initPromise = self.eventLoop.makePromise(of: Void.self)
-            view.initialize(promise: initPromise) { $0.eventLoop.makeSucceededVoidFuture() }
+            let handshakePromise = self.eventLoop.makePromise(of: Void.self)
+
+            view.initialize(readyPromise: initPromise, handshakePromise: handshakePromise) {
+                $0.eventLoop.makeSucceededVoidFuture()
+            }
 
             initPromise.futureResult.assumeIsolated().whenComplete { result in
                 switch result {
@@ -993,6 +1040,11 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
                 case .failure:
                     ()
                 }
+            }
+
+            handshakePromise.futureResult.assumeIsolated().whenComplete { _ in
+                // Make sure we release the slot for new connections.
+                self.connectionAdmissionController.finishedHandshake()
             }
 
             channel.closeFuture.assumeIsolated().whenComplete { _ in
@@ -1178,4 +1230,32 @@ struct ConnectionHandle: Hashable, Sendable {
         next.formNext()
         return next
     }
+}
+
+/// Create a connection admission control for connection limits based on a given QUIC configuration
+@available(anyAppleOS 26, *)
+private func makeConnectionAdmissionController(
+    for configuration: QUICConfiguration,
+    logger: Logger,
+    eventLoop: any EventLoop
+) -> ConnectionAdmissionController {
+
+    let activeLimit = configuration.connectionLimit
+    let handshakeLimit = configuration.handshakeConnectionLimit
+    if activeLimit > 0, handshakeLimit > 0, handshakeLimit > activeLimit {
+        logger.trace(
+            "QUICConfiguration.handshakeConnectionLimit is looser than connectionLimit; the active limit binds first, so the handshake limit has no effect",
+            metadata: [
+                LoggingKeys.connectionLimitActive: "\(activeLimit)",
+                LoggingKeys.connectionLimitHandshake: "\(handshakeLimit)",
+            ]
+        )
+    }
+
+    return ConnectionAdmissionController(
+        activeLimit: configuration.connectionLimit,
+        handshakeLimit: configuration.handshakeConnectionLimit,
+        newConnectionRateLimit: configuration.newConnectionRateLimit,
+        eventLoop: eventLoop
+    )
 }
