@@ -48,6 +48,8 @@ struct ConnectionAdmissionController: ~Copyable {
     private let handshakeLimit: Int
     /// Throttles how fast new connection attempts are admitted. `nil` when unbounded.
     private var rateLimiter: TokenBucket?
+    /// Supplies the current time for the rate limit.
+    private let eventLoop: any EventLoop
 
     /// Number of connections admitted and not yet closed.
     private var activeCount: Int
@@ -60,14 +62,23 @@ struct ConnectionAdmissionController: ~Copyable {
     ///     unbounded.
     ///   - newConnectionRateLimit: Maximum new-connection attempts per second, or `0` for
     ///     unbounded.
-    init(activeLimit: Int, handshakeLimit: Int, newConnectionRateLimit: Int) {
+    ///   - eventLoop: Supplies the current time for the rate limit, so `EmbeddedEventLoop`-based
+    ///     tests can control it with `advanceTime(by:)`.
+    init(
+        activeLimit: Int,
+        handshakeLimit: Int,
+        newConnectionRateLimit: Int,
+        eventLoop: any EventLoop
+    ) {
         self.activeLimit = activeLimit
         self.handshakeLimit = handshakeLimit
+        self.eventLoop = eventLoop
         self.rateLimiter =
             newConnectionRateLimit > 0
             ? TokenBucket(
                 capacity: newConnectionRateLimit,
-                refillInterval: .nanoseconds(1_000_000_000 / Int64(newConnectionRateLimit))
+                refillInterval: .nanoseconds(1_000_000_000 / Int64(newConnectionRateLimit)),
+                now: eventLoop.now
             )
             : nil
         self.activeCount = 0
@@ -89,7 +100,7 @@ struct ConnectionAdmissionController: ~Copyable {
         if self.handshakeLimit > 0, self.handshakeCount >= self.handshakeLimit {
             return .drop(.handshakeLimitReached)
         }
-        if let withinRateLimit = self.rateLimiter?.tryConsume(), !withinRateLimit {
+        if let withinRateLimit = self.rateLimiter?.tryConsume(now: self.eventLoop.now), !withinRateLimit {
             return .drop(.rateLimited)
         }
         self.activeCount += 1

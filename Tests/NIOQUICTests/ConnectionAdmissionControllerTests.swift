@@ -12,6 +12,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+import NIOEmbedded
 import Testing
 
 @testable import NIOQUIC
@@ -19,7 +20,12 @@ import Testing
 struct ConnectionAdmissionControllerTests {
     @Test
     func unboundedAlwaysAccepts() {
-        var controller = ConnectionAdmissionController(activeLimit: 0, handshakeLimit: 0, newConnectionRateLimit: 0)
+        var controller = ConnectionAdmissionController(
+            activeLimit: 0,
+            handshakeLimit: 0,
+            newConnectionRateLimit: 0,
+            eventLoop: EmbeddedEventLoop()
+        )
         for _ in 0..<1_000 {
             #expect(controller.acceptNewConnection() == .accept)
         }
@@ -27,7 +33,12 @@ struct ConnectionAdmissionControllerTests {
 
     @Test
     func activeLimitDropsAtTheLimit() {
-        var controller = ConnectionAdmissionController(activeLimit: 2, handshakeLimit: 0, newConnectionRateLimit: 0)
+        var controller = ConnectionAdmissionController(
+            activeLimit: 2,
+            handshakeLimit: 0,
+            newConnectionRateLimit: 0,
+            eventLoop: EmbeddedEventLoop()
+        )
 
         #expect(controller.acceptNewConnection() == .accept)
         #expect(controller.acceptNewConnection() == .accept)
@@ -36,7 +47,12 @@ struct ConnectionAdmissionControllerTests {
 
     @Test
     func handshakeLimitDropsEvenWhenActiveLimitHasRoom() {
-        var controller = ConnectionAdmissionController(activeLimit: 10, handshakeLimit: 1, newConnectionRateLimit: 0)
+        var controller = ConnectionAdmissionController(
+            activeLimit: 10,
+            handshakeLimit: 1,
+            newConnectionRateLimit: 0,
+            eventLoop: EmbeddedEventLoop()
+        )
 
         #expect(controller.acceptNewConnection() == .accept)
         #expect(controller.acceptNewConnection() == .drop(.handshakeLimitReached))
@@ -44,7 +60,12 @@ struct ConnectionAdmissionControllerTests {
 
     @Test
     func activeLimitReachedDropsBeforeHandshakeLimitIsChecked() {
-        var controller = ConnectionAdmissionController(activeLimit: 1, handshakeLimit: 5, newConnectionRateLimit: 0)
+        var controller = ConnectionAdmissionController(
+            activeLimit: 1,
+            handshakeLimit: 5,
+            newConnectionRateLimit: 0,
+            eventLoop: EmbeddedEventLoop()
+        )
         #expect(controller.acceptNewConnection() == .accept)
         controller.finishedHandshake()
 
@@ -54,7 +75,12 @@ struct ConnectionAdmissionControllerTests {
 
     @Test
     func rateLimitDropsIndependentlyOfCounts() {
-        var controller = ConnectionAdmissionController(activeLimit: 0, handshakeLimit: 0, newConnectionRateLimit: 1)
+        var controller = ConnectionAdmissionController(
+            activeLimit: 0,
+            handshakeLimit: 0,
+            newConnectionRateLimit: 1,
+            eventLoop: EmbeddedEventLoop()
+        )
 
         #expect(controller.acceptNewConnection() == .accept)
         #expect(controller.acceptNewConnection() == .drop(.rateLimited))
@@ -62,7 +88,12 @@ struct ConnectionAdmissionControllerTests {
 
     @Test
     func countLimitsTakePriorityOverRateLimit() {
-        var controller = ConnectionAdmissionController(activeLimit: 1, handshakeLimit: 1, newConnectionRateLimit: 1)
+        var controller = ConnectionAdmissionController(
+            activeLimit: 1,
+            handshakeLimit: 1,
+            newConnectionRateLimit: 1,
+            eventLoop: EmbeddedEventLoop()
+        )
 
         #expect(controller.acceptNewConnection() == .accept)
 
@@ -72,7 +103,12 @@ struct ConnectionAdmissionControllerTests {
 
     @Test
     func countLimitRejectionDoesNotConsumeARateLimitToken() {
-        var controller = ConnectionAdmissionController(activeLimit: 1, handshakeLimit: 0, newConnectionRateLimit: 2)
+        var controller = ConnectionAdmissionController(
+            activeLimit: 1,
+            handshakeLimit: 0,
+            newConnectionRateLimit: 2,
+            eventLoop: EmbeddedEventLoop()
+        )
 
         #expect(controller.acceptNewConnection() == .accept)
         // The active limit was reached.
@@ -88,7 +124,12 @@ struct ConnectionAdmissionControllerTests {
 
     @Test
     func closingConnectionAfterHandshakeFreesOnlyTheActiveSlot() {
-        var controller = ConnectionAdmissionController(activeLimit: 1, handshakeLimit: 1, newConnectionRateLimit: 0)
+        var controller = ConnectionAdmissionController(
+            activeLimit: 1,
+            handshakeLimit: 1,
+            newConnectionRateLimit: 0,
+            eventLoop: EmbeddedEventLoop()
+        )
 
         #expect(controller.acceptNewConnection() == .accept)
         controller.finishedHandshake()

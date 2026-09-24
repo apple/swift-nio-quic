@@ -126,7 +126,8 @@ public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
         self.makeConsumer = makeConsumer
         self.connectionAdmissionController = makeConnectionAdmissionController(
             for: quicConfiguration,
-            logger: logger
+            logger: logger,
+            eventLoop: channel.eventLoop
         )
     }
 
@@ -1235,7 +1236,8 @@ struct ConnectionHandle: Hashable, Sendable {
 @available(anyAppleOS 26, *)
 private func makeConnectionAdmissionController(
     for configuration: QUICConfiguration,
-    logger: Logger
+    logger: Logger,
+    eventLoop: any EventLoop
 ) -> ConnectionAdmissionController {
 
     let activeLimit = configuration.connectionLimit
@@ -1253,6 +1255,7 @@ private func makeConnectionAdmissionController(
     return ConnectionAdmissionController(
         activeLimit: configuration.connectionLimit,
         handshakeLimit: configuration.handshakeConnectionLimit,
-        newConnectionRateLimit: configuration.newConnectionRateLimit
+        newConnectionRateLimit: configuration.newConnectionRateLimit,
+        eventLoop: eventLoop
     )
 }
