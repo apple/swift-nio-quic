@@ -664,8 +664,10 @@ final class QUICHandlerTests: XCTestCase {
         }
         XCTAssertFalse(try self.isRoutable(dropped, on: channel))
 
-        // One refill interval (1s / 5 = 200ms) later, a token is available again.
-        Thread.sleep(forTimeInterval: 0.4)
+        // One refill interval (1s / 5 = 200ms) later, a token is available again. The handler
+        // reads time from the event loop, so advancing the embedded loop's clock is enough —
+        // no real sleep needed.
+        eventLoop.advanceTime(by: .milliseconds(200))
 
         let acceptedAfterRefill = QUICConnectionID.random(using: &self.randomNumberGenerator)
         try self.fireInitial(acceptedAfterRefill, on: channel)
