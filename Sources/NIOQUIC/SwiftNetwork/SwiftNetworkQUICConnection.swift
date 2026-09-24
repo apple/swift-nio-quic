@@ -71,7 +71,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
         self.activePath.remoteAddress
     }
     // The active path of this connection. For now there is only ever one path.
-    private var activePath: QUICConnectionPath
+    private var activePath: QUICConnectionPath<Consumer>
     // The pool for frames shared across QUIC connection paths.
     private let framePool: FramePool
     // The GSO settings every path on this connection is built with.
@@ -143,7 +143,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
         // Enabling batching stops the underlying connection from producing (most) datagrams until
         // batching is disabled again, at which point any queued outbound writes will be emitted.
         // This allows outbound writes to be better packed into datagrams. Any outbound writes are
-        // emitted into `outboundDatagramsQueued(on:count:)` soon after batching is disabled.
+        // emitted into `handleOutboundDatagramsQueued(on:count:)` soon after batching is disabled.
         newFlowHandler.outboundBatching(enabled)
     }
 
@@ -489,7 +489,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
         path: SwiftNetwork.PathProperties,
         keyLogPath: String?
     ) {
-        self.activePath.setDelegate(self)
+        self.activePath.setConnectionView(PathView(self))
 
         do {
             try self.swiftNetworkQUICConnection.attachLowerDatagramProtocolForNewPath(
@@ -815,8 +815,8 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
         // Break cycle with the datagram transport, which holds this connection as its reader.
         self.datagramTransport?.close()
         self.datagramTransport = nil
-        // Break cycle with the active path, which holds this connection as its delegate.
-        self.activePath.clearDelegate()
+        // Break cycle with the active path, which holds a view of this connection.
+        self.activePath.clearConnectionView()
         // Break cycle with the stream table's 'outOfBandDrain'.
         self.streamTable?.outOfBandDrain = nil
     }
@@ -1443,8 +1443,8 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
 
 // Callbacks coming from QUICConnectionPath
 @available(anyAppleOS 26, *)
-extension SwiftNetworkQUICConnection: QUICConnectionPathDelegate where Consumer: ~Copyable {
-    func outboundDatagramsQueued(on path: QUICConnectionPath, count: Int) {
+extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
+    private func handleOutboundDatagramsQueued(on path: QUICConnectionPath<Consumer>, count: Int) {
         self.log("finalizeOutputFrames: \(count)")
         if !self.inReadLoop, path.hasQueuedOutboundData {
             self.triggerOutOfBandWriteEvent()
@@ -1542,6 +1542,19 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
 
         func retireConnectionID(_ cid: QUICConnectionID) {
             self.connection.handleRetireConnectionID(cid)
+        }
+    }
+
+    /// A view over the connection for the `QUICConnectionPath`.
+    struct PathView {
+        private let connection: SwiftNetworkQUICConnection
+
+        fileprivate init(_ connection: SwiftNetworkQUICConnection) {
+            self.connection = connection
+        }
+
+        func outboundDatagramsQueued(on path: QUICConnectionPath<Consumer>, count: Int) {
+            self.connection.handleOutboundDatagramsQueued(on: path, count: count)
         }
     }
 

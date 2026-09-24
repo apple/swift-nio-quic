@@ -24,20 +24,15 @@ import Glibc
 import Musl
 #endif
 
-/// The connection-side interface of a ``QUICConnectionPath``.
-@available(anyAppleOS 26, *)
-protocol QUICConnectionPathDelegate: AnyObject {
-    /// SwiftNetwork handed `path` a batch of `count` outbound datagrams, which the path queued for sending.
-    func outboundDatagramsQueued(on path: QUICConnectionPath, count: Int)
-}
-
-/// One network path for a connection: its GSO coalescer and inbound queue.
+/// One network path for a connection.
 ///
 /// The path is the bridge between SwiftNetwork and our code on the network-side. It is attached to
 /// the SwiftNetwork `QUICConnectionImplementation` as the lower datagram protocol of this path and
 /// deals with both getting bytes in and out of it.
 @available(anyAppleOS 26, *)
-final class QUICConnectionPath: ProtocolInstanceContainer, OutboundDatagramHandler {
+final class QUICConnectionPath<Consumer: QUICStreamConsumer & ~Copyable>:
+    ProtocolInstanceContainer, OutboundDatagramHandler
+{
 
     typealias UpperProtocol = InboundDatagramLinkage
 
@@ -62,10 +57,8 @@ final class QUICConnectionPath: ProtocolInstanceContainer, OutboundDatagramHandl
     private var upperProtocol = UpperProtocol(reference: .init())
     private var asLower: OutboundDatagramLinkage { .init(reference: reference) }
 
-    /// The connection this path reports to. Held strongly: the delegate owns this path, so it must break
-    /// the cycle with `clearDelegate()`. While `nil`, the path is detached: it drops outbound datagrams and
-    /// doesn't deliver inbound ones.
-    private var delegate: (any QUICConnectionPathDelegate)?
+    /// The view of the connection this path reports to.
+    private var connectionView: SwiftNetworkQUICConnection<Consumer>.PathView?
 
     private let framePool: FramePool
     private var coalescer: GSOCoalescer
@@ -102,9 +95,9 @@ final class QUICConnectionPath: ProtocolInstanceContainer, OutboundDatagramHandl
         self.coalescer.finalizeAllFramesAsFailed()
     }
 
-    /// Sets the connection this path reports to. Each call overwrites the previous delegate.
-    func setDelegate(_ delegate: any QUICConnectionPathDelegate) {
-        self.delegate = delegate
+    /// Sets the view of the connection this path reports to. Each call overwrites the previous view.
+    func setConnectionView(_ view: SwiftNetworkQUICConnection<Consumer>.PathView) {
+        self.connectionView = view
     }
 
     /// Local logging function to debug the datapath
@@ -178,14 +171,14 @@ final class QUICConnectionPath: ProtocolInstanceContainer, OutboundDatagramHandl
 
     // MARK: - Teardown
 
-    /// Drops the reference to the delegate, breaking the cycle with it.
-    func clearDelegate() {
-        self.delegate = nil
+    /// Drops the view of the connection, breaking the cycle with it.
+    func clearConnectionView() {
+        self.connectionView = nil
     }
 }
 
 @available(anyAppleOS 26, *)
-extension QUICConnectionPath: LowerProtocolHandler {
+extension QUICConnectionPath: LowerProtocolHandler where Consumer: ~Copyable {
     func getMetrics(
         _ from: SwiftNetwork.ProtocolInstanceReference,
         requestedNetworkMetric: SwiftNetwork.RequestedNetworkMetrics
@@ -249,7 +242,7 @@ extension QUICConnectionPath: LowerProtocolHandler {
         _ from: SwiftNetwork.ProtocolInstanceReference,
         maximumDatagramCount: Int
     ) throws(SwiftNetwork.NetworkError) -> SwiftNetwork.FrameArray? {
-        if self.delegate == nil {
+        if self.connectionView == nil {
             return nil
         }
         return self.drainInboundFrames(maximumDatagramCount: maximumDatagramCount)
@@ -271,19 +264,19 @@ extension QUICConnectionPath: LowerProtocolHandler {
         return array
     }
 
-    // Queues the datagram frames for sending and tells the delegate about them.
+    // Queues the datagram frames for sending and tells the connection about them.
     func sendDatagrams(
         _ from: SwiftNetwork.ProtocolInstanceReference,
         datagrams: consuming SwiftNetwork.FrameArray
     ) throws(SwiftNetwork.NetworkError) {
         log("received finalize output frames")
-        guard let delegate = self.delegate else {
-            self.logger.error("path has no delegate: dropping frame array with \(datagrams.count) frames")
+        guard let connectionView = self.connectionView else {
+            self.logger.error("path has no connection view: dropping frame array with \(datagrams.count) frames")
             datagrams.finalizeAllFramesAsFailed()
             return
         }
         let count = datagrams.count
         self.appendOutboundFrames(datagrams)
-        delegate.outboundDatagramsQueued(on: self, count: count)
+        connectionView.outboundDatagramsQueued(on: self, count: count)
     }
 }
