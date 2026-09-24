@@ -211,7 +211,7 @@ final class QUICHandlerTests: XCTestCase {
         )
         XCTAssertEqual(outboundHeader?.sourceConnectionID, connectionID)
         XCTAssertEqual(outboundHeader?.destinationConnectionID, connectionID)
-        XCTAssertEqual(outboundHeader?.type, .versionNegotiation)
+        XCTAssertEqual(outboundHeader?.type, .unsupportedVersion)
     }
 
     func testChannelReadComplete_whenNoWrite() throws {
@@ -382,6 +382,103 @@ final class QUICHandlerTests: XCTestCase {
         channel.pipeline.fireChannelReadComplete()
 
         XCTAssertNil(try channel.readOutbound(as: AddressedEnvelope<ByteBuffer>.self))
+    }
+
+    // MARK: - Version negotiation
+
+    func testChannelRead_whenUnsupportedVersionPacketIsLargeEnough_sendsVersionNegotiation() throws {
+        let destinationID = QUICConnectionID.random(using: &self.randomNumberGenerator)
+        let sourceID = QUICConnectionID.random(using: &self.randomNumberGenerator)
+        let packet = QUICPackets.versionNegotiation(
+            destinationID: destinationID,
+            sourceID: sourceID,
+            version: [0xDE, 0xAD, 0xBE, 0xEF],
+            payloadLength: 1200
+        )
+        let address = try SocketAddress(ipAddress: "127.0.0.0", port: 443)
+        self.channel.pipeline.fireChannelRead(
+            AddressedEnvelope<ByteBuffer>(remoteAddress: address, data: ByteBuffer(bytes: packet))
+        )
+        self.channel.pipeline.fireChannelReadComplete()
+
+        let outbound = try XCTUnwrap(try self.channel.readOutbound(as: AddressedEnvelope<ByteBuffer>.self))
+        XCTAssertEqual(outbound.remoteAddress, address)
+
+        let outboundHeader = try XCTUnwrap(outbound.data.parseQUICPacketHeader(destinationIDLength: 8))
+        XCTAssertEqual(outboundHeader.type, .versionNegotiation)
+        XCTAssertEqual(outboundHeader.version, .negotiation)
+        // RFC 9000 § 17.2.1: the server echoes the incoming SCID as its DCID and vice versa.
+        XCTAssertEqual(outboundHeader.destinationConnectionID, sourceID)
+        XCTAssertEqual(outboundHeader.sourceConnectionID, destinationID)
+        // RFC 9000 § 6.3: advertise v1 plus the reserved/grease pattern, matching SwiftNetwork's
+        // own server-side `sendVersionNegotiation`.
+        XCTAssertEqual(
+            Array(outbound.data.readableBytesView.suffix(8)),
+            [0, 0, 0, 1, 0x1a, 0x2a, 0x3a, 0x4a]
+        )
+
+        XCTAssertNil(try self.channel.readOutbound(as: AddressedEnvelope<ByteBuffer>.self))
+    }
+
+    func testChannelRead_whenForcedVersionNegotiationPatternPacketIsLargeEnough_sendsVersionNegotiation() throws {
+        // RFC 9000 § 15: versions matching 0x?a?a?a?a are reserved to force a version
+        // negotiation exchange and must be treated the same as any other unsupported version.
+        let destinationID = QUICConnectionID.random(using: &self.randomNumberGenerator)
+        let sourceID = QUICConnectionID.random(using: &self.randomNumberGenerator)
+        let packet = QUICPackets.versionNegotiation(
+            destinationID: destinationID,
+            sourceID: sourceID,
+            version: [0x1a, 0x2a, 0x3a, 0x4a],
+            payloadLength: 1200
+        )
+        let address = try SocketAddress(ipAddress: "127.0.0.0", port: 443)
+        self.channel.pipeline.fireChannelRead(
+            AddressedEnvelope<ByteBuffer>(remoteAddress: address, data: ByteBuffer(bytes: packet))
+        )
+        self.channel.pipeline.fireChannelReadComplete()
+
+        let outbound = try XCTUnwrap(try self.channel.readOutbound(as: AddressedEnvelope<ByteBuffer>.self))
+        let outboundHeader = try XCTUnwrap(outbound.data.parseQUICPacketHeader(destinationIDLength: 8))
+        XCTAssertEqual(outboundHeader.version, .negotiation)
+        XCTAssertEqual(outboundHeader.destinationConnectionID, sourceID)
+        XCTAssertEqual(outboundHeader.sourceConnectionID, destinationID)
+
+        XCTAssertNil(try self.channel.readOutbound(as: AddressedEnvelope<ByteBuffer>.self))
+    }
+
+    func testChannelRead_whenUnsupportedVersionPacketIsTooSmall_sendsNoVersionNegotiation() throws {
+        // RFC 9000 § 5.2.2, § 14.1: servers MUST drop smaller packets that specify unsupported
+        // versions instead of responding.
+        let packet = QUICPackets.versionNegotiation(
+            destinationID: .random(using: &self.randomNumberGenerator),
+            sourceID: .random(using: &self.randomNumberGenerator),
+            version: [0xDE, 0xAD, 0xBE, 0xEF],
+            payloadLength: 0
+        )
+        let address = try SocketAddress(ipAddress: "127.0.0.0", port: 443)
+        self.channel.pipeline.fireChannelRead(
+            AddressedEnvelope<ByteBuffer>(remoteAddress: address, data: ByteBuffer(bytes: packet))
+        )
+        self.channel.pipeline.fireChannelReadComplete()
+
+        XCTAssertNil(try self.channel.readOutbound(as: AddressedEnvelope<ByteBuffer>.self))
+    }
+
+    func testChannelRead_whenActualVersionNegotiationPacketIsReceived_sendsNoVersionNegotiation() throws {
+        // RFC 9000 § 6.1: an endpoint MUST NOT send a Version Negotiation packet in response to
+        // receiving one (version is 0), even if the datagram is large enough to otherwise qualify.
+        let packet = QUICPackets.versionNegotiation(
+            destinationID: .random(using: &self.randomNumberGenerator),
+            sourceID: .random(using: &self.randomNumberGenerator),
+            payloadLength: 1200
+        )
+        let address = try SocketAddress(ipAddress: "127.0.0.0", port: 443)
+        self.channel.pipeline.fireChannelRead(
+            AddressedEnvelope<ByteBuffer>(remoteAddress: address, data: ByteBuffer(bytes: packet))
+        )
+        self.channel.pipeline.fireChannelReadComplete()
+
+        XCTAssertNil(try self.channel.readOutbound(as: AddressedEnvelope<ByteBuffer>.self))
     }
 
     // MARK: - Parsing failures
