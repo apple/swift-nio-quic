@@ -24,65 +24,87 @@ import Glibc
 import Musl
 #endif
 
-/// `QUICChannelOutputHandler` is the bridge between SwiftNetwork and our code on the network-side.
-/// It is registered with the SwiftNetwork `QUICConnectionImplementation` as an output handler.
-/// This object deals with both getting bytes in and out of the `QUICConnectionImplementation` on the network-side.
+/// One network path for a connection.
+///
+/// The path is the bridge between SwiftNetwork and our code on the network-side. It is attached to
+/// the SwiftNetwork `QUICConnection` as the lower datagram protocol of this path and deals with
+/// both getting bytes in and out of it.
 @available(anyAppleOS 26, *)
-final class QUICChannelOutputHandler: ProtocolInstanceContainer, OutboundDatagramHandler {
+final class QUICConnectionPath<Consumer: QUICStreamConsumer & ~Copyable>:
+    ProtocolInstanceContainer, OutboundDatagramHandler
+{
 
     typealias UpperProtocol = InboundDatagramLinkage
 
-    // Private Constant state
-    private let logger: Logger
-    private let defaultFrameSize: Int = 1400
+    /// The endpoint information (IP, port) for this path.
+    let remoteAddress: SocketAddress
+    /// Representation used by SwiftNetwork events.
+    let addressEndpoint: SwiftNetwork.AddressEndpoint
+    /// QUIC path validation status.
+    var isValidated: Bool
 
-    // Internal Mutable state
-    internal var logPrefix: String
+    private let logger: Logger
+    private var logPrefix: String
+
+    // SwiftNetwork requirements for protocol conformance
     internal var reference: ProtocolInstanceReference { ProtocolInstanceReference(custom: self) }
     internal var eventManager = ProtocolEventManager()
     internal var context: SwiftNetwork.NetworkContext
-
-    // Private mutable state
     private var upperProtocol = UpperProtocol(reference: .init())
     private var asLower: OutboundDatagramLinkage { .init(reference: reference) }
-    private var inputFramesHandler: ((Int) -> FrameArray?)?
-    private var finalizeOutputFramesHandler: ((consuming FrameArray) -> Void)?
+
+    private enum State {
+        /// Not attached to a connection yet.
+        case idle
+        /// Attached to the related connection.
+        case attached(SwiftNetworkQUICConnection<Consumer>.PathView)
+        /// Detached from its connection on teardown.
+        case detached
+    }
+
+    private var state: State = .idle
 
     private let framePool: FramePool
+    private var coalescer: GSOCoalescer
+    private var inputPacketQueue: FrameArray
 
     init(
         role: Role,
-        logger: Logger,
+        remoteAddress: SocketAddress,
         context: NetworkContext,
-        framePool: FramePool
+        framePool: FramePool,
+        isValidated: Bool,
+        maxSegments: Int,
+        bufferPoolCapacity: Int,
+        logger: Logger
     ) {
-        self.logPrefix = "[\(role.description)][OutputHandler]"
+        self.remoteAddress = remoteAddress
+        self.addressEndpoint = remoteAddress.toAddressEndpoint()
+        self.isValidated = isValidated
+        self.logPrefix = "[\(role.description)][Path]"
         self.logger = logger
         self.context = context
         self.framePool = framePool
+        self.coalescer = GSOCoalescer(
+            remoteAddress: remoteAddress,
+            framePool: framePool,
+            maxSegments: maxSegments,
+            bufferPoolCapacity: bufferPoolCapacity
+        )
+        self.inputPacketQueue = FrameArray(capacity: 10)
     }
 
-    func setInputFramesHandler(inputFramesHandler: @escaping (Int) -> FrameArray?) {
-        self.inputFramesHandler = inputFramesHandler
+    deinit {
+        self.inputPacketQueue.finalizeAllFramesAsFailed()
+        self.coalescer.finalizeAllFramesAsFailed()
     }
 
-    func setFinalizeOutputFramesHandler(
-        finalizeOutputFramesHandler: @escaping (consuming FrameArray) -> Void
-    ) {
-        self.finalizeOutputFramesHandler = finalizeOutputFramesHandler
+    /// Attaches the path to the connection behind `view`, which it reports to.
+    func attach(_ view: SwiftNetworkQUICConnection<Consumer>.PathView) {
+        self.state = .attached(view)
     }
 
-    func clearHandlers() {
-        self.inputFramesHandler = nil
-        self.finalizeOutputFramesHandler = nil
-    }
-
-    /// Local logging function to debug the datapath
-    ///
-    /// This layer adds the context and fetches the message only if the debug flags are enabled.
-    ///
-    /// - Parameters:
-    ///     - logMessage: The logMessage that is fetched by an autoclosure.  For performance reasons we could gate this behind a flag.
+    /// Log a message. Disabled in DEBUG builds.
     func log(_ logMessage: @autoclosure () -> String) {
         #if DEBUG
         let message = logMessage()
@@ -103,10 +125,66 @@ final class QUICChannelOutputHandler: ProtocolInstanceContainer, OutboundDatagra
     where P: NetworkProtocol {
         nil
     }
+
+    // MARK: - Inbound
+
+    var hasQueuedInboundPackets: Bool {
+        !self.inputPacketQueue.isEmpty
+    }
+
+    func enqueueInboundPacket(_ packet: NIOCore.ByteBuffer) {
+        switch self.state {
+        case .idle, .attached:
+            var packet = packet
+            packet.withUnsafeMutableReadableBytesWithStorageManagement2 { buffer, owner in
+                self.inputPacketQueue.add(frame: Frame(customBuffer: buffer, owner: owner))
+            }
+        case .detached:
+            // A late packet for a torn-down connection: drop it instead of holding it until deinit.
+            return
+        }
+    }
+
+    func drainInboundFrames(maximumDatagramCount: Int) -> FrameArray? {
+        if self.inputPacketQueue.count == 0 {
+            return nil
+        }
+        return self.inputPacketQueue.drainArray(maximumFrameCount: maximumDatagramCount)
+    }
+
+    func finalizeQueuedInboundFramesAsFailed() {
+        self.inputPacketQueue.finalizeAllFramesAsFailed()
+    }
+
+    // MARK: - Outbound
+
+    var hasQueuedOutboundData: Bool {
+        !self.coalescer.isEmpty
+    }
+
+    func appendOutboundFrames(_ frames: consuming FrameArray) {
+        self.coalescer.append(frames: frames)
+    }
+
+    func finalizeQueuedOutboundFramesAsFailed() {
+        self.coalescer.finalizeAllFramesAsFailed()
+    }
+
+    func nextPacketToSend() -> AddressedEnvelope<ByteBuffer>? {
+        self.coalescer.next()
+    }
+
+    // MARK: - Teardown
+
+    /// Detaches the path from its connection, breaking the cycle with it. A detached path drops inbound
+    /// packets and outbound datagrams.
+    func detach() {
+        self.state = .detached
+    }
 }
 
 @available(anyAppleOS 26, *)
-extension QUICChannelOutputHandler: LowerProtocolHandler {
+extension QUICConnectionPath: LowerProtocolHandler where Consumer: ~Copyable {
     func getMetrics(
         _ from: SwiftNetwork.ProtocolInstanceReference,
         requestedNetworkMetric: SwiftNetwork.RequestedNetworkMetrics
@@ -165,15 +243,12 @@ extension QUICChannelOutputHandler: LowerProtocolHandler {
         return asLower
     }
 
-    // Gets the inbound packets from the inputPacketQueue in SwiftNetworkConnection.
+    // Gets the inbound packets queued by `enqueueInboundPacket(_:)`.
     func receiveDatagrams(
         _ from: SwiftNetwork.ProtocolInstanceReference,
         maximumDatagramCount: Int
     ) throws(SwiftNetwork.NetworkError) -> SwiftNetwork.FrameArray? {
-        guard let inputFramesHandler = self.inputFramesHandler else {
-            return nil
-        }
-        return inputFramesHandler(maximumDatagramCount)
+        self.drainInboundFrames(maximumDatagramCount: maximumDatagramCount)
     }
 
     // Allocates storage for a default frame array to be filled with data
@@ -192,17 +267,20 @@ extension QUICChannelOutputHandler: LowerProtocolHandler {
         return array
     }
 
-    // Sends the datagram frames out to the SwiftNetworkConnection object to be queued for writing in writeOutboundData
+    // Queues the datagram frames for sending and tells the connection about them.
     func sendDatagrams(
         _ from: SwiftNetwork.ProtocolInstanceReference,
         datagrams: consuming SwiftNetwork.FrameArray
     ) throws(SwiftNetwork.NetworkError) {
         log("received finalize output frames")
-        guard let finalizeOutputFramesHandler = self.finalizeOutputFramesHandler else {
-            self.logger.error("output frame handler is not set: dropping frame array with \(datagrams.count) frames")
+        switch self.state {
+        case .attached(let connectionView):
+            let count = datagrams.count
+            self.appendOutboundFrames(datagrams)
+            connectionView.outboundDatagramsQueued(on: self, count: count)
+        case .idle, .detached:
+            self.logger.error("path is not attached: dropping frame array with \(datagrams.count) frames")
             datagrams.finalizeAllFramesAsFailed()
-            return
         }
-        finalizeOutputFramesHandler(datagrams)
     }
 }
