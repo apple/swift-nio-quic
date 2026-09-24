@@ -15,9 +15,9 @@
 import Logging
 import NIOCore
 import NIOEmbedded
+@_spi(Essentials) @_spi(ProtocolProvider) import SwiftNetwork
 import Testing
 
-@_spi(Essentials) @_spi(ProtocolProvider) import SwiftNetwork
 @testable import NIOQUIC
 
 struct QUICConnectionPathTests {
