@@ -53,9 +53,7 @@ final class QUICHandlerTests: XCTestCase {
         channel: EmbeddedChannel,
         channelHandler: NIOLoopBound<MockChannelHandler>,
         connectionIDLength: Int,
-        connectionLimit: Int = 0,
-        handshakeConnectionLimit: Int = 0,
-        newConnectionRateLimit: Int = 0
+        connectionLimits: QUICConnectionLimits = .unlimited
     ) throws -> QUICHandler<QUICStreamChannels> {
         let (handler, _) = try QUICHandler<QUICStreamChannels>.makeHandlerAndConnectionMultiplexer(
             channel: channel,
@@ -65,11 +63,9 @@ final class QUICHandlerTests: XCTestCase {
                     publicKeyFilePath: Self.testPublicKeyPath,
                     privateKeyFilePath: Self.testPrivateKeyPath
                 ),
-                applicationProtocols: [],
-                connectionLimit: connectionLimit,
-                handshakeConnectionLimit: handshakeConnectionLimit,
-                newConnectionRateLimit: newConnectionRateLimit
+                applicationProtocols: []
             ),
+            connectionLimits: connectionLimits,
             logger: Logger(label: "Test"),
             inboundStreamChannelInitializer: { channel in
                 do {
@@ -436,6 +432,31 @@ final class QUICHandlerTests: XCTestCase {
         channel.pipeline.fireChannelReadComplete()
     }
 
+    func testChannelRead_withDefaultConnectionLimits_acceptsEveryConnection() throws {
+        let eventLoop = EmbeddedEventLoop()
+        let channel = EmbeddedChannel(loop: eventLoop)
+        channel.localAddress = try SocketAddress(ipAddress: "127.0.0.0", port: 1234)
+        let handler = try Self.makeHandler(
+            channel: channel,
+            channelHandler: NIOLoopBound(MockChannelHandler(), eventLoop: eventLoop),
+            connectionIDLength: Int(QUICConnectionID.randomIDLength)
+        )
+        try channel.pipeline.syncOperations.addHandler(handler)
+        defer { _ = try? channel.finish() }
+
+        // Enough connections that an accidental small limit would drop some.
+        var accepted: [QUICConnectionID] = []
+        for _ in 0..<100 {
+            let id = QUICConnectionID.random(using: &self.randomNumberGenerator)
+            try self.fireInitial(id, on: channel)
+            accepted.append(id)
+        }
+
+        for id in accepted {
+            XCTAssertTrue(try self.isRoutable(id, on: channel))
+        }
+    }
+
     func testChannelRead_whenActiveConnectionLimitReached_dropsFurtherConnections() throws {
         let eventLoop = EmbeddedEventLoop()
         let channel = EmbeddedChannel(loop: eventLoop)
@@ -444,7 +465,7 @@ final class QUICHandlerTests: XCTestCase {
             channel: channel,
             channelHandler: NIOLoopBound(MockChannelHandler(), eventLoop: eventLoop),
             connectionIDLength: Int(QUICConnectionID.randomIDLength),
-            connectionLimit: 2
+            connectionLimits: .perHandler(activeLimit: 2)
         )
         try channel.pipeline.syncOperations.addHandler(handler)
         defer { _ = try? channel.finish() }
@@ -470,8 +491,7 @@ final class QUICHandlerTests: XCTestCase {
             channel: channel,
             channelHandler: NIOLoopBound(MockChannelHandler(), eventLoop: eventLoop),
             connectionIDLength: Int(QUICConnectionID.randomIDLength),
-            connectionLimit: 10,
-            handshakeConnectionLimit: 1
+            connectionLimits: .perHandler(activeLimit: 10, handshakeLimit: 1)
         )
         try channel.pipeline.syncOperations.addHandler(handler)
         defer { _ = try? channel.finish() }
@@ -495,7 +515,7 @@ final class QUICHandlerTests: XCTestCase {
             channel: channel,
             channelHandler: NIOLoopBound(MockChannelHandler(), eventLoop: eventLoop),
             connectionIDLength: Int(QUICConnectionID.randomIDLength),
-            newConnectionRateLimit: 2
+            connectionLimits: .perHandler(newConnectionRateLimit: 2)
         )
         try channel.pipeline.syncOperations.addHandler(handler)
         defer { _ = try? channel.finish() }
@@ -522,9 +542,7 @@ final class QUICHandlerTests: XCTestCase {
         channel: EmbeddedChannel,
         channelHandler: NIOLoopBound<MockChannelHandler>,
         connectionIDLength: Int,
-        connectionLimit: Int = 0,
-        handshakeConnectionLimit: Int = 0,
-        newConnectionRateLimit: Int = 0,
+        connectionLimits: QUICConnectionLimits,
         onConnectionAccepted: @escaping @Sendable (any Channel) -> Void
     ) -> QUICHandler<QUICStreamChannels> {
         QUICHandler(
@@ -535,11 +553,9 @@ final class QUICHandlerTests: XCTestCase {
                     publicKeyFilePath: Self.testPublicKeyPath,
                     privateKeyFilePath: Self.testPrivateKeyPath
                 ),
-                applicationProtocols: [],
-                connectionLimit: connectionLimit,
-                handshakeConnectionLimit: handshakeConnectionLimit,
-                newConnectionRateLimit: newConnectionRateLimit
+                applicationProtocols: []
             ),
+            connectionLimits: connectionLimits,
             asyncVerifier: nil,
             authenticator: nil,
             logger: Logger(label: "Test"),
@@ -573,7 +589,7 @@ final class QUICHandlerTests: XCTestCase {
             channel: channel,
             channelHandler: NIOLoopBound(MockChannelHandler(), eventLoop: eventLoop),
             connectionIDLength: Int(QUICConnectionID.randomIDLength),
-            connectionLimit: 1,
+            connectionLimits: .perHandler(activeLimit: 1),
             onConnectionAccepted: { channel in acceptedChannels.withLockedValue { $0.append(channel) } }
         )
         try channel.pipeline.syncOperations.addHandler(handler)
@@ -609,8 +625,7 @@ final class QUICHandlerTests: XCTestCase {
             channel: channel,
             channelHandler: NIOLoopBound(MockChannelHandler(), eventLoop: eventLoop),
             connectionIDLength: Int(QUICConnectionID.randomIDLength),
-            connectionLimit: 10,
-            handshakeConnectionLimit: 1,
+            connectionLimits: .perHandler(activeLimit: 10, handshakeLimit: 1),
             onConnectionAccepted: { channel in acceptedChannels.withLockedValue { $0.append(channel) } }
         )
         try channel.pipeline.syncOperations.addHandler(handler)
@@ -644,7 +659,7 @@ final class QUICHandlerTests: XCTestCase {
             channel: channel,
             channelHandler: NIOLoopBound(MockChannelHandler(), eventLoop: eventLoop),
             connectionIDLength: Int(QUICConnectionID.randomIDLength),
-            newConnectionRateLimit: 5
+            connectionLimits: .perHandler(newConnectionRateLimit: 5)
         )
         try channel.pipeline.syncOperations.addHandler(handler)
         defer { _ = try? channel.finish() }

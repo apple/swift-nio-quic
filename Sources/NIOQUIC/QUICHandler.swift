@@ -95,6 +95,7 @@ public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
     /// - Parameters:
     ///   - channel: The channel this handler resides in.
     ///   - quicConfiguration: The quic configuration to use for this handler.
+    ///   - connectionLimits: Limits on the inbound connections this handler admits.
     ///   - asyncVerifier: Callback provider for SwiftTLS certificate verification.
     ///   - logger: The logger.
     ///   - makeConsumer: Builds the consumer servicing a connection's streams, or nil
@@ -104,6 +105,7 @@ public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
     init(
         channel: any Channel,
         quicConfiguration: QUICConfiguration,
+        connectionLimits: QUICConnectionLimits,
         asyncVerifier: AsyncVerifier?,
         authenticator: Authenticator?,
         logger: Logger,
@@ -125,7 +127,7 @@ public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
         self.connectionRegistry = ConnectionRegistry()
         self.makeConsumer = makeConsumer
         self.connectionAdmissionController = makeConnectionAdmissionController(
-            for: quicConfiguration,
+            for: connectionLimits,
             logger: logger,
             eventLoop: channel.eventLoop
         )
@@ -378,18 +380,21 @@ extension QUICHandler where Consumer == QUICStreamChannels {
     /// - Parameters:
     ///   - channel: The channel this handler resides in.
     ///   - QUICConfiguration: The quic configuration to use for this handler.
+    ///   - connectionLimits: Limits on the inbound connections this handler admits. Only used by servers.
     ///   - logger: The logger.
     ///   - inboundStreamChannelInitializer: A closure called for any new inbound stream.
     /// - Returns: The handler and the connection multiplexer.
     public static func makeHandlerAndConnectionMultiplexer<Output: Sendable>(
         channel: any Channel,
         quicConfiguration: QUICConfiguration,
+        connectionLimits: QUICConnectionLimits = .unlimited,
         logger: Logger,
         inboundStreamChannelInitializer: @Sendable @escaping (any Channel) -> EventLoopFuture<Output>
     ) throws -> (QUICHandler, QUICHandler.ConnectionMultiplexer<Output>) {
         try self.makeHandlerAndConnectionMultiplexer(
             channel: channel,
             quicConfiguration: quicConfiguration,
+            connectionLimits: connectionLimits,
             logger: logger,
             inboundStreamChannelInitializer: inboundStreamChannelInitializer,
             connectionIDGenerator: QUICConnectionID.RandomGenerator(),
@@ -407,6 +412,7 @@ extension QUICHandler where Consumer == QUICStreamChannels {
     /// - Parameters:
     ///   - channel: The channel this handler resides in.
     ///   - QUICConfiguration: The quic configuration to use for this handler.
+    ///   - connectionLimits: Limits on the inbound connections this handler admits. Only used by servers.
     ///   - logger: The logger.
     ///   - inboundStreamChannelInitializer: A closure called for any new inbound stream.
     ///   - connectionIDGenerator: The generator used for creating source connection IDs.
@@ -415,6 +421,7 @@ extension QUICHandler where Consumer == QUICStreamChannels {
     public static func makeHandlerAndConnectionMultiplexer<Output: Sendable>(
         channel: any Channel,
         quicConfiguration: QUICConfiguration,
+        connectionLimits: QUICConnectionLimits = .unlimited,
         logger: Logger,
         inboundStreamChannelInitializer: @Sendable @escaping (any Channel) -> EventLoopFuture<Output>,
         connectionIDGenerator: any QUICConnectionID.Generator,
@@ -466,6 +473,7 @@ extension QUICHandler where Consumer == QUICStreamChannels {
         let handler = QUICHandler(
             channel: channel,
             quicConfiguration: quicConfiguration,
+            connectionLimits: connectionLimits,
             asyncVerifier: asyncVerifier,
             authenticator: authenticator,
             logger: logger,
@@ -496,6 +504,7 @@ extension QUICHandler where Consumer == QUICStreamChannels {
     /// - Parameters:
     ///   - channel: The channel this handler resides in.
     ///   - quicConfiguration: The quic configuration to use for this handler.
+    ///   - connectionLimits: Limits on the inbound connections this handler admits. Only used by servers.
     ///   - asyncVerifier: Callback provider for SwiftTLS certificate verification.
     ///   - authenticator: Authenticator for SwiftTLS certificate verification.
     ///   - logger: The logger.
@@ -507,6 +516,7 @@ extension QUICHandler where Consumer == QUICStreamChannels {
     public convenience init(
         channel: any Channel,
         quicConfiguration: QUICConfiguration,
+        connectionLimits: QUICConnectionLimits = .unlimited,
         asyncVerifier: AsyncVerifier?,
         authenticator: Authenticator?,
         logger: Logger,
@@ -519,6 +529,7 @@ extension QUICHandler where Consumer == QUICStreamChannels {
         self.init(
             channel: channel,
             quicConfiguration: quicConfiguration,
+            connectionLimits: connectionLimits,
             asyncVerifier: asyncVerifier,
             authenticator: authenticator,
             logger: logger,
@@ -579,6 +590,7 @@ extension QUICHandler where Consumer: ~Copyable {
     /// - Parameters:
     ///   - channel: The channel this handler resides in.
     ///   - quicConfiguration: The quic configuration to use for this handler.
+    ///   - connectionLimits: Limits on the inbound connections this handler admits. Only used by servers.
     ///   - asyncVerifier: Callback provider for SwiftTLS certificate verification.
     ///   - authenticator: Authenticator for SwiftTLS certificate verification.
     ///   - logger: The logger.
@@ -589,6 +601,7 @@ extension QUICHandler where Consumer: ~Copyable {
     public convenience init(
         channel: any Channel,
         quicConfiguration: QUICConfiguration,
+        connectionLimits: QUICConnectionLimits = .unlimited,
         asyncVerifier: AsyncVerifier?,
         authenticator: Authenticator?,
         logger: Logger,
@@ -599,6 +612,7 @@ extension QUICHandler where Consumer: ~Copyable {
         self.init(
             channel: channel,
             quicConfiguration: quicConfiguration,
+            connectionLimits: connectionLimits,
             asyncVerifier: asyncVerifier,
             authenticator: authenticator,
             logger: logger,
@@ -1237,30 +1251,38 @@ struct ConnectionHandle: Hashable, Sendable {
     }
 }
 
-/// Create a connection admission control for connection limits based on a given QUIC configuration
+/// Create a connection admission control for the given connection limits.
 @available(anyAppleOS 26, *)
 private func makeConnectionAdmissionController(
-    for configuration: QUICConfiguration,
+    for connectionLimits: QUICConnectionLimits,
     logger: Logger,
     eventLoop: any EventLoop
 ) -> ConnectionAdmissionController {
+    switch connectionLimits.mode {
+    case .unlimited:
+        return ConnectionAdmissionController(
+            activeLimit: 0,
+            handshakeLimit: 0,
+            newConnectionRateLimit: 0,
+            eventLoop: eventLoop
+        )
 
-    let activeLimit = configuration.connectionLimit
-    let handshakeLimit = configuration.handshakeConnectionLimit
-    if activeLimit > 0, handshakeLimit > 0, handshakeLimit > activeLimit {
-        logger.trace(
-            "QUICConfiguration.handshakeConnectionLimit is looser than connectionLimit; the active limit binds first, so the handshake limit has no effect",
-            metadata: [
-                LoggingKeys.connectionLimitActive: "\(activeLimit)",
-                LoggingKeys.connectionLimitHandshake: "\(handshakeLimit)",
-            ]
+    case .perHandler(let activeLimit, let handshakeLimit, let newConnectionRateLimit):
+        if activeLimit > 0, handshakeLimit > 0, handshakeLimit > activeLimit {
+            logger.trace(
+                "QUICConnectionLimits handshakeLimit is looser than activeLimit; the active limit binds first, so the handshake limit has no effect",
+                metadata: [
+                    LoggingKeys.connectionLimitActive: "\(activeLimit)",
+                    LoggingKeys.connectionLimitHandshake: "\(handshakeLimit)",
+                ]
+            )
+        }
+
+        return ConnectionAdmissionController(
+            activeLimit: activeLimit,
+            handshakeLimit: handshakeLimit,
+            newConnectionRateLimit: newConnectionRateLimit,
+            eventLoop: eventLoop
         )
     }
-
-    return ConnectionAdmissionController(
-        activeLimit: configuration.connectionLimit,
-        handshakeLimit: configuration.handshakeConnectionLimit,
-        newConnectionRateLimit: configuration.newConnectionRateLimit,
-        eventLoop: eventLoop
-    )
 }
