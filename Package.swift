@@ -45,9 +45,9 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/apple/swift-nio", from: "2.92.0"),
         .package(url: "https://github.com/apple/swift-log", from: "1.12.1"),
-        .package(url: "https://github.com/apple/swift-certificates.git", from: "1.19.3"),
+        .package(url: "https://github.com/apple/swift-certificates.git", from: "1.21.0"),
         .package(url: "https://github.com/apple/swift-collections.git", from: "1.4.1"),
-        .package(url: "https://github.com/apple/swift-crypto.git", exact: "5.0.0-beta.2"),
+        .package(url: "https://github.com/apple/swift-crypto.git", from: "5.0.0"),
         .package(url: "https://github.com/apple/swift-nio-quic-helpers.git", .upToNextMinor(from: "0.1.1")),
         .package(
             url: "https://github.com/apple/swift-network-evolution",
