@@ -12,6 +12,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+import Foundation
 import Logging
 import NIOConcurrencyHelpers
 import NIOCore
@@ -53,6 +54,8 @@ final class QUICHandlerTests: XCTestCase {
         channel: EmbeddedChannel,
         channelHandler: NIOLoopBound<MockChannelHandler>,
         connectionIDLength: Int,
+        publicKeyPath: String = QUICHandlerTests.testPublicKeyPath,
+        privateKeyPath: String = QUICHandlerTests.testPrivateKeyPath,
         connectionLimits: QUICConnectionLimits = .unlimited
     ) throws -> QUICHandler<QUICStreamChannels> {
         let (handler, _) = try QUICHandler<QUICStreamChannels>.makeHandlerAndConnectionMultiplexer(
@@ -60,8 +63,8 @@ final class QUICHandlerTests: XCTestCase {
             quicConfiguration: .server(
                 serverName: "quic-test.local",
                 authenticationConfiguration: .rawPublicKeys(
-                    publicKeyFilePath: Self.testPublicKeyPath,
-                    privateKeyFilePath: Self.testPrivateKeyPath
+                    publicKeyFilePath: publicKeyPath,
+                    privateKeyFilePath: privateKeyPath
                 ),
                 applicationProtocols: []
             ),
@@ -688,6 +691,103 @@ final class QUICHandlerTests: XCTestCase {
         try self.fireInitial(acceptedAfterRefill, on: channel)
         XCTAssertTrue(try self.isRoutable(acceptedAfterRefill, on: channel))
     }
+
+    func testChannelRead_withConsumer_whenActiveConnectionLimitReached_acceptsNewConnectionAfterOneCloses() throws {
+        let eventLoop = EmbeddedEventLoop()
+        let channel = EmbeddedChannel(loop: eventLoop)
+        channel.localAddress = try SocketAddress(ipAddress: "127.0.0.0", port: 1234)
+
+        let acceptedChannels = NIOLockedValueBox<[any Channel]>([])
+        let handler = QUICHandler<IdleConsumer>(
+            channel: channel,
+            quicConfiguration: .server(
+                serverName: "quic-test.local",
+                authenticationConfiguration: .rawPublicKeys(
+                    publicKeyFilePath: Self.testPublicKeyPath,
+                    privateKeyFilePath: Self.testPrivateKeyPath
+                ),
+                applicationProtocols: []
+            ),
+            connectionLimits: .perHandler(activeLimit: 1),
+            asyncVerifier: nil,
+            authenticator: nil,
+            logger: Logger(label: "Test"),
+            connectionIDGenerator: QUICConnectionID.RandomGenerator(
+                connectionIDLength: Int(QUICConnectionID.randomIDLength)
+            ),
+            statelessResetTokenGenerator: .defaultWithUserProvidedKey(Self.statelessResetKey)
+        ) { connection in
+            acceptedChannels.withLockedValue { $0.append(connection.channel) }
+            return IdleConsumer()
+        }
+        try channel.pipeline.syncOperations.addHandler(handler)
+        defer { _ = try? channel.finish() }
+
+        let accepted1 = QUICConnectionID.random(using: &self.randomNumberGenerator)
+        let dropped = QUICConnectionID.random(using: &self.randomNumberGenerator)
+        let accepted2 = QUICConnectionID.random(using: &self.randomNumberGenerator)
+
+        try self.fireInitial(accepted1, on: channel)
+        try self.fireInitial(dropped, on: channel)
+        XCTAssertTrue(try self.isRoutable(accepted1, on: channel))
+        XCTAssertFalse(try self.isRoutable(dropped, on: channel))
+
+        // Close the first connection, freeing its active slot.
+        let firstAcceptedChannel = try XCTUnwrap(acceptedChannels.withLockedValue { $0 }.first)
+        let closeFuture = firstAcceptedChannel.close()
+        // Teardown (including releasing the admission slot) completes on the next loop tick.
+        eventLoop.run()
+        try closeFuture.wait()
+
+        try self.fireInitial(accepted2, on: channel)
+        XCTAssertTrue(try self.isRoutable(accepted2, on: channel))
+    }
+
+    func testChannelRead_whenConnectionCreationFails_releasesItsAdmissionSlots() throws {
+        // The server reads its key files for every new connection, so while they're missing,
+        // creating a connection fails after it has already been admitted.
+        let keyDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: keyDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: keyDirectory) }
+        let publicKeyPath = keyDirectory.appendingPathComponent("publicKey.der").path
+        let privateKeyPath = keyDirectory.appendingPathComponent("privateKey.der").path
+
+        let eventLoop = EmbeddedEventLoop()
+        let channel = EmbeddedChannel(loop: eventLoop)
+        channel.localAddress = try SocketAddress(ipAddress: "127.0.0.0", port: 1234)
+        let handler = try Self.makeHandler(
+            channel: channel,
+            channelHandler: NIOLoopBound(MockChannelHandler(), eventLoop: eventLoop),
+            connectionIDLength: Int(QUICConnectionID.randomIDLength),
+            publicKeyPath: publicKeyPath,
+            privateKeyPath: privateKeyPath,
+            // Both limits at 1, so leaking either slot drops the next connection.
+            connectionLimits: .perHandler(activeLimit: 1, handshakeLimit: 1)
+        )
+        try channel.pipeline.syncOperations.addHandler(handler)
+        defer { _ = try? channel.finish() }
+
+        let failed = QUICConnectionID.random(using: &self.randomNumberGenerator)
+        try self.fireInitial(failed, on: channel)
+        XCTAssertFalse(try self.isRoutable(failed, on: channel))
+
+        try FileManager.default.copyItem(atPath: Self.testPublicKeyPath, toPath: publicKeyPath)
+        try FileManager.default.copyItem(atPath: Self.testPrivateKeyPath, toPath: privateKeyPath)
+
+        let accepted = QUICConnectionID.random(using: &self.randomNumberGenerator)
+        try self.fireInitial(accepted, on: channel)
+        XCTAssertTrue(try self.isRoutable(accepted, on: channel))
+    }
+}
+
+/// A consumer for connections whose streams a test never touches.
+@available(anyAppleOS 26, *)
+private struct IdleConsumer: QUICStreamConsumer {
+    typealias StreamState = Void
+
+    func makeStreamState(_ stream: inout QUICStream<Self>) {}
+
+    func processStreams(_ streams: inout QUICStreamIterator<Self>) {}
 }
 
 /// Records errors fired down the pipeline.
