@@ -14,7 +14,7 @@
 
 import NIOCore
 
-/// Tacks the number of open connections and imposes limits.
+/// Tracks the number of open connections and imposes limits.
 ///
 /// There are three configuration parameters:
 /// * `activeLimit` limits all connections. While at this limit all new connections will be directly rejected.
@@ -108,7 +108,7 @@ struct ConnectionAdmissionController: ~Copyable {
         return .accept
     }
 
-    /// Call when that connection's handshake completes or the connection closes.
+    /// Call when the connection's handshake completes or the connection closes.
     mutating func finishedHandshake() {
         self.handshakeCount -= 1
     }

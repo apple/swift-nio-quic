@@ -551,7 +551,7 @@ extension QUICConnectionChannel.TransportView where Consumer: ~Copyable {
     /// is initialized, for a **client** connection the `readyPromise` is completed when
     /// the channel is initialized and the handshake has completed.
     ///
-    /// The `handshakePromise` only be completed when the handshake was completed
+    /// The `handshakePromise` is only completed when the handshake has completed.
     /// on both sides.
     func initialize(
         readyPromise: EventLoopPromise<Void>?,
