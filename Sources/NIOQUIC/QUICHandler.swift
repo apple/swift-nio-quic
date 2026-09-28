@@ -1279,7 +1279,7 @@ private func makeConnectionAdmissionController(
 
     case .perHandler(let activeLimit, let handshakeLimit, let newConnectionRateLimit):
         if activeLimit > 0, handshakeLimit > 0, handshakeLimit > activeLimit {
-            logger.trace(
+            logger.warning(
                 "QUICConnectionLimits handshakeLimit is looser than activeLimit; the active limit binds first, so the handshake limit has no effect",
                 metadata: [
                     LoggingKeys.connectionLimitActive: "\(activeLimit)",

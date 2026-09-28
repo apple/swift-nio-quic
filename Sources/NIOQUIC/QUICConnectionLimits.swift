@@ -15,10 +15,11 @@
 /// Limits on the inbound connections a server ``QUICHandler`` admits. Clients ignore them.
 @available(anyAppleOS 26, *)
 public struct QUICConnectionLimits: Sendable {
-    // Internal on purpose: new modes, such as limits shared across handlers, can then be added
-    // without breaking clients.
+
     enum Mode {
+        // Not limits will be enforced.
         case unlimited
+        // Connection limits are tracked separately by each `QUICHandler`.
         case perHandler(activeLimit: Int, handshakeLimit: Int, newConnectionRateLimit: Int)
     }
 
@@ -29,11 +30,12 @@ public struct QUICConnectionLimits: Sendable {
 
     /// Limits that each ``QUICHandler`` enforces on its own. `0` means no limit.
     ///
+    /// Note: Limits must not be negative.
+    ///
     /// - Parameters:
-    ///   - activeLimit: Maximum number of active connections, including those still completing
-    ///     their handshake. Must not be negative.
-    ///   - handshakeLimit: Maximum number of connections that may be mid-handshake at once. Must
-    ///     not be negative.
+    ///   - activeLimit: Maximum number of connections the server may process at once, including those
+    ///   still completing their handshake. New connection attempts beyond this limit are dropped.
+    ///   - handshakeLimit: Maximum number of connections that may be mid-handshake at once.
     ///   - newConnectionRateLimit: Maximum number of new connections accepted per second. Must be
     ///     between `0` and `1_000_000_000`.
     public static func perHandler(
