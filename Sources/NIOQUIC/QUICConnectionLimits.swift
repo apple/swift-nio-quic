@@ -17,7 +17,7 @@
 public struct QUICConnectionLimits: Sendable {
 
     enum Mode {
-        // Not limits will be enforced.
+        // No limits will be enforced.
         case unlimited
         // Connection limits are tracked separately by each `QUICHandler`.
         case perHandler(activeLimit: Int, handshakeLimit: Int, newConnectionRateLimit: Int)
