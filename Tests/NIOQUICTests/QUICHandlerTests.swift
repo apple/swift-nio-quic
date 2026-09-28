@@ -435,14 +435,15 @@ final class QUICHandlerTests: XCTestCase {
         channel.pipeline.fireChannelReadComplete()
     }
 
-    func testChannelRead_withDefaultConnectionLimits_acceptsEveryConnection() throws {
+    func testChannelRead_withUnlimitedConnectionLimits_acceptsEveryConnection() throws {
         let eventLoop = EmbeddedEventLoop()
         let channel = EmbeddedChannel(loop: eventLoop)
         channel.localAddress = try SocketAddress(ipAddress: "127.0.0.0", port: 1234)
         let handler = try Self.makeHandler(
             channel: channel,
             channelHandler: NIOLoopBound(MockChannelHandler(), eventLoop: eventLoop),
-            connectionIDLength: Int(QUICConnectionID.randomIDLength)
+            connectionIDLength: Int(QUICConnectionID.randomIDLength),
+            connectionLimits: .unlimited
         )
         try channel.pipeline.syncOperations.addHandler(handler)
         defer { _ = try? channel.finish() }
@@ -458,6 +459,42 @@ final class QUICHandlerTests: XCTestCase {
         for id in accepted {
             XCTAssertTrue(try self.isRoutable(id, on: channel))
         }
+    }
+
+    func testChannelRead_withDefaultConnectionLimits_dropsConnectionsBeyondTheRateLimitBurst() throws {
+        let eventLoop = EmbeddedEventLoop()
+        let channel = EmbeddedChannel(loop: eventLoop)
+        channel.localAddress = try SocketAddress(ipAddress: "127.0.0.0", port: 1234)
+        // No `connectionLimits`, so the handler uses `QUICConnectionLimits.default`.
+        let (handler, _) = try QUICHandler<QUICStreamChannels>.makeHandlerAndConnectionMultiplexer(
+            channel: channel,
+            quicConfiguration: .server(
+                serverName: "quic-test.local",
+                authenticationConfiguration: .rawPublicKeys(
+                    publicKeyFilePath: Self.testPublicKeyPath,
+                    privateKeyFilePath: Self.testPrivateKeyPath
+                ),
+                applicationProtocols: []
+            ),
+            logger: Logger(label: "Test"),
+            inboundStreamChannelInitializer: { channel in channel.eventLoop.makeSucceededVoidFuture() }
+        )
+        try channel.pipeline.syncOperations.addHandler(handler)
+        defer { _ = try? channel.finish() }
+
+        // The embedded loop's clock never moves here, so every connection arrives in one burst.
+        // The default rate limit of 1,000 per second admits a burst of exactly 1,000.
+        for _ in 0..<999 {
+            let id = QUICConnectionID.random(using: &self.randomNumberGenerator)
+            try self.fireInitial(id, on: channel)
+        }
+        let thousandth = QUICConnectionID.random(using: &self.randomNumberGenerator)
+        let dropped = QUICConnectionID.random(using: &self.randomNumberGenerator)
+        try self.fireInitial(thousandth, on: channel)
+        try self.fireInitial(dropped, on: channel)
+
+        XCTAssertTrue(try self.isRoutable(thousandth, on: channel))
+        XCTAssertFalse(try self.isRoutable(dropped, on: channel))
     }
 
     func testChannelRead_whenActiveConnectionLimitReached_dropsFurtherConnections() throws {

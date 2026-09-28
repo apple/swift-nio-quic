@@ -381,13 +381,15 @@ extension QUICHandler where Consumer == QUICStreamChannels {
     ///   - channel: The channel this handler resides in.
     ///   - QUICConfiguration: The quic configuration to use for this handler.
     ///   - connectionLimits: Limits on the inbound connections this handler admits. Only used by servers.
+    ///     Defaults to ``QUICConnectionLimits/perHandler(activeLimit:handshakeLimit:newConnectionRateLimit:)``
+    ///     with 10,000 active connections and a rate limit of 1,000 new connections per second.
     ///   - logger: The logger.
     ///   - inboundStreamChannelInitializer: A closure called for any new inbound stream.
     /// - Returns: The handler and the connection multiplexer.
     public static func makeHandlerAndConnectionMultiplexer<Output: Sendable>(
         channel: any Channel,
         quicConfiguration: QUICConfiguration,
-        connectionLimits: QUICConnectionLimits = .unlimited,
+        connectionLimits: QUICConnectionLimits = .perHandler(),
         logger: Logger,
         inboundStreamChannelInitializer: @Sendable @escaping (any Channel) -> EventLoopFuture<Output>
     ) throws -> (QUICHandler, QUICHandler.ConnectionMultiplexer<Output>) {
@@ -413,6 +415,8 @@ extension QUICHandler where Consumer == QUICStreamChannels {
     ///   - channel: The channel this handler resides in.
     ///   - QUICConfiguration: The quic configuration to use for this handler.
     ///   - connectionLimits: Limits on the inbound connections this handler admits. Only used by servers.
+    ///     Defaults to ``QUICConnectionLimits/perHandler(activeLimit:handshakeLimit:newConnectionRateLimit:)``
+    ///     with 10,000 active connections and a rate limit of 1,000 new connections per second.
     ///   - logger: The logger.
     ///   - inboundStreamChannelInitializer: A closure called for any new inbound stream.
     ///   - connectionIDGenerator: The generator used for creating source connection IDs.
@@ -421,7 +425,7 @@ extension QUICHandler where Consumer == QUICStreamChannels {
     public static func makeHandlerAndConnectionMultiplexer<Output: Sendable>(
         channel: any Channel,
         quicConfiguration: QUICConfiguration,
-        connectionLimits: QUICConnectionLimits = .unlimited,
+        connectionLimits: QUICConnectionLimits = .perHandler(),
         logger: Logger,
         inboundStreamChannelInitializer: @Sendable @escaping (any Channel) -> EventLoopFuture<Output>,
         connectionIDGenerator: any QUICConnectionID.Generator,
@@ -505,6 +509,8 @@ extension QUICHandler where Consumer == QUICStreamChannels {
     ///   - channel: The channel this handler resides in.
     ///   - quicConfiguration: The quic configuration to use for this handler.
     ///   - connectionLimits: Limits on the inbound connections this handler admits. Only used by servers.
+    ///     Defaults to ``QUICConnectionLimits/perHandler(activeLimit:handshakeLimit:newConnectionRateLimit:)``
+    ///     with 10,000 active connections and a rate limit of 1,000 new connections per second.
     ///   - asyncVerifier: Callback provider for SwiftTLS certificate verification.
     ///   - authenticator: Authenticator for SwiftTLS certificate verification.
     ///   - logger: The logger.
@@ -516,7 +522,7 @@ extension QUICHandler where Consumer == QUICStreamChannels {
     public convenience init(
         channel: any Channel,
         quicConfiguration: QUICConfiguration,
-        connectionLimits: QUICConnectionLimits = .unlimited,
+        connectionLimits: QUICConnectionLimits = .perHandler(),
         asyncVerifier: AsyncVerifier?,
         authenticator: Authenticator?,
         logger: Logger,
@@ -591,6 +597,8 @@ extension QUICHandler where Consumer: ~Copyable {
     ///   - channel: The channel this handler resides in.
     ///   - quicConfiguration: The quic configuration to use for this handler.
     ///   - connectionLimits: Limits on the inbound connections this handler admits. Only used by servers.
+    ///     Defaults to ``QUICConnectionLimits/perHandler(activeLimit:handshakeLimit:newConnectionRateLimit:)``
+    ///     with 10,000 active connections and a rate limit of 1,000 new connections per second.
     ///   - asyncVerifier: Callback provider for SwiftTLS certificate verification.
     ///   - authenticator: Authenticator for SwiftTLS certificate verification.
     ///   - logger: The logger.
@@ -601,7 +609,7 @@ extension QUICHandler where Consumer: ~Copyable {
     public convenience init(
         channel: any Channel,
         quicConfiguration: QUICConfiguration,
-        connectionLimits: QUICConnectionLimits = .unlimited,
+        connectionLimits: QUICConnectionLimits = .perHandler(),
         asyncVerifier: AsyncVerifier?,
         authenticator: Authenticator?,
         logger: Logger,

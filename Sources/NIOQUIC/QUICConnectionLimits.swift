@@ -13,6 +13,11 @@
 //===----------------------------------------------------------------------===//
 
 /// Limits on the inbound connections a server ``QUICHandler`` admits. Clients ignore them.
+///
+/// Unless configured otherwise, a handler uses ``default``: at most 10,000 active connections and
+/// 1,000 new connections per second. Each handler enforces its limits on its own, so a server
+/// with several handlers (for example one per UDP socket) admits that many per handler. Use
+/// ``unlimited`` to admit every connection.
 @available(anyAppleOS 26, *)
 public struct QUICConnectionLimits: Sendable {
 
@@ -30,18 +35,24 @@ public struct QUICConnectionLimits: Sendable {
 
     /// Limits that each ``QUICHandler`` enforces on its own. `0` means no limit.
     ///
+    /// Limits you don't pass keep their ``default`` values, so raising one limit doesn't remove
+    /// the others. Pass `0` to turn a single limit off.
+    ///
     /// Note: Limits must not be negative.
     ///
     /// - Parameters:
     ///   - activeLimit: Maximum number of connections the server may process at once, including those
     ///   still completing their handshake. New connection attempts beyond this limit are dropped.
-    ///   - handshakeLimit: Maximum number of connections that may be mid-handshake at once.
-    ///   - newConnectionRateLimit: Maximum number of new connections accepted per second. Must be
-    ///     between `0` and `1_000_000_000`.
+    ///   Defaults to 10,000.
+    ///   - handshakeLimit: Maximum number of connections that may be mid-handshake at once. Defaults
+    ///     to `0` (no limit).
+    ///   - newConnectionRateLimit: Maximum number of new connections accepted per second. A burst of
+    ///     up to this many is admitted at once; after that, capacity refills at this rate. Must be
+    ///     between `0` and `1_000_000_000`. Defaults to 1,000.
     public static func perHandler(
-        activeLimit: Int = 0,
+        activeLimit: Int = 10_000,
         handshakeLimit: Int = 0,
-        newConnectionRateLimit: Int = 0
+        newConnectionRateLimit: Int = 1_000
     ) -> Self {
         precondition(activeLimit >= 0, "activeLimit must not be negative")
         precondition(handshakeLimit >= 0, "handshakeLimit must not be negative")
