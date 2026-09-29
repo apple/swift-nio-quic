@@ -167,11 +167,18 @@ struct StreamTableTests {
             )
 
             let visits = await recording.visits { $0.events.contains(.closed) }
-            let error = try #require(visits.last?.closeError as? QUICConnectionError)
 
-            #expect(error.code == 10)
-            #expect(error.reason == "test")
-            #expect(error.isApplication)
+            // If the server closes before it has processed the client's Finished, swift-network-evolution
+            // sends the APPLICATION_CLOSE in a Handshake packet, which RFC 9000 § 10.2.3 forbids. Since 0.4.0
+            // the client rejects the frame but never closes, so the stream only closes on the idle timeout and
+            // without an error. Remove this once swift-network-evolution fixes it.
+            withKnownIssue("APPLICATION_CLOSE sent in a Handshake packet is lost", isIntermittent: true) {
+                let error = try #require(visits.last?.closeError as? QUICConnectionError)
+
+                #expect(error.code == 10)
+                #expect(error.reason == "test")
+                #expect(error.isApplication)
+            }
         }
     }
 
