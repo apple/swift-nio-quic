@@ -59,6 +59,23 @@ struct ConnectionAdmissionControllerTests {
     }
 
     @Test
+    func handshakeLimitAcceptsAgainOnceAHandshakeFinishes() {
+        var controller = ConnectionAdmissionController(
+            activeLimit: 10,
+            handshakeLimit: 1,
+            newConnectionRateLimit: 0,
+            eventLoop: EmbeddedEventLoop()
+        )
+
+        #expect(controller.acceptNewConnection() == .accept)
+        #expect(controller.acceptNewConnection() == .drop(.handshakeLimitReached))
+
+        // The first connection is still active, but no longer counts against the handshake limit.
+        controller.finishedHandshake()
+        #expect(controller.acceptNewConnection() == .accept)
+    }
+
+    @Test
     func activeLimitReachedDropsBeforeHandshakeLimitIsChecked() {
         var controller = ConnectionAdmissionController(
             activeLimit: 1,
