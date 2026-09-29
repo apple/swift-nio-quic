@@ -20,7 +20,7 @@ import NIOCore
 /// * `activeLimit` limits all connections. While at this limit all new connections will be directly rejected.
 /// * `handshakeLimit` limits the connections in the process of handshaking. Even if this limit is not met,
 ///     the `activeLimit` will also reject connections.
-/// * `newConnectionRateLimit` emposes a rate limit accepting handshake in addition to
+/// * `newConnectionRateLimit` imposes a rate limit accepting handshake in addition to
 ///     the `handshakeLimit`.
 ///
 /// Callers must call `finishedHandshake()` and `closingConnection()` for each
@@ -91,7 +91,7 @@ struct ConnectionAdmissionController: ~Copyable {
     /// Checks the active-connection limit, then the handshake limit, then the rate limit, in that
     /// priority order.
     ///
-    /// - Returns `Decision.accept` if a connection can be accepted (his will consume the respected slots)
+    /// - Returns `Decision.accept` if a connection can be accepted (this will consume the respected slots)
     ///     or `Decision.drop` when a connection limit was reached.
     mutating func acceptNewConnection() -> Decision {
         if self.activeLimit > 0, self.activeCount >= self.activeLimit {
