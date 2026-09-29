@@ -100,8 +100,15 @@ final class QUICConnectionPath<Consumer: QUICStreamConsumer & ~Copyable>:
     }
 
     /// Attaches the path to the connection behind `view`, which it reports to.
+    ///
+    /// Precondition: The current state must be idle.
     func attach(_ view: SwiftNetworkQUICConnection<Consumer>.PathView) {
-        self.state = .attached(view)
+        switch self.state {
+        case .idle:
+            self.state = .attached(view)
+        case .attached, .detached:
+            preconditionFailure("A path can only be attached from an idle state.")
+        }
     }
 
     /// Log a message. Disabled in DEBUG builds.
