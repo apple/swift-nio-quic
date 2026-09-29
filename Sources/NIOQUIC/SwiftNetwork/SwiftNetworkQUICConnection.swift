@@ -66,7 +66,7 @@ private enum ConnectionConstants {
 final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable> {
     private var swiftNetworkQUICConnection: SwiftNetwork.QUICConnection
     let localAddress: SocketAddress
-    // Check the address of the active path.
+    // The address of the active path.
     var remoteAddress: SocketAddress {
         self.activePath.remoteAddress
     }
