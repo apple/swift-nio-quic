@@ -98,13 +98,17 @@ extension QUICStatelessResetToken.Generator {
     ) -> ByteBuffer? {
         let token = self.token(for: connectionID)
 
-        let bytes = QUICConnectionUtilities.createStatelessResetPacket(
-            token: token.token,
-            triggeringPacketLength: triggeringPacketLength
-        )
-        // No bytes means no reset could be built which is both a plausible QUIC packet (21 bytes
-        // at minimum) and smaller than the packet that triggered it.
-        if bytes.isEmpty { return nil }
+        // Throws if no reset can be built which is both a plausible QUIC packet (21 bytes at
+        // minimum) and smaller than the packet that triggered it.
+        guard
+            let bytes = try? QUICConnectionUtilities.createStatelessResetPacket(
+                token: token.token,
+                triggeringPacketLength: triggeringPacketLength
+            )
+        else {
+            return nil
+        }
+        assert(!bytes.isEmpty)
 
         var buffer = allocator.buffer(capacity: bytes.count)
         buffer.writeBytes(bytes)

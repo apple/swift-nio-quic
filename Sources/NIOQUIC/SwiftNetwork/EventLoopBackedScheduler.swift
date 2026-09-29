@@ -54,6 +54,15 @@ final class EventLoopBackedScheduler: NetworkContext.Scheduler {
     private var wakeups: [TimerReference: Wakeup] = [:]
     private let eventLoop: any EventLoop
 
+    var now: NetworkClock.Instant {
+        .zero + .nanoseconds(self.eventLoop.now.uptimeNanoseconds)
+    }
+
+    /// NIO has a single clock, so there is no offset between the continuous and absolute clocks.
+    var nowAbsolute: NetworkClock.Instant {
+        self.now
+    }
+
     internal init(eventLoop: any EventLoop) {
         self.eventLoop = eventLoop
     }
