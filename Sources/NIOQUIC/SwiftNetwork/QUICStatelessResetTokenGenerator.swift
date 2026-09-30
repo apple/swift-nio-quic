@@ -100,12 +100,13 @@ extension QUICStatelessResetToken.Generator {
 
         // Throws if no reset can be built which is both a plausible QUIC packet (21 bytes at
         // minimum) and smaller than the packet that triggered it.
-        guard
-            let bytes = try? QUICConnectionUtilities.createStatelessResetPacket(
-                token: token.token,
-                triggeringPacketLength: triggeringPacketLength
-            )
-        else {
+        let bytes = try? QUICConnectionUtilities.createStatelessResetPacket(
+            token: token.token,
+            triggeringPacketLength: triggeringPacketLength
+        )
+        // For 38 byte packets `createStatelessResetPacket` creates 38 bytes responses.
+        // This can lead to a loop of endless back and forth. Double checking to be sure.
+        guard let bytes, bytes.count < triggeringPacketLength else {
             return nil
         }
         assert(!bytes.isEmpty)
