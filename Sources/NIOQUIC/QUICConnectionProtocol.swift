@@ -38,17 +38,15 @@ protocol QUICConnectionProtocol {
     /// should be processed by the QUIC stack.
     func receivePacketsComplete()
 
-    /// Pops the next finalized datagram the connection wants sent to the peer.
+    /// Hands every finalized datagram the connection wants sent to the peer to `body`.
     ///
-    /// Call repeatedly until it returns `nil` to drain all pending output.
-    ///
-    /// - Returns: The next datagram to send, or `nil` if none are queued.
-    func nextPacketToSend() -> AddressedEnvelope<ByteBuffer>?
+    /// - Parameter body: Called once per datagram to send.
+    func drainPacketsToSend(_ body: (AddressedEnvelope<ByteBuffer>) -> Void)
 
     /// Initiates a locally-requested close of the connection.
     ///
     /// The `CONNECTION_CLOSE` frame (if any) is finalized synchronously; the
-    /// caller should drain output with ``nextPacketToSend()`` afterwards. The
+    /// caller should drain output with ``drainPacketsToSend(_:)`` afterwards. The
     /// returned action tells the caller whether it initiated the close (and so
     /// must drive `channelInactive`) or the connection was already closing.
     /// Spontaneous (peer- or idle-initiated) closes are *not* reported here —
@@ -155,12 +153,12 @@ extension QUICConnectionChannel.Connection: QUICConnectionProtocol where Consume
         }
     }
 
-    func nextPacketToSend() -> AddressedEnvelope<ByteBuffer>? {
+    func drainPacketsToSend(_ body: (AddressedEnvelope<ByteBuffer>) -> Void) {
         switch self {
         case .live(let connection):
-            connection.nextPacketToSend()
+            connection.drainPacketsToSend(body)
         case .test(let connection):
-            connection.nextPacketToSend()
+            connection.drainPacketsToSend(body)
         }
     }
 

@@ -760,7 +760,7 @@ extension QUICConnectionChannel where Consumer: ~Copyable {
 
         // Avoid re-entering this function.
         self.withoutEnteringDrainOutput {
-            while let envelope = self._connection.nextPacketToSend() {
+            self._connection.drainPacketsToSend { envelope in
                 self._transport.writeDatagram(envelope, promise: nil)
             }
 
