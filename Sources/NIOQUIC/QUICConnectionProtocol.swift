@@ -29,10 +29,10 @@ protocol QUICConnectionProtocol {
     /// once the current read batch is done to have the QUIC stack consume the
     /// queue.
     ///
-    /// - Parameter packet: The datagram received from the peer.
-    /// - Returns: The number of bytes accepted from `packet`.
+    /// - Parameter envelope: The datagram received from the peer, and the address it came from.
+    /// - Returns: The number of bytes accepted from the datagram.
     @discardableResult
-    func receivePacket(_ packet: ByteBuffer) -> Int
+    func receivePacket(_ envelope: AddressedEnvelope<ByteBuffer>) -> Int
 
     /// Signals that the current read batch is complete and the queued datagrams
     /// should be processed by the QUIC stack.
@@ -137,12 +137,12 @@ extension QUICConnectionChannel.Connection: QUICConnectionProtocol where Consume
     }
 
     @discardableResult
-    func receivePacket(_ packet: ByteBuffer) -> Int {
+    func receivePacket(_ envelope: AddressedEnvelope<ByteBuffer>) -> Int {
         switch self {
         case .live(let connection):
-            connection.receivePacket(packet)
+            connection.receivePacket(envelope)
         case .test(let connection):
-            connection.receivePacket(packet)
+            connection.receivePacket(envelope)
         }
     }
 

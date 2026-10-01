@@ -598,8 +598,8 @@ extension QUICConnectionChannel.TransportView where Consumer: ~Copyable {
 
     /// Returns whether the read caused the channel to enter a read loop.
     @discardableResult
-    func parentChannelRead(_ buffer: ByteBuffer) -> Bool {
-        self.channel._parentChannelRead(buffer)
+    func parentChannelRead(_ envelope: AddressedEnvelope<ByteBuffer>) -> Bool {
+        self.channel._parentChannelRead(envelope)
     }
 
     func parentChannelReadComplete() {
@@ -942,11 +942,11 @@ extension QUICConnectionChannel where Consumer: ~Copyable {
         self.pipeline.syncOperations.fireUserInboundEventTriggered(event)
     }
 
-    fileprivate func _parentChannelRead(_ buffer: ByteBuffer) -> Bool {
+    fileprivate func _parentChannelRead(_ envelope: AddressedEnvelope<ByteBuffer>) -> Bool {
         self.eventLoop.assertInEventLoop()
         // Feed packets in, '_parentChannelReadComplete' signals to the connection that
         // it should then consume those packets.
-        self._connection.receivePacket(buffer)
+        self._connection.receivePacket(envelope)
 
         let didEnterReadLoop = !self._inReadLoop
         self._inReadLoop = true

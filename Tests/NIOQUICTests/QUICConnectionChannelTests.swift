@@ -455,11 +455,13 @@ struct QUICConnectionChannelTests {
             }
 
             let view = channel.transportView
-            #expect(view.parentChannelRead(ByteBuffer(string: "Hello,")))
+            let hello = AddressedEnvelope(remoteAddress: connection.remoteAddress, data: ByteBuffer(string: "Hello,"))
+            #expect(view.parentChannelRead(hello))
             #expect(connection.events.popFirst() == .receivedPacket(ByteBuffer(string: "Hello,")))
             #expect(transport.events.isEmpty)
 
-            #expect(!view.parentChannelRead(ByteBuffer(string: "QUIC!")))
+            let quic = AddressedEnvelope(remoteAddress: connection.remoteAddress, data: ByteBuffer(string: "QUIC!"))
+            #expect(!view.parentChannelRead(quic))
             #expect(connection.events.popFirst() == .receivedPacket(ByteBuffer(string: "QUIC!")))
             #expect(transport.events.isEmpty)
 
@@ -806,9 +808,9 @@ final class RecordingConnection: QUICConnectionProtocol {
         self.writeDatagramResult = true
     }
 
-    func receivePacket(_ packet: ByteBuffer) -> Int {
-        self.events.append(.receivedPacket(packet))
-        return packet.readableBytes
+    func receivePacket(_ envelope: AddressedEnvelope<ByteBuffer>) -> Int {
+        self.events.append(.receivedPacket(envelope.data))
+        return envelope.data.readableBytes
     }
 
     func receivePacketsComplete() {
@@ -860,7 +862,7 @@ struct NoOpConnection: QUICConnectionProtocol {
         self.remoteAddress = remoteAddress
     }
 
-    func receivePacket(_ packet: ByteBuffer) -> Int {
+    func receivePacket(_ envelope: AddressedEnvelope<ByteBuffer>) -> Int {
         0
     }
 

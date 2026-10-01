@@ -260,11 +260,11 @@ public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
     /// loop is signalled here instead. Without it the packet — an INITIAL, so the whole handshake —
     /// waits for the peer to retransmit.
     private func deliverFirstPacket(
-        _ packet: ByteBuffer,
+        _ envelope: AddressedEnvelope<ByteBuffer>,
         to view: QUICConnectionChannel<Consumer>.TransportView
     ) {
         self.eventLoop.assertInEventLoop()
-        self.deliverPacket(packet, to: view)
+        self.deliverPacket(envelope, to: view)
 
         // First reads can be delivered outside of the read loop (i.e. after the connection init)
         // so notify read complete out-of-band if necessary.
@@ -274,10 +274,10 @@ public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
     }
 
     private func deliverPacket(
-        _ packet: ByteBuffer,
+        _ envelope: AddressedEnvelope<ByteBuffer>,
         to view: QUICConnectionChannel<Consumer>.TransportView
     ) {
-        let didEnterReadLoop = view.parentChannelRead(packet)
+        let didEnterReadLoop = view.parentChannelRead(envelope)
 
         if didEnterReadLoop {
             self.connectionsAwaitingReadComplete.append(view)
@@ -726,7 +726,7 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
             switch self.state {
             case .accepting:
                 if let view = self.connectionRegistry[header.destinationConnectionID] {
-                    self.deliverPacket(addressedEnvelope.data, to: view)
+                    self.deliverPacket(addressedEnvelope, to: view)
                 } else if self.quicConfiguration.role == .server {
                     // Only INITIAL packets can create new connections. However, we do need to
                     // pass packets with unknown versions to Swift QUIC to initiate version
@@ -789,7 +789,7 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
                     ]
                 )
 
-                self.deliverPacket(addressedEnvelope.data, to: view)
+                self.deliverPacket(addressedEnvelope, to: view)
 
             case .shutdown:
                 self.logger.warning(
@@ -911,7 +911,7 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
             initPromise.futureResult.assumeIsolated().whenComplete { result in
                 switch result {
                 case .success:
-                    self.deliverFirstPacket(addressedEnvelope.data, to: view)
+                    self.deliverFirstPacket(addressedEnvelope, to: view)
                 case .failure:
                     // Nothing to unwind: failing initialization closes the channel, so
                     // 'connectionDidClose' does the teardown.
@@ -959,7 +959,7 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
                     case .success(let (_, output)):
                         connectionLogger.trace("QUICHandler yielding output to multiplexer")
                         multiplexerContinuation.yield(connection: output)
-                        self.deliverFirstPacket(addressedEnvelope.data, to: view)
+                        self.deliverFirstPacket(addressedEnvelope, to: view)
                     case .failure:
                         // Nothing to unwind: failing initialization closes the channel, so
                         // 'connectionDidClose' does the teardown.
@@ -989,7 +989,7 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
             initPromise.futureResult.assumeIsolated().whenComplete { result in
                 switch result {
                 case .success:
-                    self.deliverFirstPacket(addressedEnvelope.data, to: view)
+                    self.deliverFirstPacket(addressedEnvelope, to: view)
                 case .failure:
                     ()
                 }
