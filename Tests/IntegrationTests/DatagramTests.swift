@@ -539,6 +539,82 @@ struct DatagramTests {
 
         try await serverChannel.close()
     }
+
+    /// A datagram that only fits a packet larger than QUIC's 1200-byte minimum round-trips once both
+    /// endpoints raise `initialPacketSize`.
+    @available(anyAppleOS 26, *)
+    @Test
+    func largeDatagramRoundTripsWithLargerInitialPacketSize() async throws {
+        let eventLoopGroup = MultiThreadedEventLoopGroup.singleton
+        let loggers = getChannelLoggers()
+        let host = "127.0.0.1"
+        let syncSignal = ByteBuffer(string: "ready")
+
+        // With the default 8-byte connection IDs, a DATAGRAM frame in a 1200-byte packet carries at
+        // most 1168 bytes: 29 go to the short header and AEAD tag, 3 to the frame header. In a
+        // 1350-byte packet it carries 1318.
+        let payload = ByteBuffer(repeating: UInt8(ascii: "x"), count: 1250)
+
+        let serverReceivedSync = eventLoopGroup.any().makePromise(of: Void.self)
+        let serverReceived = makePromise(of: ByteBuffer.self, timeout: .seconds(5))
+        let clientReceivedEcho = makePromise(of: ByteBuffer.self, timeout: .seconds(5))
+
+        let serverChannel = try await createServerChannel(
+            eventLoopGroup: eventLoopGroup,
+            host: host,
+            port: 0,
+            logger: loggers.serverLogger,
+            initialPacketSize: 1350,
+            inboundConnectionInitializer: { connectionChannel, _ in
+                connectionChannel.eventLoop.makeCompletedFuture {
+                    try connectionChannel.pipeline.syncOperations.addHandler(
+                        DatagramCapture(onDatagram: { buffer in
+                            serverReceived.succeed(buffer)
+                            connectionChannel.writeAndFlush(buffer, promise: nil)
+                        })
+                    )
+                }
+            },
+            inboundStreamInitializer: { streamChannel in
+                streamChannel.eventLoop.makeCompletedFuture {
+                    try streamChannel.pipeline.syncOperations.addHandler(
+                        SyncSignalHandler(receivedPromise: serverReceivedSync)
+                    )
+                }
+            },
+            noMoreConnections: {}
+        ).get()
+        let serverPort = serverChannel.localAddress!.port!
+
+        let clientChannel = try await createClientChannel(
+            eventLoopGroup: eventLoopGroup,
+            host: host,
+            port: 0,
+            logger: loggers.clientLogger,
+            initialPacketSize: 1350
+        ).get()
+
+        let (clientConnectionChannel, streamCreator) = try await connectOutbound(
+            clientChannel,
+            host: host,
+            port: serverPort
+        ) { connectionChannel, _ in
+            connectionChannel.eventLoop.makeCompletedFuture {
+                try connectionChannel.pipeline.syncOperations.addHandler(
+                    DatagramCapture(onDatagram: { clientReceivedEcho.succeed($0) })
+                )
+            }
+        }
+
+        try await performSyncHandshake(streamCreator, signal: syncSignal, serverReceived: serverReceivedSync)
+
+        clientConnectionChannel.writeAndFlush(payload, promise: nil)
+
+        #expect(try await serverReceived.futureResult.get() == payload)
+        #expect(try await clientReceivedEcho.futureResult.get() == payload)
+
+        try await serverChannel.close()
+    }
 }
 
 /// Opens an outbound QUIC connection on `clientChannel` to `host:port`, running

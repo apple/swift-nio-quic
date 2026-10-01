@@ -114,6 +114,14 @@ public struct QUICConfiguration: Sendable {
     /// Maximum datagram frame size in bytes. Set to 0 to disable datagrams.
     /// Defaults to 65535 (the max value allowed) as recommended in RFC 9221.
     public var maxDatagramFrameSize: Int
+    /// The maximum UDP payload size in bytes the connection sends from its first packet on.
+    ///
+    /// Defaults to 1200, the minimum every QUIC path must support (RFC 9000, Section 14). Initial
+    /// packets are padded to this size, and the connection never lowers its maximum packet size
+    /// below it.
+    ///
+    /// NOTE: Only raise it if the whole path and the peer support it. Values of 1200 or less have no effect.
+    public var initialPacketSize: Int
 
     private init(
         role: Role,
@@ -135,7 +143,8 @@ public struct QUICConfiguration: Sendable {
         keyLogPath: String?,
         qLogConfiguration: QLogConfiguration?,
         peerCertificateVerification: CertificateVerification,
-        maxDatagramFrameSize: Int
+        maxDatagramFrameSize: Int,
+        initialPacketSize: Int
     ) {
         self.role = role
         self.serverName = serverName
@@ -157,6 +166,7 @@ public struct QUICConfiguration: Sendable {
         self.qLogConfiguration = qLogConfiguration
         self.peerCertificateVerification = peerCertificateVerification
         self.maxDatagramFrameSize = maxDatagramFrameSize
+        self.initialPacketSize = initialPacketSize
     }
 
     /// Factory method to initialise a `QUICConfiguration` for servers.
@@ -169,6 +179,7 @@ public struct QUICConfiguration: Sendable {
     ///     - maxIdleTimeout: The max idle timeout for the connection.
     ///     - keyLogPath: The path to the file where the key log should be written to.
     ///     - qLogConfiguration: Configuration for qlog.
+    ///     - initialPacketSize: The maximum UDP payload size to send from the first packet on, see ``initialPacketSize``.
     public static func server(
         serverName: String,
         authenticationConfiguration: AuthenticationConfiguration,
@@ -185,7 +196,8 @@ public struct QUICConfiguration: Sendable {
         sendRetry: Bool = false,
         keyLogPath: String? = nil,
         qLogConfiguration: QLogConfiguration? = nil,
-        maxDatagramFrameSize: Int = 65535
+        maxDatagramFrameSize: Int = 65535,
+        initialPacketSize: Int = 1200
     ) -> Self {
         self.init(
             role: .server,
@@ -207,7 +219,8 @@ public struct QUICConfiguration: Sendable {
             keyLogPath: keyLogPath,
             qLogConfiguration: qLogConfiguration,
             peerCertificateVerification: .noVerification,
-            maxDatagramFrameSize: maxDatagramFrameSize
+            maxDatagramFrameSize: maxDatagramFrameSize,
+            initialPacketSize: initialPacketSize
         )
     }
 
@@ -221,6 +234,7 @@ public struct QUICConfiguration: Sendable {
     ///     - keyLogPath: The path to the file where the key log should be written to.
     ///     - qLogConfiguration: Configuration for qlog.
     ///     - peerCertificateVerification: Customize verification of the peer certificate.
+    ///     - initialPacketSize: The maximum UDP payload size to send from the first packet on, see ``initialPacketSize``.
     public static func client(
         verificationConfiguration: VerificationConfiguration,
         keyExchangeGroup: KeyExchangeGroup = .x25519,
@@ -237,7 +251,8 @@ public struct QUICConfiguration: Sendable {
         keyLogPath: String? = nil,
         qLogConfiguration: QLogConfiguration? = nil,
         peerCertificateVerification: CertificateVerification = .fullVerification,
-        maxDatagramFrameSize: Int = 65535
+        maxDatagramFrameSize: Int = 65535,
+        initialPacketSize: Int = 1200
     ) -> Self {
         self.init(
             role: .client,
@@ -259,7 +274,8 @@ public struct QUICConfiguration: Sendable {
             keyLogPath: keyLogPath,
             qLogConfiguration: qLogConfiguration,
             peerCertificateVerification: peerCertificateVerification,
-            maxDatagramFrameSize: maxDatagramFrameSize
+            maxDatagramFrameSize: maxDatagramFrameSize,
+            initialPacketSize: initialPacketSize
         )
     }
 }
