@@ -16,6 +16,8 @@ import Logging
 import NIOCore
 import X509
 
+@_spi(ProtocolProvider) import SwiftNetwork
+
 @available(anyAppleOS 26, *)
 private enum MultiplexerContinuation<Consumer: QUICStreamConsumer & ~Copyable> {
     case connectionMultiplexerContinuation(
@@ -386,47 +388,17 @@ public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
         // size of 1200 bytes." (RFC 9000 § 14.1)
         guard envelope.data.readableBytes >= 1200 else { return }
 
-        // TODO: Replace this with SwiftNetwork API once available to avoid drift if versions change.
-
-        // RFC 9000 § 17.2.1: the server echoes the incoming SCID as its own DCID and the
-        // incoming DCID as its own SCID.
-        let destinationConnectionID =
-            header.sourceConnectionID ?? QUICConnectionID(bytes: InlineArray(repeating: 0), length: 0)
-        let sourceConnectionID = header.destinationConnectionID
-
-        // VN packet layout (RFC 9000 § 17.2.1):
-        //
-        // Version Negotiation Packet {
-        //   Header Form (1) = 1,
-        //   Unused (7),
-        //   Version (32) = 0,
-        //   Destination Connection ID Length (8),
-        //   Destination Connection ID (0..2040),
-        //   Source Connection ID Length (8),
-        //   Source Connection ID (0..2040),
-        //   Supported Version (32) ...,
-        // }
-        let responsePacketSize =
-            1  // header form + unused bits
-            + 4  // version field of 0
-            + 1  // DCID length
-            + destinationConnectionID.length  // DCID
-            + 1  // SCID length
-            + sourceConnectionID.length  // SCID
-            + 4  // v1
-            + 4  // RFC 9000 § 6.3 reserved/grease pattern
-
-        var buffer = self.udpChannel.allocator.buffer(
-            capacity: responsePacketSize
+        // SwiftNetwork swaps the connection IDs, we pass them in as they are.
+        let bytes = try? QUICConnectionUtilities.createVersionNegotiationPacket(
+            destinationConnectionID: .init(header.destinationConnectionID),
+            sourceConnectionID: .init(header.sourceConnectionID ?? QUICConnectionID(bytes: InlineArray(repeating: 0), length: 0))
         )
-        buffer.writeInteger(UInt8(0x80))
-        buffer.writeInteger(QUICPacketHeader.Version.negotiation.headerVersionField)
-        buffer.writeInteger(UInt8(destinationConnectionID.length))
-        _ = destinationConnectionID.withUnsafeBufferPointer { buffer.writeBytes($0) }
-        buffer.writeInteger(UInt8(sourceConnectionID.length))
-        _ = sourceConnectionID.withUnsafeBufferPointer { buffer.writeBytes($0) }
-        buffer.writeInteger(QUICPacketHeader.Version.v1.headerVersionField)
-        buffer.writeInteger(QUICPacketHeader.Version.negotiationPattern.headerVersionField)
+
+        guard let bytes else { return }
+        assert(!bytes.isEmpty)
+
+        var buffer = self.udpChannel.allocator.buffer(capacity: bytes.count)
+        buffer.writeBytes(bytes)
 
         self.logger.trace(
             "QUICHandler sending version negotiation",
