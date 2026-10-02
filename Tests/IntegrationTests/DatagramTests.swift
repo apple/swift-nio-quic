@@ -540,11 +540,18 @@ struct DatagramTests {
         try await serverChannel.close()
     }
 
-    /// A datagram that only fits a packet larger than QUIC's 1200-byte minimum round-trips once both
-    /// endpoints raise `initialPacketSize`.
+    /// A server only sends a datagram that needs more than 1200-byte packets once its initial packet
+    /// size is raised. The client always uses 1350-byte packets, so its datagram reaches the server
+    /// either way.
     @available(anyAppleOS 26, *)
-    @Test
-    func largeDatagramRoundTripsWithLargerInitialPacketSize() async throws {
+    @Test(arguments: [
+        (InitialPacketSize.fixed(1200), [6]),
+        (InitialPacketSize.fixed(1350), [1250, 6]),
+    ])
+    func serverSendsLargeDatagramOnlyWithLargerInitialPacketSize(
+        serverInitialPacketSize: InitialPacketSize,
+        expectedSizes: [Int]
+    ) async throws {
         let eventLoopGroup = MultiThreadedEventLoopGroup.singleton
         let loggers = getChannelLoggers()
         let host = "127.0.0.1"
@@ -554,23 +561,26 @@ struct DatagramTests {
         // most 1168 bytes: 29 go to the short header and AEAD tag, 3 to the frame header. In a
         // 1350-byte packet it carries 1318.
         let payload = ByteBuffer(repeating: UInt8(ascii: "x"), count: 1250)
+        let marker = ByteBuffer(string: "marker")
 
         let serverReceivedSync = eventLoopGroup.any().makePromise(of: Void.self)
-        let serverReceived = makePromise(of: ByteBuffer.self, timeout: .seconds(5))
-        let clientReceivedEcho = makePromise(of: ByteBuffer.self, timeout: .seconds(5))
+        let clientReceivedMarker = makePromise(of: Void.self, timeout: .seconds(5))
+        let clientReceived = NIOLockedValueBox<[ByteBuffer]>([])
 
         let serverChannel = try await createServerChannel(
             eventLoopGroup: eventLoopGroup,
             host: host,
             port: 0,
             logger: loggers.serverLogger,
-            initialPacketSize: 1350,
+            initialPacketSize: serverInitialPacketSize,
             inboundConnectionInitializer: { connectionChannel, _ in
                 connectionChannel.eventLoop.makeCompletedFuture {
                     try connectionChannel.pipeline.syncOperations.addHandler(
                         DatagramCapture(onDatagram: { buffer in
-                            serverReceived.succeed(buffer)
+                            // An echo that is too large is dropped silently, the marker shows that
+                            // everything that fits was delivered.
                             connectionChannel.writeAndFlush(buffer, promise: nil)
+                            connectionChannel.writeAndFlush(marker, promise: nil)
                         })
                     )
                 }
@@ -601,7 +611,12 @@ struct DatagramTests {
         ) { connectionChannel, _ in
             connectionChannel.eventLoop.makeCompletedFuture {
                 try connectionChannel.pipeline.syncOperations.addHandler(
-                    DatagramCapture(onDatagram: { clientReceivedEcho.succeed($0) })
+                    DatagramCapture(onDatagram: { buffer in
+                        clientReceived.withLockedValue { $0.append(buffer) }
+                        if buffer == marker {
+                            clientReceivedMarker.succeed()
+                        }
+                    })
                 )
             }
         }
@@ -609,9 +624,105 @@ struct DatagramTests {
         try await performSyncHandshake(streamCreator, signal: syncSignal, serverReceived: serverReceivedSync)
 
         clientConnectionChannel.writeAndFlush(payload, promise: nil)
+        try await clientReceivedMarker.futureResult.get()
 
-        #expect(try await serverReceived.futureResult.get() == payload)
-        #expect(try await clientReceivedEcho.futureResult.get() == payload)
+        let receivedSizes = clientReceived.withLockedValue { $0.map(\.readableBytes) }
+        #expect(receivedSizes == expectedSizes)
+
+        try await serverChannel.close()
+    }
+
+    /// A server matching the client's Initial sends packets as large as that Initial: large enough for
+    /// a datagram that needs more than 1200 bytes, but no larger, even though the cap allows more.
+    @available(anyAppleOS 26, *)
+    @Test
+    func serverPacketSizeMatchesClientInitial() async throws {
+        let eventLoopGroup = MultiThreadedEventLoopGroup.singleton
+        let loggers = getChannelLoggers()
+        let host = "127.0.0.1"
+        let syncSignal = ByteBuffer(string: "ready")
+
+        // The client pads its Initial to 1350 bytes, so the server's DATAGRAM frames carry up to 1318
+        // bytes (see above). Its cap of 1500 would allow 1468.
+        let payload = ByteBuffer(repeating: UInt8(ascii: "x"), count: 1250)
+        let exceedsClientInitial = ByteBuffer(repeating: UInt8(ascii: "y"), count: 1400)
+        let marker = ByteBuffer(string: "marker")
+
+        let serverReceivedSync = eventLoopGroup.any().makePromise(of: Void.self)
+        let serverConnectionChannelPromise = eventLoopGroup.any().makePromise(of: (any Channel).self)
+        let clientReceivedEcho = makePromise(of: Void.self, timeout: .seconds(5))
+        let clientReceivedMarker = makePromise(of: Void.self, timeout: .seconds(5))
+        let clientReceived = NIOLockedValueBox<[ByteBuffer]>([])
+
+        let serverChannel = try await createServerChannel(
+            eventLoopGroup: eventLoopGroup,
+            host: host,
+            port: 0,
+            logger: loggers.serverLogger,
+            initialPacketSize: .matchingClientInitial(upTo: 1500),
+            inboundConnectionInitializer: { connectionChannel, _ in
+                connectionChannel.eventLoop.makeCompletedFuture {
+                    try connectionChannel.pipeline.syncOperations.addHandler(
+                        DatagramCapture(onDatagram: { buffer in
+                            connectionChannel.writeAndFlush(buffer, promise: nil)
+                        })
+                    )
+                    serverConnectionChannelPromise.succeed(connectionChannel)
+                }
+            },
+            inboundStreamInitializer: { streamChannel in
+                streamChannel.eventLoop.makeCompletedFuture {
+                    try streamChannel.pipeline.syncOperations.addHandler(
+                        SyncSignalHandler(receivedPromise: serverReceivedSync)
+                    )
+                }
+            },
+            noMoreConnections: {}
+        ).get()
+        let serverPort = serverChannel.localAddress!.port!
+
+        let clientChannel = try await createClientChannel(
+            eventLoopGroup: eventLoopGroup,
+            host: host,
+            port: 0,
+            logger: loggers.clientLogger,
+            initialPacketSize: 1350
+        ).get()
+
+        let (clientConnectionChannel, streamCreator) = try await connectOutbound(
+            clientChannel,
+            host: host,
+            port: serverPort
+        ) { connectionChannel, _ in
+            connectionChannel.eventLoop.makeCompletedFuture {
+                try connectionChannel.pipeline.syncOperations.addHandler(
+                    DatagramCapture(onDatagram: { buffer in
+                        clientReceived.withLockedValue { $0.append(buffer) }
+                        if buffer == payload {
+                            clientReceivedEcho.succeed()
+                        } else if buffer == marker {
+                            clientReceivedMarker.succeed()
+                        }
+                    })
+                )
+            }
+        }
+
+        try await performSyncHandshake(streamCreator, signal: syncSignal, serverReceived: serverReceivedSync)
+
+        clientConnectionChannel.writeAndFlush(payload, promise: nil)
+        try await clientReceivedEcho.futureResult.get()
+
+        // Send these only once the echo arrived, so the 1400-byte datagram starts its packet: if it
+        // shared one with the echo, SwiftNetwork would drop it for lack of room whatever the size.
+        let serverConnectionChannel = try await serverConnectionChannelPromise.futureResult.get()
+        serverConnectionChannel.write(exceedsClientInitial, promise: nil)
+        serverConnectionChannel.writeAndFlush(marker, promise: nil)
+        try await clientReceivedMarker.futureResult.get()
+
+        // The echo (1250 bytes) and the marker (6 bytes) arrive, the 1400-byte datagram doesn't.
+        let receivedSizes = clientReceived.withLockedValue { $0.map(\.readableBytes) }
+        #expect(receivedSizes == [1250, 6])
 
         try await serverChannel.close()
     }

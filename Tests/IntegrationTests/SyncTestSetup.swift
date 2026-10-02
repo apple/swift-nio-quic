@@ -40,7 +40,7 @@ func createServerChannel(
     port: Int,
     logger: Logger,
     maxDatagramFrameSize: Int = 65535,
-    initialPacketSize: Int = 1200,
+    initialPacketSize: InitialPacketSize = .fixed(1200),
     udpChannelInitializer: @Sendable @escaping (any Channel) throws -> Void = { _ in },
     inboundConnectionInitializer:
         @Sendable @escaping (any Channel, NIOQUIC.QUICStreamCreator) -> EventLoopFuture<Void>,
