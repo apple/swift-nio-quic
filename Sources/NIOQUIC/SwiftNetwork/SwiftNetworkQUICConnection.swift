@@ -22,6 +22,8 @@ import NIOQUICHelpers
 import Synchronization
 import X509
 
+import struct NIOConcurrencyHelpers.NIOLockedValueBox
+
 #if canImport(Glibc)
 import Glibc
 #elseif canImport(Musl)
@@ -66,14 +68,17 @@ private enum ConnectionConstants {
 final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable> {
     private var swiftNetworkQUICConnection: SwiftNetwork.QUICConnection
     let localAddress: SocketAddress
-    // The address of the active path.
+    // The address of the active path. Safe to read from any thread.
     var remoteAddress: SocketAddress {
-        self.activePath.remoteAddress
+        self.remoteAddressBox.withLockedValue { $0 }
     }
+    // The address of the active path, shared with this connection's channels so they can read it from any thread.
+    private let remoteAddressBox: NIOLockedValueBox<SocketAddress>
     // The path SwiftNetwork sends on, as far as its events tell. Checked first for every packet.
     private(set) var activePath: QUICConnectionPath<Consumer> {
         didSet {
-            self.channelView?.activePathChanged(remoteAddress: self.activePath.remoteAddress)
+            let remoteAddress = self.activePath.remoteAddress
+            self.remoteAddressBox.withLockedValue { $0 = remoteAddress }
         }
     }
     // The connection's other paths, oldest first. A demoted active path counts as the newest one.
@@ -313,6 +318,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
 
         self.logger = logger
         self.localAddress = localAddress
+        self.remoteAddressBox = NIOLockedValueBox(remoteAddress)
         self.statelessResetTokenGenerator = statelessResetTokenGenerator
 
         self.activeSCIDs = [sourceConnectionID]
@@ -401,7 +407,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
             parameters: swiftNetworkParameters,
             path: swiftNetworkPath,
             logger: logger,
-            remoteAddress: remoteAddress,
+            remoteAddress: self.remoteAddressBox,
             localAddress: localAddress,
             role: self.role,
             streamListenerProtocol: streamListenerLinkage,
@@ -429,7 +435,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
                 path: swiftNetworkPath,
                 streamID: streamID,
                 logger: logger,
-                remoteAddress: remoteAddress,
+                remoteAddress: self.remoteAddressBox,
                 localAddress: localAddress,
                 listenerProtocol: streamListenerLinkage,
                 connectionChannel: nil,
@@ -638,7 +644,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
                 path: swiftNetworkPath,
                 streamID: nil,
                 logger: logger,
-                remoteAddress: remoteAddress,
+                remoteAddress: self.remoteAddressBox,
                 localAddress: localAddress,
                 listenerProtocol: listenerLinkage,
                 connectionChannel: connectionChannel,
@@ -767,7 +773,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
             parameters: self.swiftNetworkParameters,
             streamID: streamID,
             logger: self.logger,
-            remoteAddress: self.remoteAddress,
+            remoteAddress: self.remoteAddressBox,
             localAddress: self.localAddress,
             connectionChannel: connectionChannel
         )
