@@ -452,6 +452,34 @@ final class QUICHandlerTests: XCTestCase {
         XCTAssertNil(try self.channel.readOutbound(as: AddressedEnvelope<ByteBuffer>.self))
     }
 
+    func testChannelRead_whenV2InitialIsLargeEnough_sendsVersionNegotiation() throws {
+        // SwiftNetwork only supports QUIC v1, so a QUIC v2 (RFC 9369) Initial gets a Version
+        // Negotiation reply instead of creating a connection.
+        let destinationID = QUICConnectionID.random(using: &self.randomNumberGenerator)
+        let sourceID = QUICConnectionID.random(using: &self.randomNumberGenerator)
+        let packet = QUICPackets.initial(
+            destinationID: destinationID,
+            sourceID: sourceID,
+            token: [],
+            version: 2
+        )
+        var buffer = ByteBuffer(bytes: packet)
+        buffer.addPadding(ensuringMinimumLengthOf: 1200)
+        let address = try SocketAddress(ipAddress: "127.0.0.0", port: 443)
+        self.channel.pipeline.fireChannelRead(
+            AddressedEnvelope<ByteBuffer>(remoteAddress: address, data: buffer)
+        )
+        self.channel.pipeline.fireChannelReadComplete()
+
+        let outbound = try XCTUnwrap(try self.channel.readOutbound(as: AddressedEnvelope<ByteBuffer>.self))
+        let outboundHeader = try XCTUnwrap(outbound.data.parseQUICPacketHeader(destinationIDLength: 8))
+        XCTAssertEqual(outboundHeader.version, .negotiation)
+        XCTAssertEqual(outboundHeader.destinationConnectionID, sourceID)
+        XCTAssertEqual(outboundHeader.sourceConnectionID, destinationID)
+
+        XCTAssertNil(try self.channel.readOutbound(as: AddressedEnvelope<ByteBuffer>.self))
+    }
+
     func testChannelRead_whenUnsupportedVersionPacketIsTooSmall_sendsNoVersionNegotiation() throws {
         // RFC 9000 § 5.2.2, § 14.1: servers MUST drop smaller packets that specify unsupported
         // versions instead of responding.

@@ -39,8 +39,6 @@ struct QUICPacketHeader: Hashable, Sendable {
         static let negotiation = Version(0x0000_0000)
         static let v1 = Version(0x0000_0001)
         static let v2 = Version(0x6b33_43cf)
-        /// RFC 9000 § 15: reserved pattern (0x?a?a?a?a) used to force version negotiation.
-        static let negotiationPattern = Version(0x1a2a_3a4a)
 
         var headerVersionField: UInt32 {
             self.backing
@@ -50,12 +48,13 @@ struct QUICPacketHeader: Hashable, Sendable {
             self.backing = headerVersionField
         }
 
+        /// SwiftNetwork doesn't expose the versions it supports. Switching exhaustively over its
+        /// `QUICVersion` at least breaks the build when a version is added there.
         var isSupportedBySwiftNetwork: Bool {
-            switch self {
-            // TODO: Can we get this info from SwiftNetwork?
+            switch QUICVersion(rawValue: self.backing) {
             case .v1:
                 return true
-            default:
+            case .negotiation, .negotiationPattern, nil:
                 return false
             }
         }
@@ -159,15 +158,14 @@ struct QUICPacketHeader: Hashable, Sendable {
                 }
 
             default:
-                // We pass other cases as a version negotiation request to SwiftQUIC and let it decide
-                // how to handle them. This includes:
+                // Servers answer these with a stateless Version Negotiation packet. This includes:
                 // * Forced version negotiation (RFC 9000, Section 15): "Versions that follow the pattern
                 //   0x?a?a?a?a are reserved for use in forcing version negotiation to be exercised -- that
                 //   is, any version number where the low four bits of all bytes is 1010 (in binary)."
                 // * Unrecognized version numbers (RFC 9000, Section 5.2.2): "If a server receives a packet
                 //   that indicates an unsupported version and if the packet is large enough to initiate a
-                //   new connection for any supported version, the server Version Negotiation packet as
-                //   described in Section 6.1."
+                //   new connection for any supported version, the server SHOULD send a Version Negotiation
+                //   packet as described in Section 6.1."
                 self = .unsupportedVersion
             }
 
