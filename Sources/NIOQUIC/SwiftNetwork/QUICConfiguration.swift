@@ -86,8 +86,8 @@ public struct InitialPacketSize: Sendable, Hashable {
     /// Send UDP payloads as large as the datagram that carried the client's first Initial packet,
     /// but at most `maximum` bytes.
     ///
-    /// The client's Initial only shows that the path carries packets of its size towards the
-    /// server, not back towards the client. Only servers can match a client's Initial, clients
+    /// NOTE: The client's Initial only shows that the path carries packets of its size towards
+    /// the server, not back towards the client. Only servers can match a client's Initial, clients
     /// use 1200 bytes (minimum according RFC 9000, § 8.1).
     public static func matchingClientInitial(upTo maximum: Int) -> Self {
         Self(kind: .matchingClientInitial(maximum: maximum))

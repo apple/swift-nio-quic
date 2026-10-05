@@ -540,9 +540,6 @@ struct DatagramTests {
         try await serverChannel.close()
     }
 
-    /// A server only sends a datagram that needs more than 1200-byte packets once its initial packet
-    /// size is raised. The client always uses 1350-byte packets, so its datagram reaches the server
-    /// either way.
     @available(anyAppleOS 26, *)
     @Test(arguments: [
         (InitialPacketSize.fixed(1200), [6]),
@@ -557,9 +554,6 @@ struct DatagramTests {
         let host = "127.0.0.1"
         let syncSignal = ByteBuffer(string: "ready")
 
-        // With the default 8-byte connection IDs, a DATAGRAM frame in a 1200-byte packet carries at
-        // most 1168 bytes: 29 go to the short header and AEAD tag, 3 to the frame header. In a
-        // 1350-byte packet it carries 1318.
         let payload = ByteBuffer(repeating: UInt8(ascii: "x"), count: 1250)
         let marker = ByteBuffer(string: "marker")
 
@@ -632,8 +626,6 @@ struct DatagramTests {
         try await serverChannel.close()
     }
 
-    /// A server matching the client's Initial sends packets as large as that Initial: large enough for
-    /// a datagram that needs more than 1200 bytes, but no larger, even though the cap allows more.
     @available(anyAppleOS 26, *)
     @Test
     func serverPacketSizeMatchesClientInitial() async throws {
@@ -642,8 +634,6 @@ struct DatagramTests {
         let host = "127.0.0.1"
         let syncSignal = ByteBuffer(string: "ready")
 
-        // The client pads its Initial to 1350 bytes, so the server's DATAGRAM frames carry up to 1318
-        // bytes (see above). Its cap of 1500 would allow 1468.
         let payload = ByteBuffer(repeating: UInt8(ascii: "x"), count: 1250)
         let exceedsClientInitial = ByteBuffer(repeating: UInt8(ascii: "y"), count: 1400)
         let marker = ByteBuffer(string: "marker")
@@ -713,14 +703,15 @@ struct DatagramTests {
         clientConnectionChannel.writeAndFlush(payload, promise: nil)
         try await clientReceivedEcho.futureResult.get()
 
-        // Send these only once the echo arrived, so the 1400-byte datagram starts its packet: if it
-        // shared one with the echo, SwiftNetwork would drop it for lack of room whatever the size.
+        // Send these only once the echo arrived. SwiftNetwork currently drops datagrams after
+        // filling one packet when sending them in a batch.
         let serverConnectionChannel = try await serverConnectionChannelPromise.futureResult.get()
         serverConnectionChannel.write(exceedsClientInitial, promise: nil)
         serverConnectionChannel.writeAndFlush(marker, promise: nil)
         try await clientReceivedMarker.futureResult.get()
 
-        // The echo (1250 bytes) and the marker (6 bytes) arrive, the 1400-byte datagram doesn't.
+        // The echo (1250 bytes) and the marker (6 bytes) arrive.
+        // The 1400-byte datagram was silently dropped due to its size.
         let receivedSizes = clientReceived.withLockedValue { $0.map(\.readableBytes) }
         #expect(receivedSizes == [1250, 6])
 
