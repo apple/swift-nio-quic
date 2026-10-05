@@ -777,11 +777,14 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
     ///
     /// - Parameters:
     ///     - logMessage: The logMessage that is fetched by an autoclosure.  For performance reasons we could gate this behind a flag.
-    private func log(_ logMessage: @autoclosure () -> String) {
+    private func log(
+        _ logMessage: @autoclosure () -> String,
+        metadata: @autoclosure () -> Logger.Metadata? = nil,
+    ) {
         #if DEBUG
         let message = logMessage()
         let stateDescription = self.connectionStateMachine.stateDescription
-        self.logger.trace("[\(self.role.description)][\(stateDescription)]  \(message)")
+        self.logger.trace("[\(self.role.description)][\(stateDescription)]  \(message)", metadata: metadata())
         #endif
     }
 
@@ -964,8 +967,12 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
             self.setOutboundBatching(true)
             self.streamTable?.inReadLoop = true
         }
-
-        log("receivePacket called with \(envelope.data.readableBytes) bytes")
+        self.log(
+            "received packet on active path",
+            metadata: [
+                LoggingKeys.packetBytes: Logger.MetadataValue("\(envelope.data.readableBytes)")
+            ]
+        )
         self.activePath.enqueueInboundPacket(envelope.data)
         return envelope.data.readableBytes
     }
