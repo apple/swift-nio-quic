@@ -38,15 +38,15 @@ protocol QUICConnectionProtocol {
     /// should be processed by the QUIC stack.
     func receivePacketsComplete()
 
-    /// Hands every finalized datagram the connection wants sent to the peer to `body`.
+    /// Writes every finalized datagram the connection wants sent to the peer to `transport`.
     ///
-    /// - Parameter body: Called once per datagram to send.
-    func drainPacketsToSend(_ body: (AddressedEnvelope<ByteBuffer>) -> Void)
+    /// - Parameter transport: The transport to write the datagrams to. It is not flushed.
+    func drainPacketsToSend(to transport: some QUICTransport)
 
     /// Initiates a locally-requested close of the connection.
     ///
     /// The `CONNECTION_CLOSE` frame (if any) is finalized synchronously; the
-    /// caller should drain output with ``drainPacketsToSend(_:)`` afterwards. The
+    /// caller should drain output with ``drainPacketsToSend(to:)`` afterwards. The
     /// returned action tells the caller whether it initiated the close (and so
     /// must drive `channelInactive`) or the connection was already closing.
     /// Spontaneous (peer- or idle-initiated) closes are *not* reported here —
@@ -153,12 +153,12 @@ extension QUICConnectionChannel.Connection: QUICConnectionProtocol where Consume
         }
     }
 
-    func drainPacketsToSend(_ body: (AddressedEnvelope<ByteBuffer>) -> Void) {
+    func drainPacketsToSend(to transport: some QUICTransport) {
         switch self {
         case .live(let connection):
-            connection.drainPacketsToSend(body)
+            connection.drainPacketsToSend(to: transport)
         case .test(let connection):
-            connection.drainPacketsToSend(body)
+            connection.drainPacketsToSend(to: transport)
         }
     }
 

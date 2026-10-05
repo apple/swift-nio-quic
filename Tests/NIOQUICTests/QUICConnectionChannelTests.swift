@@ -817,9 +817,9 @@ final class RecordingConnection: QUICConnectionProtocol {
         self.events.append(.receivedPacketsComplete)
     }
 
-    func drainPacketsToSend(_ body: (AddressedEnvelope<ByteBuffer>) -> Void) {
+    func drainPacketsToSend(to transport: some QUICTransport) {
         while let buffer = self.outboundPackets.popFirst() {
-            body(AddressedEnvelope(remoteAddress: self.remoteAddress, data: buffer))
+            transport.writeDatagram(AddressedEnvelope(remoteAddress: self.remoteAddress, data: buffer), promise: nil)
         }
     }
 
@@ -867,7 +867,7 @@ struct NoOpConnection: QUICConnectionProtocol {
     func receivePacketsComplete() {
     }
 
-    func drainPacketsToSend(_ body: (AddressedEnvelope<ByteBuffer>) -> Void) {
+    func drainPacketsToSend(to transport: some QUICTransport) {
     }
 
     func close(isApplicationClose: Bool, errorCode: Int64, reason: String) -> Bool {

@@ -985,7 +985,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
         self.activePath.invokeInputAvailable()
     }
 
-    /// Hands every packet queued for sending to `body`.
+    /// Writes every packet queued for sending to `transport`.
     ///
     /// The application should drain the packets:
     ///
@@ -998,9 +998,9 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
     ///  * When the application sends data to the peer (for examples, any time ``writeDataForStream``is called).
     ///
     @inlinable
-    func drainPacketsToSend(_ body: (AddressedEnvelope<ByteBuffer>) -> Void) {
+    func drainPacketsToSend(to transport: some QUICTransport) {
         // Visit each path once. For now the active path is the only one.
-        self.activePath.drainPacketsToSend(body)
+        self.activePath.drainPacketsToSend(to: transport)
     }
 
 }

@@ -760,8 +760,12 @@ extension QUICConnectionChannel where Consumer: ~Copyable {
 
         // Avoid re-entering this function.
         self.withoutEnteringDrainOutput {
-            self._connection.drainPacketsToSend { envelope in
-                self._transport.writeDatagram(envelope, promise: nil)
+            // Unwrap the transport once so the connection writes every packet to the concrete view.
+            switch self._transport {
+            case .live(let transport):
+                self._connection.drainPacketsToSend(to: transport)
+            case .test(let transport):
+                self._connection.drainPacketsToSend(to: transport)
             }
 
             // The view discards unnecessary flushes; no need to track them per-write in the loop.

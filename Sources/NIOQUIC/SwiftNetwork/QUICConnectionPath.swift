@@ -177,12 +177,10 @@ final class QUICConnectionPath<Consumer: QUICStreamConsumer & ~Copyable>:
         self.coalescer.finalizeAllFramesAsFailed()
     }
 
-    /// Hands every packet queued for sending on this path to `body`.
-    func drainPacketsToSend(_ body: (AddressedEnvelope<ByteBuffer>) -> Void) {
-        // Pop one packet at a time rather than iterating the coalescer: `body` may queue more
-        // packets on this path, which must not happen while the coalescer is being accessed.
+    /// Writes every packet queued for sending on this path to `transport`.
+    func drainPacketsToSend(to transport: some QUICTransport) {
         while let packet = self.coalescer.next() {
-            body(packet)
+            transport.writeDatagram(packet, promise: nil)
         }
     }
 
