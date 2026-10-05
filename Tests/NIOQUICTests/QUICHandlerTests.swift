@@ -500,7 +500,7 @@ final class QUICHandlerTests: XCTestCase {
 
     func testChannelRead_whenActualVersionNegotiationPacketIsReceived_sendsNoVersionNegotiation() throws {
         // RFC 9000 § 6.1: an endpoint MUST NOT send a Version Negotiation packet in response to
-        // receiving one (version is 0), even if the datagram is large enough to otherwise qualify.
+        // receiving one (version is 0).
         let packet = QUICPackets.versionNegotiation(
             destinationID: .random(using: &self.randomNumberGenerator),
             sourceID: .random(using: &self.randomNumberGenerator),
