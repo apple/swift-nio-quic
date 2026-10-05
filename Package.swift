@@ -43,7 +43,9 @@ let package = Package(
         .library(name: "NIOQUIC", targets: ["NIOQUIC"])
     ],
     dependencies: [
-        .package(url: "https://github.com/apple/swift-nio", from: "2.92.0"),
+        // Temporarily on main for the don't fragment socket options (apple/swift-nio@6db9d9a).
+        // Return to a release requirement once one includes them.
+        .package(url: "https://github.com/apple/swift-nio", branch: "main"),
         .package(url: "https://github.com/apple/swift-log", from: "1.12.1"),
         .package(url: "https://github.com/apple/swift-certificates.git", from: "1.21.0"),
         .package(url: "https://github.com/apple/swift-collections.git", from: "1.6.0"),

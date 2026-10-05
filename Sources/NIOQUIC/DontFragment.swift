@@ -14,9 +14,7 @@
 
 import NIOCore
 
-#if canImport(Darwin)
-import Darwin
-#elseif canImport(Glibc)
+#if canImport(Glibc)
 import Glibc
 #elseif canImport(Musl)
 import Musl
@@ -27,23 +25,22 @@ import Musl
 enum DontFragment {
     #if canImport(Darwin)
     private static let ipv4 = (
-        option: ChannelOptions.Types.SocketOption(level: .ip, name: .init(rawValue: IP_DONTFRAG)),
+        option: ChannelOptions.Types.SocketOption(level: .ip, name: .ip_dontfrag),
         value: SocketOptionValue(1)
     )
-    // IPV6_DONTFRAG, which the SDK only defines with __APPLE_USE_RFC_3542.
     private static let ipv6 = (
-        option: ChannelOptions.Types.SocketOption(level: .ipv6, name: .init(rawValue: 62)),
+        option: ChannelOptions.Types.SocketOption(level: .ipv6, name: .ipv6_dontfrag),
         value: SocketOptionValue(1)
     )
     #elseif os(Linux)
     // PROBE sets the bit like DO does, but ignores the path MTU the kernel learned from ICMP: QUIC
     // discovers the path MTU itself.
     private static let ipv4 = (
-        option: ChannelOptions.Types.SocketOption(level: .ip, name: .init(rawValue: IP_MTU_DISCOVER)),
+        option: ChannelOptions.Types.SocketOption(level: .ip, name: .ip_mtu_discover),
         value: SocketOptionValue(IP_PMTUDISC_PROBE)
     )
     private static let ipv6 = (
-        option: ChannelOptions.Types.SocketOption(level: .ipv6, name: .init(rawValue: IPV6_MTU_DISCOVER)),
+        option: ChannelOptions.Types.SocketOption(level: .ipv6, name: .ipv6_mtu_discover),
         value: SocketOptionValue(IPV6_PMTUDISC_PROBE)
     )
     #else

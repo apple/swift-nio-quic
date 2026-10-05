@@ -21,9 +21,7 @@ import Testing
 
 @testable import NIOQUIC
 
-#if canImport(Darwin)
-import Darwin
-#elseif canImport(Glibc)
+#if canImport(Glibc)
 import Glibc
 #elseif canImport(Musl)
 import Musl
@@ -42,21 +40,20 @@ struct DontFragmentTests {
 
     #if canImport(Darwin)
     static let ipv4 = (
-        option: ChannelOptions.Types.SocketOption(level: .ip, name: .init(rawValue: IP_DONTFRAG)),
+        option: ChannelOptions.Types.SocketOption(level: .ip, name: .ip_dontfrag),
         dontFragment: SocketOptionValue(1)
     )
-    // IPV6_DONTFRAG, which the SDK only defines with __APPLE_USE_RFC_3542.
     static let ipv6 = (
-        option: ChannelOptions.Types.SocketOption(level: .ipv6, name: .init(rawValue: 62)),
+        option: ChannelOptions.Types.SocketOption(level: .ipv6, name: .ipv6_dontfrag),
         dontFragment: SocketOptionValue(1)
     )
     #else
     static let ipv4 = (
-        option: ChannelOptions.Types.SocketOption(level: .ip, name: .init(rawValue: IP_MTU_DISCOVER)),
+        option: ChannelOptions.Types.SocketOption(level: .ip, name: .ip_mtu_discover),
         dontFragment: SocketOptionValue(IP_PMTUDISC_PROBE)
     )
     static let ipv6 = (
-        option: ChannelOptions.Types.SocketOption(level: .ipv6, name: .init(rawValue: IPV6_MTU_DISCOVER)),
+        option: ChannelOptions.Types.SocketOption(level: .ipv6, name: .ipv6_mtu_discover),
         dontFragment: SocketOptionValue(IPV6_PMTUDISC_PROBE)
     )
     #endif
