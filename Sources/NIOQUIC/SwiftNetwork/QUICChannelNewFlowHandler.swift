@@ -330,12 +330,12 @@ extension QUICChannelNewFlowHandler: UpperProtocolHandler where Consumer: ~Copya
                 break
             case .remoteUnidirectionalStreamsBlocked:
                 break
-            case .pathChanged:
-                break
-            case .pathValidated:
-                break
-            case .pathUnreachable:
-                break
+            case .pathChanged(let info):
+                self.connectionView.pathChanged(remote: info.remote)
+            case .pathValidated(let info):
+                self.connectionView.pathValidated(remote: info.remote)
+            case .pathUnreachable(let info):
+                self.connectionView.pathUnreachable(remote: info.remote)
             }
         } else {
             // There might be more that we are interested in.

@@ -240,6 +240,13 @@ extension QUICConnectionPath: LowerProtocolHandler where Consumer: ~Copyable {
         // For example, when the outputhandler is being removed all of the packets need to be flushed first so that
         // frames such as APPLICATION_CLOSE or CONNECTION_CLOSE make it to the peer.  Resetting the linkage here stop
         // prevents that from happening.
+        switch self.state {
+        case .attached(let connectionView):
+            // The connection decides whether the path is still needed.
+            connectionView.upperProtocolDetached(from: self)
+        case .idle, .detached:
+            break
+        }
     }
 
     func attachUpperDatagramProtocol(
