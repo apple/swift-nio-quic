@@ -89,6 +89,17 @@ struct QUICConnectionChannelTests {
 
     @available(anyAppleOS 26, *)
     @Test
+    func remoteAddressFollowsActivePath() throws {
+        let channel = try makeChannel()
+        let newAddress = try SocketAddress(ipAddress: "127.0.0.1", port: 9001)
+
+        channel.connectionView.activePathChanged(remoteAddress: newAddress)
+        #expect(channel.remoteAddress == newAddress)
+        #expect(try channel.remoteAddress0() == newAddress)
+    }
+
+    @available(anyAppleOS 26, *)
+    @Test
     func getUnsupportedOption() throws {
         let channel = try makeChannel()
 

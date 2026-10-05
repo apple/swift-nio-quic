@@ -71,7 +71,11 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
         self.activePath.remoteAddress
     }
     // The path SwiftNetwork sends on, as far as its events tell. Checked first for every packet.
-    private(set) var activePath: QUICConnectionPath<Consumer>
+    private(set) var activePath: QUICConnectionPath<Consumer> {
+        didSet {
+            self.channelView?.activePathChanged(remoteAddress: self.activePath.remoteAddress)
+        }
+    }
     // The connection's other paths, oldest first. A demoted active path counts as the newest one.
     private(set) var otherPaths: [QUICConnectionPath<Consumer>]
     // The pool for frames shared across QUIC connection paths.

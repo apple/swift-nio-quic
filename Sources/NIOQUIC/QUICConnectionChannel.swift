@@ -44,8 +44,8 @@ final class QUICConnectionChannel<Consumer: QUICStreamConsumer & ~Copyable>: @un
     /// The address of the local peer.
     private let _localAddress: SocketAddress
 
-    /// The address of the remote peer.
-    private let _remoteAddress: SocketAddress
+    /// The address of the remote peer, that of the connection's active path. Read from any thread.
+    private let _remoteAddress: Mutex<SocketAddress>
 
     /// Whether the `Channel` is currently writable.
     private let _isWritable: Atomic<Bool>
@@ -143,7 +143,7 @@ final class QUICConnectionChannel<Consumer: QUICStreamConsumer & ~Copyable>: @un
         self.closePromise = udpChannel.eventLoop.makePromise()
 
         self._localAddress = connection.localAddress
-        self._remoteAddress = connection.remoteAddress
+        self._remoteAddress = Mutex(connection.remoteAddress)
         self._isWritable = Atomic(true)
         self._isActive = Atomic(false)
         self.isServer = isServer
@@ -199,7 +199,7 @@ extension QUICConnectionChannel: Channel where Consumer: ~Copyable {
     }
 
     var remoteAddress: SocketAddress? {
-        self._remoteAddress
+        self._remoteAddress.withLock { $0 }
     }
 
     var isWritable: Bool {
@@ -290,7 +290,7 @@ extension QUICConnectionChannel: ChannelCore where Consumer: ~Copyable {
 
     func remoteAddress0() throws -> SocketAddress {
         self.eventLoop.assertInEventLoop()
-        return self._remoteAddress
+        return self._remoteAddress.withLock { $0 }
     }
 
     func register0(promise: EventLoopPromise<Void>?) {
@@ -510,6 +510,11 @@ extension QUICConnectionChannel.ConnectionView where Consumer: ~Copyable {
     ///   - channel: The stream's handler.
     func newInboundStream(id: QUICStreamID, channel: QUICChannelStreamHandler) {
         self._channel._newInboundStream(streamID: id, channel: channel)
+    }
+
+    /// The connection switched its active path, the peer is now reached at `remoteAddress`.
+    func activePathChanged(remoteAddress: SocketAddress) {
+        self._channel._remoteAddress.withLock { $0 = remoteAddress }
     }
 }
 
