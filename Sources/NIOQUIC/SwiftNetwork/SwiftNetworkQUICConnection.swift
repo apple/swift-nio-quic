@@ -1484,6 +1484,11 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
     func _forTesting_markConnected() {
         _ = self.connectionStateMachine.receiveConnectedEvent()
     }
+
+    /// The number of paths SwiftNetwork tracks for this connection.
+    func _forTesting_swiftNetworkPathCount() -> Int {
+        self.swiftNetworkQUICConnection.multiplexingPaths.count
+    }
     #endif
 }
 
@@ -1521,9 +1526,22 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
                 )
                 return nil
             }
-            // TODO: Cap the number of paths. Spoofed source addresses can make a server set up one path per address.
+            // Anyone who sees the connection's traffic can send packets to it from any address. Tracking one
+            // unvalidated path at a time keeps them from making SwiftNetwork probe a path per address, and
+            // replacing that path, rather than refusing new addresses, keeps them from blocking a real migration.
+            if let unvalidatedPath = self.unvalidatedPath {
+                self.removePath(unvalidatedPath, notifySwiftNetwork: true)
+            }
             return self.setUpPath(to: remoteAddress)
         }
+    }
+
+    /// The path that isn't validated yet, if any. A server tracks at most one.
+    private var unvalidatedPath: QUICConnectionPath<Consumer>? {
+        if !self.activePath.isValidated {
+            return self.activePath
+        }
+        return self.otherPaths.first { !$0.isValidated }
     }
 
     /// Sets up a path to `remoteAddress` and attaches it to SwiftNetwork.
@@ -1560,7 +1578,7 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
                 "Failed to attach a new path",
                 metadata: [LoggingKeys.packetRemoteAddress: "\(remoteAddress)", "error": "\(error)"]
             )
-            self.removePath(path)
+            self.removePath(path, notifySwiftNetwork: false)
             return nil
         }
 
@@ -1573,7 +1591,9 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
 
     /// Stops tracking `path`. Removing the active path promotes the newest validated path, or else the
     /// newest path. The last remaining path is kept until the connection closes.
-    private func removePath(_ path: QUICConnectionPath<Consumer>) {
+    ///
+    /// - Parameter notifySwiftNetwork: Whether SwiftNetwork still uses the path and has to be told to drop it.
+    private func removePath(_ path: QUICConnectionPath<Consumer>, notifySwiftNetwork: Bool) {
         if path === self.activePath {
             // Prefer the newest validated path: it is the likeliest one SwiftNetwork sends on.
             guard let index = self.otherPaths.lastIndex(where: { $0.isValidated }) ?? self.otherPaths.indices.last
@@ -1592,6 +1612,9 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
         path.finalizeQueuedInboundFramesAsFailed()
         path.finalizeQueuedOutboundFramesAsFailed()
         path.detach()
+        if notifySwiftNetwork {
+            path.invokeDisconnected()
+        }
     }
 
     private func trackedPath(_ remote: AddressEndpoint) -> QUICConnectionPath<Consumer>? {
@@ -1638,7 +1661,8 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
             )
             return
         }
-        self.removePath(path)
+        // SwiftNetwork keeps unreachable paths around until it is told to drop them.
+        self.removePath(path, notifySwiftNetwork: true)
     }
 
     /// SwiftNetwork detached from `path`, e.g. after migrating away from it.
@@ -1647,7 +1671,7 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
         if path === self.activePath {
             return
         }
-        self.removePath(path)
+        self.removePath(path, notifySwiftNetwork: false)
     }
 }
 

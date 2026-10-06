@@ -128,6 +128,14 @@ final class QUICConnectionPath<Consumer: QUICStreamConsumer & ~Copyable>:
         }
     }
 
+    /// Tells SwiftNetwork that the path is gone, so that it stops using it.
+    func invokeDisconnected() {
+        let reference = self.reference
+        reference.fromExternal {
+            self.upperProtocol.deliverDisconnectedEvent(reference, error: nil)
+        }
+    }
+
     final internal func getMetadata<P>(_ from: ProtocolInstanceReference) -> ProtocolMetadata<P>?
     where P: NetworkProtocol {
         nil

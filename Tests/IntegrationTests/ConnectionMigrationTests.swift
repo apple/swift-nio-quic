@@ -90,6 +90,126 @@ struct ConnectionMigrationTests {
         try await eventLoopGroup.shutdownGracefully()
     }
 
+    @available(anyAppleOS 26, *)
+    @Test(.timeLimit(.minutes(1)))
+    func serverSurvivesPacketsFromTwoNewAddresses() async throws {
+        let peers = try await ConnectedPeers.connect()
+        let packet = try await peers.unauthenticatedPacket()
+
+        // Every new address makes the server set up a path, which SwiftNetwork then probes.
+        var spoofers: [any Channel] = []
+        for _ in 0..<2 {
+            let spoofer = try await DatagramBootstrap(group: peers.eventLoopGroup).bind(host: Self.host, port: 0).get()
+            try await spoofer.writeAndFlush(AddressedEnvelope(remoteAddress: peers.serverAddress, data: packet))
+            spoofers.append(spoofer)
+        }
+        // Let SwiftNetwork's migration timer fire: two paths probing at once used to crash the process.
+        try await Task.sleep(for: .seconds(1))
+
+        #expect(try await Self.request(on: peers.streamCreator) == ByteBuffer(string: "<b>Success</b>"))
+
+        for spoofer in spoofers {
+            try await spoofer.close()
+        }
+        try await peers.close()
+    }
+
+    private static let host = "127.0.0.1"
+
+    /// A client connected to a server over loopback, after one successful request.
+    @available(anyAppleOS 26, *)
+    private struct ConnectedPeers {
+        var eventLoopGroup: MultiThreadedEventLoopGroup
+        var serverChannel: any Channel
+        var serverAddress: SocketAddress
+        var serverConnectionChannel: any Channel
+        var clientChannel: any Channel
+        var streamCreator: QUICStreamCreator
+
+        static func connect() async throws -> ConnectedPeers {
+            let eventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+            let serverConnectionChannel = NIOLockedValueBox<(any Channel)?>(nil)
+
+            let serverChannel = try await createServerChannel(
+                eventLoopGroup: eventLoopGroup,
+                host: ConnectionMigrationTests.host,
+                port: 0,
+                logger: Logger(label: "Server"),
+                inboundConnectionInitializer: { connectionChannel, _ in
+                    serverConnectionChannel.withLockedValue { $0 = connectionChannel }
+                    return connectionChannel.eventLoop.makeSucceededVoidFuture()
+                },
+                inboundStreamInitializer: { streamChannel in
+                    streamChannel.eventLoop.makeCompletedFuture {
+                        try streamChannel.pipeline.syncOperations.addHandler(TestServerHandler())
+                    }
+                },
+                noMoreConnections: {}
+            ).get()
+            let serverAddress = try SocketAddress(
+                ipAddress: ConnectionMigrationTests.host,
+                port: serverChannel.localAddress!.port!
+            )
+
+            let clientChannel = try await createClientChannel(
+                eventLoopGroup: eventLoopGroup,
+                host: ConnectionMigrationTests.host,
+                port: 0,
+                logger: Logger(label: "Client"),
+                udpChannelInitializer: { channel in
+                    try channel.pipeline.syncOperations.addHandler(ShortHeaderRecorder())
+                }
+            ).get()
+            let (_, streamCreator) = try await clientChannel.pipeline.handler(
+                type: QUICHandler<QUICStreamChannels>.self
+            )
+            .flatMap { quicHandler in
+                quicHandler.createOutboundConnection(
+                    serverName: "\(ConnectionMigrationTests.host):\(serverAddress.port!)",
+                    remoteAddress: serverAddress,
+                    connectionInitializer: { channel, _ in channel.eventLoop.makeSucceededVoidFuture() },
+                    inboundStreamInitializer: { channel in channel.eventLoop.makeSucceededVoidFuture() }
+                )
+            }.get()
+            #expect(
+                try await ConnectionMigrationTests.request(on: streamCreator) == ByteBuffer(string: "<b>Success</b>")
+            )
+
+            return ConnectedPeers(
+                eventLoopGroup: eventLoopGroup,
+                serverChannel: serverChannel,
+                serverAddress: serverAddress,
+                serverConnectionChannel: try #require(serverConnectionChannel.withLockedValue { $0 }),
+                clientChannel: clientChannel,
+                streamCreator: streamCreator
+            )
+        }
+
+        /// A packet the server routes to the client's connection but can't decrypt: what anyone who
+        /// sees the connection's traffic can send from any address.
+        func unauthenticatedPacket() async throws -> ByteBuffer {
+            let lastPacket = try await self.clientChannel.eventLoop.submit {
+                try self.clientChannel.pipeline.syncOperations.handler(type: ShortHeaderRecorder.self).lastPacket
+            }.get()
+            let clientPacket = try #require(lastPacket)
+            // A short header starts with one byte of flags, followed by the server's connection ID.
+            let connectionID = try #require(
+                clientPacket.getSlice(at: clientPacket.readerIndex + 1, length: Int(QUICConnectionID.randomIDLength))
+            )
+            var packet = ByteBuffer()
+            packet.writeInteger(UInt8(0x40))  // Short header with the fixed bit set.
+            packet.writeImmutableBuffer(connectionID)
+            packet.writeRepeatingByte(0xAA, count: 41)
+            return packet
+        }
+
+        func close() async throws {
+            try await self.clientChannel.close()
+            try await self.serverChannel.close()
+            try await self.eventLoopGroup.shutdownGracefully()
+        }
+    }
+
     /// Sends a request on a new stream and returns the full response.
     @available(anyAppleOS 26, *)
     private static func request(on streamCreator: QUICStreamCreator) async throws -> ByteBuffer {
@@ -165,5 +285,25 @@ private final class RelayHandler: ChannelInboundHandler {
     // Both channels share the test's event loop, so the client's pipeline can be used synchronously.
     private func switchContext() -> ChannelHandlerContext? {
         try? self.clientChannel.pipeline.syncOperations.context(handlerType: AddressSwitchHandler.self)
+    }
+}
+
+/// Sits in the client's pipeline and remembers the last short-header packet the client sent, which
+/// carries the server's connection ID.
+@available(anyAppleOS 26, *)
+private final class ShortHeaderRecorder: ChannelOutboundHandler {
+    typealias OutboundIn = AddressedEnvelope<ByteBuffer>
+
+    private(set) var lastPacket: ByteBuffer?
+
+    func write(context: ChannelHandlerContext, data: NIOAny, promise: EventLoopPromise<Void>?) {
+        let envelope = self.unwrapOutboundIn(data)
+        // The most significant bit of the first byte is 0 for short headers.
+        if let firstByte = envelope.data.getInteger(at: envelope.data.readerIndex, as: UInt8.self),
+            firstByte & 0x80 == 0
+        {
+            self.lastPacket = envelope.data
+        }
+        context.write(data, promise: promise)
     }
 }

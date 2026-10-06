@@ -187,6 +187,38 @@ struct QUICConnectionPathTests {
         #expect(connection.otherPaths.isEmpty)
         #expect(connection.activePath.remoteAddress == Self.pathAddress)
         #expect(!removedPath.hasQueuedInboundPackets)
+        // SwiftNetwork keeps unreachable paths until it is told to drop them.
+        #expect(connection._forTesting_swiftNetworkPathCount() == 1)
+    }
+
+    @available(anyAppleOS 26, *)
+    @Test
+    func newAddressReplacesUnvalidatedPath() throws {
+        let connection = try self.makeConnection(role: .server)
+        let replacedAddress = try SocketAddress(ipAddress: "127.0.0.1", port: 9002)
+        connection.receivePacket(AddressedEnvelope(remoteAddress: replacedAddress, data: Self.payload))
+        let replacedPath = try #require(self.trackedPaths(connection).first { $0.remoteAddress == replacedAddress })
+
+        connection.receivePacket(AddressedEnvelope(remoteAddress: Self.newAddress, data: Self.payload))
+        #expect(Set(self.trackedPaths(connection).map(\.remoteAddress)) == [Self.pathAddress, Self.newAddress])
+        #expect(connection._forTesting_swiftNetworkPathCount() == 2)
+        replacedPath.enqueueInboundPacket(Self.payload)
+        #expect(!replacedPath.hasQueuedInboundPackets)
+    }
+
+    @available(anyAppleOS 26, *)
+    @Test
+    func newAddressKeepsValidatedPaths() throws {
+        let connection = try self.makeConnection(role: .server)
+        let validatedAddress = try SocketAddress(ipAddress: "127.0.0.1", port: 9002)
+        connection.receivePacket(AddressedEnvelope(remoteAddress: validatedAddress, data: Self.payload))
+        connection.handlePathValidated(remote: validatedAddress.toAddressEndpoint())
+
+        connection.receivePacket(AddressedEnvelope(remoteAddress: Self.newAddress, data: Self.payload))
+        #expect(
+            Set(self.trackedPaths(connection).map(\.remoteAddress))
+                == [Self.pathAddress, validatedAddress, Self.newAddress]
+        )
     }
 
     @available(anyAppleOS 26, *)
@@ -196,14 +228,16 @@ struct QUICConnectionPathTests {
         let validated = try SocketAddress(ipAddress: "127.0.0.1", port: 9001)
         let unvalidated = try SocketAddress(ipAddress: "127.0.0.1", port: 9002)
         let active = try SocketAddress(ipAddress: "127.0.0.1", port: 9003)
-        for address in [validated, unvalidated, active] {
+        // A server tracks one unvalidated path at a time: validate each path before the next one arrives.
+        for address in [validated, active] {
             connection.receivePacket(AddressedEnvelope(remoteAddress: address, data: Self.payload))
+            connection.handlePathValidated(remote: address.toAddressEndpoint())
         }
+        connection.receivePacket(AddressedEnvelope(remoteAddress: unvalidated, data: Self.payload))
         // Move through the paths in order: every demoted path becomes the newest of the other paths.
         for address in [validated, unvalidated, active] {
             connection.handlePathChanged(remote: address.toAddressEndpoint())
         }
-        connection.handlePathValidated(remote: validated.toAddressEndpoint())
         try #require(connection.otherPaths.map(\.remoteAddress) == [Self.pathAddress, validated, unvalidated])
 
         connection.handlePathUnreachable(remote: active.toAddressEndpoint())
@@ -218,6 +252,7 @@ struct QUICConnectionPathTests {
 
         connection.handlePathUnreachable(remote: Self.pathAddress.toAddressEndpoint())
         #expect(connection.activePath.remoteAddress == Self.pathAddress)
+        #expect(connection._forTesting_swiftNetworkPathCount() == 1)
         connection.receivePacket(AddressedEnvelope(remoteAddress: Self.pathAddress, data: Self.payload))
         #expect(connection.activePath.hasQueuedInboundPackets)
     }
@@ -279,6 +314,14 @@ struct QUICConnectionPathTests {
             }
         }
         #expect(remoteAddresses == [Self.pathAddress, Self.newAddress])
+    }
+
+    /// Every path `connection` tracks, the active one first.
+    @available(anyAppleOS 26, *)
+    private func trackedPaths(
+        _ connection: SwiftNetworkQUICConnection<QUICStreamChannels>
+    ) -> [QUICConnectionPath<QUICStreamChannels>] {
+        [connection.activePath] + connection.otherPaths
     }
 
     private static let pathAddress = try! SocketAddress(ipAddress: "127.0.0.1", port: 9000)
