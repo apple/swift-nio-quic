@@ -171,7 +171,6 @@ func makeConsumerPair<Client: QUICStreamConsumer, Server: QUICStreamConsumer>(
     )
 
     let serverChannel = try await DatagramBootstrap(group: eventLoopGroup)
-        .channelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
         .channelOption(ChannelOptions.maxMessagesPerRead, value: 32)
         .bind(host: host, port: 0)
         .flatMapThrowing { channel in
@@ -194,7 +193,6 @@ func makeConsumerPair<Client: QUICStreamConsumer, Server: QUICStreamConsumer>(
         let remoteAddress = try SocketAddress(ipAddress: host, port: serverPort)
 
         let clientChannel = try await DatagramBootstrap(group: eventLoopGroup)
-            .channelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
             .channelOption(ChannelOptions.maxMessagesPerRead, value: 32)
             .bind(host: host, port: 0)
             .flatMapThrowing { channel -> (any Channel) in
