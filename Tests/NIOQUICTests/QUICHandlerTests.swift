@@ -408,8 +408,8 @@ final class QUICHandlerTests: XCTestCase {
 
     // MARK: - Connection limits
 
-    /// Fires an INITIAL packet for `destinationID` and returns whether it is now routable: a
-    /// probing short-header packet for the same ID either gets no reply (routed to a real
+    /// Fires an short-header packet for `destinationID` and returns whether it is now routable:
+    /// a probing short-header packet for the same ID either gets no reply (routed to a real
     /// connection) or a stateless reset (never registered, i.e. dropped).
     private func isRoutable(_ destinationID: QUICConnectionID, on channel: EmbeddedChannel) throws -> Bool {
         let address = try SocketAddress(ipAddress: "127.0.0.0", port: 443)

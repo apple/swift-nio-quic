@@ -91,7 +91,7 @@ struct ConnectionAdmissionController: ~Copyable {
     /// Checks the active-connection limit, then the handshake limit, then the rate limit, in that
     /// priority order.
     ///
-    /// - Returns `Decision.accept` if a connection can be accepted (this will consume the respected slots)
+    /// - Returns `Decision.accept` if a connection can be accepted (this will consume the respective slots)
     ///     or `Decision.drop` when a connection limit was reached.
     mutating func acceptNewConnection() -> Decision {
         if self.activeLimit > 0, self.activeCount >= self.activeLimit {
