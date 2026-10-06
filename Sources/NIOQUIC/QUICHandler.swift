@@ -48,7 +48,7 @@ public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
 
     /// A registry of connections.
     private var connectionRegistry: ConnectionRegistry<QUICConnectionChannel<Consumer>.TransportView>
-    /// Decides whether new connections may be admitted, and tracks the state that depends on.
+    /// Decides whether new connections may be admitted.
     private var connectionAdmissionController: ConnectionAdmissionController
 
     /// How new connections are surfaced to the user: either a multiplexer continuation or a pair
