@@ -773,8 +773,9 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
                             )
                         case .drop(let reason):
                             self.logger.trace(
-                                "QUICHandler dropping new connection: \(reason)",
+                                "QUICHandler dropping new connection",
                                 metadata: [
+                                    LoggingKeys.connectionDropReason: "\(reason)",
                                     LoggingKeys.addressRemote: "\(addressedEnvelope.remoteAddress)",
                                     LoggingKeys.connectionDCID:
                                         "\(header.destinationConnectionID.description)",
