@@ -879,9 +879,14 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
         }()
 
         connectionLogger.trace("QUICHandler accepting new connection")
+        // Size this connection's packets for the client's Initial, if configured to match it.
+        var configuration = self.quicConfiguration
+        configuration.initialPacketSize = .fixed(
+            configuration.initialPacketSize.size(forClientInitial: addressedEnvelope.data.readableBytes)
+        )
         // The context is set when the channel becomes active so force unwrapping is okay here
         let quicConnection = try SwiftNetworkQUICConnection<Consumer>.server(
-            configuration: self.quicConfiguration,
+            configuration: configuration,
             sourceConnectionID: newSourceConnectionID,
             statelessResetTokenGenerator: self.statelessResetTokenGenerator,
             authenticator: self.authenticator,
