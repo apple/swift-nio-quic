@@ -777,11 +777,14 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
     ///
     /// - Parameters:
     ///     - logMessage: The logMessage that is fetched by an autoclosure.  For performance reasons we could gate this behind a flag.
-    private func log(_ logMessage: @autoclosure () -> String) {
+    private func log(
+        _ logMessage: @autoclosure () -> String,
+        metadata: @autoclosure () -> Logger.Metadata? = nil,
+    ) {
         #if DEBUG
         let message = logMessage()
         let stateDescription = self.connectionStateMachine.stateDescription
-        self.logger.trace("[\(self.role.description)][\(stateDescription)]  \(message)")
+        self.logger.trace("[\(self.role.description)][\(stateDescription)]  \(message)", metadata: metadata())
         #endif
     }
 
@@ -938,26 +941,40 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
     /// On success the number of bytes processed from the input buffer is
     /// returned. On error the connection will be closed.
     ///
-    /// Coalesced packets will be processed as necessary.
+    /// Coalesced packets will be processed as necessary. Packets from a remote
+    /// address that doesn't belong to the active path are dropped.
     ///
-    /// Note that the contents of the input buffer `packet` might be modified by
+    /// Note that the contents of `envelope.data` might be modified by
     /// this function due to, for example, in-place decryption.
     ///
     /// - Parameters:
-    ///     - packet: The input buffer containing the QUIC packets.
-    /// - Returns: The number of bytes processed.
+    ///     - envelope: The input buffer containing the QUIC packets, and the address it came from.
+    /// - Returns: The number of bytes processed, `0` if the packet was dropped.
     @discardableResult
     @inlinable
-    func receivePacket(_ packet: NIOCore.ByteBuffer) -> Int {
+    func receivePacket(_ envelope: AddressedEnvelope<ByteBuffer>) -> Int {
+        // TODO: Set up a new path for packets from an unknown remote address.
+        if envelope.remoteAddress != self.activePath.remoteAddress {
+            self.logger.warning(
+                "Dropping packet from a remote address that doesn't belong to the active path",
+                metadata: [LoggingKeys.packetRemoteAddress: "\(envelope.remoteAddress)"]
+            )
+            return 0
+        }
+
         if !self.inReadLoop {
             self.inReadLoop = true
             self.setOutboundBatching(true)
             self.streamTable?.inReadLoop = true
         }
-
-        log("receivePacket called with \(packet.readableBytes) bytes")
-        self.activePath.enqueueInboundPacket(packet)
-        return packet.readableBytes
+        self.log(
+            "received packet on active path",
+            metadata: [
+                LoggingKeys.packetBytes: Logger.MetadataValue("\(envelope.data.readableBytes)")
+            ]
+        )
+        self.activePath.enqueueInboundPacket(envelope.data)
+        return envelope.data.readableBytes
     }
 
     /// Singals to the QUIC stack that the input queue is ready to be consumed
@@ -968,9 +985,9 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
         self.activePath.invokeInputAvailable()
     }
 
-    /// Writes a single QUIC packet to be sent to the peer.
+    /// Writes every packet queued for sending to `transport`.
     ///
-    /// The application should call ``nextPacketToSend()`` multiple times until there are no more packets to send.
+    /// The application should drain the packets:
     ///
     ///  * When the application receives QUIC packets from the peer (that is,
     ///    any time ``receivePacket``  is also called).
@@ -980,10 +997,10 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
     ///
     ///  * When the application sends data to the peer (for examples, any time ``writeDataForStream``is called).
     ///
-    @discardableResult
     @inlinable
-    func nextPacketToSend() -> AddressedEnvelope<ByteBuffer>? {
-        self.activePath.nextPacketToSend()
+    func drainPacketsToSend(to transport: some QUICTransport) {
+        // Visit each path once. For now the active path is the only one.
+        self.activePath.drainPacketsToSend(to: transport)
     }
 
 }
