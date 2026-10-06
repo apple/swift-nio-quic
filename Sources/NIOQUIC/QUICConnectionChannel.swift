@@ -598,8 +598,8 @@ extension QUICConnectionChannel.TransportView where Consumer: ~Copyable {
 
     /// Returns whether the read caused the channel to enter a read loop.
     @discardableResult
-    func parentChannelRead(_ buffer: ByteBuffer) -> Bool {
-        self.channel._parentChannelRead(buffer)
+    func parentChannelRead(_ envelope: AddressedEnvelope<ByteBuffer>) -> Bool {
+        self.channel._parentChannelRead(envelope)
     }
 
     func parentChannelReadComplete() {
@@ -760,8 +760,12 @@ extension QUICConnectionChannel where Consumer: ~Copyable {
 
         // Avoid re-entering this function.
         self.withoutEnteringDrainOutput {
-            while let envelope = self._connection.nextPacketToSend() {
-                self._transport.writeDatagram(envelope, promise: nil)
+            // Unwrap the transport once so the connection writes every packet to the concrete view.
+            switch self._transport {
+            case .live(let transport):
+                self._connection.drainPacketsToSend(to: transport)
+            case .test(let transport):
+                self._connection.drainPacketsToSend(to: transport)
             }
 
             // The view discards unnecessary flushes; no need to track them per-write in the loop.
@@ -942,11 +946,11 @@ extension QUICConnectionChannel where Consumer: ~Copyable {
         self.pipeline.syncOperations.fireUserInboundEventTriggered(event)
     }
 
-    fileprivate func _parentChannelRead(_ buffer: ByteBuffer) -> Bool {
+    fileprivate func _parentChannelRead(_ envelope: AddressedEnvelope<ByteBuffer>) -> Bool {
         self.eventLoop.assertInEventLoop()
         // Feed packets in, '_parentChannelReadComplete' signals to the connection that
         // it should then consume those packets.
-        self._connection.receivePacket(buffer)
+        self._connection.receivePacket(envelope)
 
         let didEnterReadLoop = !self._inReadLoop
         self._inReadLoop = true

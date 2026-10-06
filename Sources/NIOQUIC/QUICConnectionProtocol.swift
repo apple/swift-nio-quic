@@ -29,26 +29,24 @@ protocol QUICConnectionProtocol {
     /// once the current read batch is done to have the QUIC stack consume the
     /// queue.
     ///
-    /// - Parameter packet: The datagram received from the peer.
-    /// - Returns: The number of bytes accepted from `packet`.
+    /// - Parameter envelope: The datagram received from the peer, and the address it came from.
+    /// - Returns: The number of bytes accepted from the datagram.
     @discardableResult
-    func receivePacket(_ packet: ByteBuffer) -> Int
+    func receivePacket(_ envelope: AddressedEnvelope<ByteBuffer>) -> Int
 
     /// Signals that the current read batch is complete and the queued datagrams
     /// should be processed by the QUIC stack.
     func receivePacketsComplete()
 
-    /// Pops the next finalized datagram the connection wants sent to the peer.
+    /// Writes every finalized datagram the connection wants sent to the peer to `transport`.
     ///
-    /// Call repeatedly until it returns `nil` to drain all pending output.
-    ///
-    /// - Returns: The next datagram to send, or `nil` if none are queued.
-    func nextPacketToSend() -> AddressedEnvelope<ByteBuffer>?
+    /// - Parameter transport: The transport to write the datagrams to. It is not flushed.
+    func drainPacketsToSend(to transport: some QUICTransport)
 
     /// Initiates a locally-requested close of the connection.
     ///
     /// The `CONNECTION_CLOSE` frame (if any) is finalized synchronously; the
-    /// caller should drain output with ``nextPacketToSend()`` afterwards. The
+    /// caller should drain output with ``drainPacketsToSend(to:)`` afterwards. The
     /// returned action tells the caller whether it initiated the close (and so
     /// must drive `channelInactive`) or the connection was already closing.
     /// Spontaneous (peer- or idle-initiated) closes are *not* reported here —
@@ -137,12 +135,12 @@ extension QUICConnectionChannel.Connection: QUICConnectionProtocol where Consume
     }
 
     @discardableResult
-    func receivePacket(_ packet: ByteBuffer) -> Int {
+    func receivePacket(_ envelope: AddressedEnvelope<ByteBuffer>) -> Int {
         switch self {
         case .live(let connection):
-            connection.receivePacket(packet)
+            connection.receivePacket(envelope)
         case .test(let connection):
-            connection.receivePacket(packet)
+            connection.receivePacket(envelope)
         }
     }
 
@@ -155,12 +153,12 @@ extension QUICConnectionChannel.Connection: QUICConnectionProtocol where Consume
         }
     }
 
-    func nextPacketToSend() -> AddressedEnvelope<ByteBuffer>? {
+    func drainPacketsToSend(to transport: some QUICTransport) {
         switch self {
         case .live(let connection):
-            connection.nextPacketToSend()
+            connection.drainPacketsToSend(to: transport)
         case .test(let connection):
-            connection.nextPacketToSend()
+            connection.drainPacketsToSend(to: transport)
         }
     }
 
