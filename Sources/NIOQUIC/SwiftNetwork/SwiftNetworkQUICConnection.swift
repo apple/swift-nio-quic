@@ -66,8 +66,18 @@ private enum ConnectionConstants {
 final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable> {
     private var swiftNetworkQUICConnection: SwiftNetwork.QUICConnection
     let localAddress: SocketAddress
-    let remoteAddress: SocketAddress
-    private let outputHandler: QUICChannelOutputHandler
+    // The address of the active path.
+    var remoteAddress: SocketAddress {
+        self.activePath.remoteAddress
+    }
+    // The active path of this connection. For now there is only ever one path.
+    private var activePath: QUICConnectionPath<Consumer>
+    // The pool for frames shared across QUIC connection paths.
+    private let framePool: FramePool
+    // The GSO settings every path on this connection is built with.
+    private let activePathMaxSegments: Int
+    private let activePathBufferPoolCapacity: Int
+
     private let logger: Logger
     let role: Role
     private let swiftNetworkParameters: SwiftNetwork.Parameters
@@ -162,7 +172,6 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
     private var connectionStateMachine = QUICConnectionStateMachine()
 
     private var finalizedOutput: Deque<ByteBuffer> = []
-    private var inputPacketQueue: FrameArray = FrameArray(capacity: 10)
     private var networkContext: NetworkContext
 
     private var streamOptions: QUICStreamProtocol.QUICStreamOptions
@@ -201,7 +210,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
         // Enabling batching stops the underlying connection from producing (most) datagrams until
         // batching is disabled again, at which point any queued outbound writes will be emitted.
         // This allows outbound writes to be better packed into datagrams. Any outbound writes are
-        // emitted into `outputHandlerFinalizeOutputFrames` soon after batching is disabled.
+        // emitted into `handleOutboundDatagramsQueued(on:count:)` soon after batching is disabled.
         newFlowHandler.outboundBatching(enabled)
     }
 
@@ -242,9 +251,6 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
     var isTerminating: Bool {
         self.connectionStateMachine.isTerminating
     }
-
-    /// Groups outbound datagrams for GSO.
-    private var coalescer: GSOCoalescer
 
     /// Creates a new client-side connection.
     ///
@@ -366,7 +372,6 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
 
         self.logger = logger
         self.localAddress = localAddress
-        self.remoteAddress = remoteAddress
         self.statelessResetTokenGenerator = statelessResetTokenGenerator
 
         self.activeSCIDs = [sourceConnectionID]
@@ -427,18 +432,13 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
         self.swiftNetworkQUICConnection = swiftNetworkQUICConnection
 
         #if os(Linux)
-        let framePool = FramePool.makePool(forGSO: true)
-        let maxSegments = 64
+        self.framePool = FramePool.makePool(forGSO: true)
+        self.activePathMaxSegments = 64
         #else
-        let framePool = FramePool.makePool(forGSO: false)
-        let maxSegments = 1
+        self.framePool = FramePool.makePool(forGSO: false)
+        self.activePathMaxSegments = 1
         #endif
-
-        self.coalescer = GSOCoalescer(
-            remoteAddress: remoteAddress,
-            framePool: framePool,
-            maxSegments: maxSegments
-        )
+        self.activePathBufferPoolCapacity = 8
 
         self.connectionQLogID = ConnectionConstants.nextClientConnectionQLogID()
         let prefix = role == .server ? "L" : "C"
@@ -505,11 +505,15 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
             ()
         }
 
-        self.outputHandler = QUICChannelOutputHandler(
+        self.activePath = QUICConnectionPath(
             role: self.role,
-            logger: logger,
+            remoteAddress: remoteAddress,
             context: swiftNetworkParameters.context,
-            framePool: framePool
+            framePool: self.framePool,
+            isValidated: true,
+            maxSegments: self.activePathMaxSegments,
+            bufferPoolCapacity: self.activePathBufferPoolCapacity,
+            logger: logger
         )
 
         self.inReadLoop = false
@@ -552,17 +556,11 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
         path: SwiftNetwork.PathProperties,
         keyLogPath: String?
     ) {
-        self.outputHandler.setInputFramesHandler {
-            self.outputHandlerGetInputFrames(maximumDatagramCount: $0)
-        }
-
-        self.outputHandler.setFinalizeOutputFramesHandler {
-            self.outputHandlerFinalizeOutputFrames(frames: $0)
-        }
+        self.activePath.attach(PathView(self))
 
         do {
             try self.swiftNetworkQUICConnection.attachLowerDatagramProtocolForNewPath(
-                self.outputHandler.reference,
+                self.activePath.reference,
                 remote: remoteEndpoint,
                 local: localEndpoint,
                 parameters: self.swiftNetworkParameters,
@@ -840,21 +838,20 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
         self.streamInputHandlers[streamID] = handler
     }
 
-    deinit {
-        self.inputPacketQueue.finalizeAllFramesAsFailed()
-    }
-
     /// Local logging function to debug the datapath
     ///
     /// This layer adds the context and fetches the message only if the debug flags are enabled.
     ///
     /// - Parameters:
     ///     - logMessage: The logMessage that is fetched by an autoclosure.  For performance reasons we could gate this behind a flag.
-    private func log(_ logMessage: @autoclosure () -> String) {
+    private func log(
+        _ logMessage: @autoclosure () -> String,
+        metadata: @autoclosure () -> Logger.Metadata? = nil,
+    ) {
         #if DEBUG
         let message = logMessage()
         let stateDescription = self.connectionStateMachine.stateDescription
-        self.logger.trace("[\(self.role.description)][\(stateDescription)]  \(message)")
+        self.logger.trace("[\(self.role.description)][\(stateDescription)]  \(message)", metadata: metadata())
         #endif
     }
 
@@ -871,7 +868,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
 
     // We may need to propagate an error through here in the future
     private func tearDownConnectionState() {
-        self.inputPacketQueue.finalizeAllFramesAsFailed()
+        self.activePath.finalizeQueuedInboundFramesAsFailed()
         for (_, streamHandler) in self.streamInputHandlers {
             streamHandler.stop(detachFromLowerProtocol: true)
         }
@@ -888,8 +885,8 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
         // Break cycle with the datagram transport, which holds this connection as its reader.
         self.datagramTransport?.close()
         self.datagramTransport = nil
-        // Break cycle with outputHandler, which holds closures that capture self, i.e., the connection.
-        self.outputHandler.clearHandlers()
+        // Detach the active path: breaks its cycle with this connection and makes it drop late packets.
+        self.activePath.detach()
         // Break cycle with the stream table's 'outOfBandDrain'.
         self.streamTable?.outOfBandDrain = nil
     }
@@ -1011,42 +1008,53 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
     /// On success the number of bytes processed from the input buffer is
     /// returned. On error the connection will be closed.
     ///
-    /// Coalesced packets will be processed as necessary.
+    /// Coalesced packets will be processed as necessary. Packets from a remote
+    /// address that doesn't belong to the active path are dropped.
     ///
-    /// Note that the contents of the input buffer `packet` might be modified by
+    /// Note that the contents of `envelope.data` might be modified by
     /// this function due to, for example, in-place decryption.
     ///
     /// - Parameters:
-    ///     - packet: The input buffer containing the QUIC packets.
-    /// - Returns: The number of bytes processed.
+    ///     - envelope: The input buffer containing the QUIC packets, and the address it came from.
+    /// - Returns: The number of bytes processed, `0` if the packet was dropped.
     @discardableResult
     @inlinable
-    func receivePacket(_ packet: NIOCore.ByteBuffer) -> Int {
+    func receivePacket(_ envelope: AddressedEnvelope<ByteBuffer>) -> Int {
+        // TODO: Set up a new path for packets from an unknown remote address.
+        if envelope.remoteAddress != self.activePath.remoteAddress {
+            self.logger.warning(
+                "Dropping packet from a remote address that doesn't belong to the active path",
+                metadata: [LoggingKeys.packetRemoteAddress: "\(envelope.remoteAddress)"]
+            )
+            return 0
+        }
+
         if !self.inReadLoop {
             self.inReadLoop = true
             self.setOutboundBatching(true)
             self.streamTable?.inReadLoop = true
         }
-
-        var packet = packet
-        log("receivePacket called with \(packet.readableBytes) bytes")
-        packet.withUnsafeMutableReadableBytesWithStorageManagement2 { buffer, owner in
-            self.inputPacketQueue.add(frame: Frame(customBuffer: buffer, owner: owner))
-        }
-        return packet.readableBytes
+        self.log(
+            "received packet on active path",
+            metadata: [
+                LoggingKeys.packetBytes: Logger.MetadataValue("\(envelope.data.readableBytes)")
+            ]
+        )
+        self.activePath.enqueueInboundPacket(envelope.data)
+        return envelope.data.readableBytes
     }
 
     /// Singals to the QUIC stack that the input queue is ready to be consumed
     func receivePacketsComplete() {
-        if self.inputPacketQueue.isEmpty {
+        if !self.activePath.hasQueuedInboundPackets {
             return
         }
-        self.outputHandler.invokeInputAvailable()
+        self.activePath.invokeInputAvailable()
     }
 
-    /// Writes a single QUIC packet to be sent to the peer.
+    /// Writes every packet queued for sending to `transport`.
     ///
-    /// The application should call ``nextPacketToSend()`` multiple times until there are no more packets to send.
+    /// The application should drain the packets:
     ///
     ///  * When the application receives QUIC packets from the peer (that is,
     ///    any time ``receivePacket``  is also called).
@@ -1056,10 +1064,10 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
     ///
     ///  * When the application sends data to the peer (for examples, any time ``writeDataForStream``is called).
     ///
-    @discardableResult
     @inlinable
-    func nextPacketToSend() -> AddressedEnvelope<ByteBuffer>? {
-        self.coalescer.next()
+    func drainPacketsToSend(to transport: some QUICTransport) {
+        // Visit each path once. For now the active path is the only one.
+        self.activePath.drainPacketsToSend(to: transport)
     }
 
 }
@@ -1517,30 +1525,12 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
     #endif
 }
 
-// Callbacks coming from QUICChannelOutputHandler
+// Callbacks coming from QUICConnectionPath
 @available(anyAppleOS 26, *)
 extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
-    /// Consumes the inputPacketQueue and transforms the ByteBuffers from receivePacket to frames.
-    ///
-    /// These frames are to be consumed by the QUIC stack when invokeInputAvailable is called.
-    /// - Parameter maximumDatagramCount: The maximum number of datagrams to consume
-    /// - Returns: A converted frame array to the protocol stack.
-    internal func outputHandlerGetInputFrames(maximumDatagramCount: Int) -> FrameArray? {
-        guard self.inputPacketQueue.count > 0 else {
-            self.log("No input packets")
-            return nil
-        }
-        return inputPacketQueue.drainArray(maximumFrameCount: maximumDatagramCount)
-    }
-
-    /// Builds the finalized output frames so they can be written in writeOutboundData.
-    ///
-    /// These are QUIC output frames that have already been built by the protocol stack.
-    internal func outputHandlerFinalizeOutputFrames(frames: consuming FrameArray) {
-        log("finalizeOutputFrames: \(frames.count)")
-        self.coalescer.append(frames: frames)
-
-        if !self.inReadLoop, !self.coalescer.isEmpty {
+    private func handleOutboundDatagramsQueued(on path: QUICConnectionPath<Consumer>, count: Int) {
+        self.log("finalizeOutputFrames: \(count)")
+        if !self.inReadLoop, path.hasQueuedOutboundData {
             self.triggerOutOfBandWriteEvent()
         }
     }
@@ -1565,7 +1555,7 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
 
 @available(anyAppleOS 26, *)
 extension Frame {
-    /// The frames returned by Swift QUIC were created in `QUICChannelOutputHandler.getDatagramsToSend`. They all hold
+    /// The frames returned by Swift QUIC were created in `QUICConnectionPath.getDatagramsToSend`. They all hold
     /// the same buffer type and a pointer to allocated memory. Any other buffer type is unexpected and a logic error. To take ownership
     /// of the buffer type, ByteBuffer requires the pointer, the offest to start reading and the length of the readable section.
     ///
@@ -1636,6 +1626,19 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
 
         func retireConnectionID(_ cid: QUICConnectionID) {
             self.connection.handleRetireConnectionID(cid)
+        }
+    }
+
+    /// A view over the connection for the `QUICConnectionPath`.
+    struct PathView {
+        private let connection: SwiftNetworkQUICConnection
+
+        fileprivate init(_ connection: SwiftNetworkQUICConnection) {
+            self.connection = connection
+        }
+
+        func outboundDatagramsQueued(on path: QUICConnectionPath<Consumer>, count: Int) {
+            self.connection.handleOutboundDatagramsQueued(on: path, count: count)
         }
     }
 

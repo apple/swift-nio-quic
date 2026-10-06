@@ -27,7 +27,7 @@ import Musl
 
 /// `QUICChannelNewFlowHandler` is responsible for dealing with new SwiftNetwork 'flows' initiated by the other end of the connection.
 /// A flow in this case is a new stream of data that is registered with the QUIC stack and is represented here by `QUICChannelStreamHandler`.
-/// The `QUICChannelNewFlowHandler` registered with the SwiftNetwork `QUICConnectionImplementation` as a new flow handler.
+/// The `QUICChannelNewFlowHandler` registered with the SwiftNetwork `QUICConnection` as a new flow handler.
 /// This object deals with creating and linking the objects describing a new flow, it creates a new `QUICChannelStreamHandler`
 /// for each new flow, registers it and keeps track of it.
 @available(anyAppleOS 26, *)

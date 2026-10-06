@@ -40,4 +40,16 @@ extension SocketAddress {
             fatalError("Unix domain sockets are not supported.")
         }
     }
+
+    /// Returns an `AddressEndpoint` created from this `SocketAddress`.
+    func toAddressEndpoint() -> AddressEndpoint {
+        let endpoint = self.toEndpoint()
+        switch endpoint.type {
+        case .address(let addressEndpoint):
+            return addressEndpoint
+        default:
+            // All `SocketAddresses` should result in an endpoint with an underlying `.address` type
+            preconditionFailure("Unexpected endpoint type")
+        }
+    }
 }

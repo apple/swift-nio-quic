@@ -37,7 +37,6 @@ final class QUICProtocolStackTests: XCTestCase {
         eventLoopGroup: any EventLoopGroup = MultiThreadedEventLoopGroup.singleton
     ) async throws -> (any Channel, QUICHandler<QUICStreamChannels>.ConnectionMultiplexer<Never>) {
         let (channel, multiplexer) = try await DatagramBootstrap(group: eventLoopGroup)
-            .channelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
             .channelOption(ChannelOptions.maxMessagesPerRead, value: 32)
             .bind(host: host, port: bindPort) { channel in
                 channel.eventLoop.makeCompletedFuture {
@@ -78,7 +77,6 @@ final class QUICProtocolStackTests: XCTestCase {
         any Channel, QUICHandler<QUICStreamChannels>.ConnectionMultiplexer<NIOAsyncChannel<ByteBuffer, ByteBuffer>>
     ) {
         let (channel, multiplexer) = try await DatagramBootstrap(group: eventLoopGroup)
-            .channelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
             .channelOption(ChannelOptions.maxMessagesPerRead, value: 32)
             .bind(host: host, port: 0) { channel in
                 channel.eventLoop.makeCompletedFuture {

@@ -40,6 +40,7 @@ func createServerChannel(
     port: Int,
     logger: Logger,
     maxDatagramFrameSize: Int = 65535,
+    initialPacketSize: InitialPacketSize = .fixed(1200),
     udpChannelInitializer: @Sendable @escaping (any Channel) throws -> Void = { _ in },
     inboundConnectionInitializer:
         @Sendable @escaping (any Channel, NIOQUIC.QUICStreamCreator) -> EventLoopFuture<Void>,
@@ -55,7 +56,8 @@ func createServerChannel(
         ),
         applicationProtocols: ["http/0.9"],
         keyLogPath: "/tmp/quic-sync-integration-tests-keylogs",
-        maxDatagramFrameSize: maxDatagramFrameSize
+        maxDatagramFrameSize: maxDatagramFrameSize,
+        initialPacketSize: initialPacketSize
     )
     return createQUICChannel(
         eventLoopGroup: eventLoopGroup,
@@ -82,6 +84,7 @@ func createClientChannel(
     port: Int,
     logger: Logger,
     maxDatagramFrameSize: Int = 65535,
+    initialPacketSize: Int = 1200,
     udpChannelInitializer: @Sendable @escaping (any Channel) throws -> Void = { _ in }
 ) -> EventLoopFuture<any Channel> {
     let quicConfiguration = QUICConfiguration.client(
@@ -89,7 +92,8 @@ func createClientChannel(
             publicKeyFilePath: Bundle.module.url(forResource: "publicKey", withExtension: "der")!.path
         ),
         applicationProtocols: ["http/0.9"],
-        maxDatagramFrameSize: maxDatagramFrameSize
+        maxDatagramFrameSize: maxDatagramFrameSize,
+        initialPacketSize: initialPacketSize
     )
 
     return createQUICChannel(
@@ -119,7 +123,6 @@ private func createQUICChannel(
     noMoreConnections: @Sendable @escaping () -> Void
 ) -> EventLoopFuture<any Channel> {
     DatagramBootstrap(group: eventLoopGroup)
-        .channelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
         .channelOption(ChannelOptions.maxMessagesPerRead, value: 32)
         .bind(host: host, port: port)
         .flatMapThrowing { channel in
