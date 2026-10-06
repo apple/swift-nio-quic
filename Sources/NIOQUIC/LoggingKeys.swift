@@ -23,5 +23,7 @@ enum LoggingKeys {
     static let connectionDCID = "quic.connection.dcid"
     static let packetType = "quic.packet.type"
     static let packetVersion = "quic.packet.version"
+    static let packetRemoteAddress = "quic.packet.remoteAddress"
+    static let packetBytes = "quic.packet.bytes"
     static let role = "quic.role"
 }
