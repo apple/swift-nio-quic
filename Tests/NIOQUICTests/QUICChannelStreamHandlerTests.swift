@@ -472,8 +472,9 @@ struct QUICChannelStreamHandlerTests {
             connection.receivePacket(
                 AddressedEnvelope(remoteAddress: newAddress, data: ByteBuffer(repeating: 0xAA, count: 50))
             )
-            connection.handlePathChanged(remote: newAddress.toAddressEndpoint())
+            #expect(streamChannel.remoteAddress == (try SocketAddress(ipAddress: "127.0.0.1", port: 1234)))
 
+            connection.handlePathValidated(remote: newAddress.toAddressEndpoint())
             #expect(streamChannel.remoteAddress == newAddress)
         }
     }

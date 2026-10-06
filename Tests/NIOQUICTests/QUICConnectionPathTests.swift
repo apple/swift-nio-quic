@@ -130,7 +130,6 @@ struct QUICConnectionPathTests {
         let connection = try self.makeConnection(role: .server)
 
         #expect(connection.receivePacket(AddressedEnvelope(remoteAddress: Self.newAddress, data: Self.payload)) == 50)
-        connection.handlePathChanged(remote: Self.pathAddress.toAddressEndpoint())
         try #require(connection.otherPaths.map(\.remoteAddress) == [Self.newAddress])
         #expect(!connection.otherPaths[0].isValidated)
         #expect(connection.otherPaths[0].hasQueuedInboundPackets)
@@ -138,39 +137,26 @@ struct QUICConnectionPathTests {
 
     @available(anyAppleOS 26, *)
     @Test
-    func newPathIsPromotedWhenSwiftNetworkAnnouncesIt() throws {
+    func newPathIsNotPromotedBeforeValidation() throws {
         let connection = try self.makeConnection(role: .server)
 
-        // SwiftNetwork announces the new path with 'pathChanged' while it is being attached.
+        // SwiftNetwork announces the new path with 'pathChanged' while it is being attached, before the peer
+        // proved that it receives packets at the new address.
         connection.receivePacket(AddressedEnvelope(remoteAddress: Self.newAddress, data: Self.payload))
-        #expect(connection.activePath.remoteAddress == Self.newAddress)
-        #expect(connection.otherPaths.map(\.remoteAddress) == [Self.pathAddress])
-    }
-
-    @available(anyAppleOS 26, *)
-    @Test
-    func pathValidatedMarksPathValidated() throws {
-        let connection = try self.makeConnection(role: .server)
-        connection.receivePacket(AddressedEnvelope(remoteAddress: Self.newAddress, data: Self.payload))
-        connection.handlePathChanged(remote: Self.pathAddress.toAddressEndpoint())
-        try #require(connection.otherPaths.map(\.isValidated) == [false])
-
-        connection.handlePathValidated(remote: Self.newAddress.toAddressEndpoint())
-        #expect(connection.otherPaths.map(\.isValidated) == [true])
-    }
-
-    @available(anyAppleOS 26, *)
-    @Test
-    func pathChangedPromotesPath() throws {
-        let connection = try self.makeConnection(role: .server)
-        connection.receivePacket(AddressedEnvelope(remoteAddress: Self.newAddress, data: Self.payload))
-
-        connection.handlePathChanged(remote: Self.pathAddress.toAddressEndpoint())
         #expect(connection.activePath.remoteAddress == Self.pathAddress)
         #expect(connection.otherPaths.map(\.remoteAddress) == [Self.newAddress])
+    }
 
-        connection.handlePathChanged(remote: Self.newAddress.toAddressEndpoint())
+    @available(anyAppleOS 26, *)
+    @Test
+    func pathValidatedPromotesPath() throws {
+        let connection = try self.makeConnection(role: .server)
+        connection.receivePacket(AddressedEnvelope(remoteAddress: Self.newAddress, data: Self.payload))
+        try #require(connection.activePath.remoteAddress == Self.pathAddress)
+
+        connection.handlePathValidated(remote: Self.newAddress.toAddressEndpoint())
         #expect(connection.activePath.remoteAddress == Self.newAddress)
+        #expect(connection.activePath.isValidated)
         #expect(connection.otherPaths.map(\.remoteAddress) == [Self.pathAddress])
     }
 
@@ -179,7 +165,6 @@ struct QUICConnectionPathTests {
     func pathUnreachableRemovesPath() throws {
         let connection = try self.makeConnection(role: .server)
         connection.receivePacket(AddressedEnvelope(remoteAddress: Self.newAddress, data: Self.payload))
-        connection.handlePathChanged(remote: Self.pathAddress.toAddressEndpoint())
         try #require(connection.otherPaths.count == 1)
         let removedPath = connection.otherPaths[0]
 
@@ -228,21 +213,29 @@ struct QUICConnectionPathTests {
         let validated = try SocketAddress(ipAddress: "127.0.0.1", port: 9001)
         let unvalidated = try SocketAddress(ipAddress: "127.0.0.1", port: 9002)
         let active = try SocketAddress(ipAddress: "127.0.0.1", port: 9003)
-        // A server tracks one unvalidated path at a time: validate each path before the next one arrives.
+        // Validating a path promotes it, so the path validated last ends up active.
         for address in [validated, active] {
             connection.receivePacket(AddressedEnvelope(remoteAddress: address, data: Self.payload))
             connection.handlePathValidated(remote: address.toAddressEndpoint())
         }
         connection.receivePacket(AddressedEnvelope(remoteAddress: unvalidated, data: Self.payload))
-        // Move through the paths in order: every demoted path becomes the newest of the other paths.
-        for address in [validated, unvalidated, active] {
-            connection.handlePathChanged(remote: address.toAddressEndpoint())
-        }
+        try #require(connection.activePath.remoteAddress == active)
         try #require(connection.otherPaths.map(\.remoteAddress) == [Self.pathAddress, validated, unvalidated])
 
         connection.handlePathUnreachable(remote: active.toAddressEndpoint())
         #expect(connection.activePath.remoteAddress == validated)
         #expect(connection.otherPaths.map(\.remoteAddress) == [Self.pathAddress, unvalidated])
+    }
+
+    @available(anyAppleOS 26, *)
+    @Test
+    func removingActivePathKeepsItWithoutValidatedReplacement() throws {
+        let connection = try self.makeConnection(role: .server)
+        connection.receivePacket(AddressedEnvelope(remoteAddress: Self.newAddress, data: Self.payload))
+
+        connection.handlePathUnreachable(remote: Self.pathAddress.toAddressEndpoint())
+        #expect(connection.activePath.remoteAddress == Self.pathAddress)
+        #expect(connection.otherPaths.map(\.remoteAddress) == [Self.newAddress])
     }
 
     @available(anyAppleOS 26, *)
@@ -262,7 +255,6 @@ struct QUICConnectionPathTests {
     func swiftNetworkDetachingRemovesOnlyNonActivePaths() throws {
         let connection = try self.makeConnection(role: .server)
         connection.receivePacket(AddressedEnvelope(remoteAddress: Self.newAddress, data: Self.payload))
-        connection.handlePathChanged(remote: Self.pathAddress.toAddressEndpoint())
         try #require(connection.otherPaths.count == 1)
 
         // The active path keeps flushing its last packets.
@@ -279,7 +271,6 @@ struct QUICConnectionPathTests {
     func receivePacketsCompleteFeedsEveryPath() throws {
         let connection = try self.makeConnection(role: .server)
         connection.receivePacket(AddressedEnvelope(remoteAddress: Self.newAddress, data: Self.payload))
-        connection.handlePathChanged(remote: Self.pathAddress.toAddressEndpoint())
         connection.receivePacket(AddressedEnvelope(remoteAddress: Self.pathAddress, data: Self.payload))
         try #require(connection.otherPaths.count == 1)
         try #require(connection.activePath.hasQueuedInboundPackets)
@@ -295,7 +286,6 @@ struct QUICConnectionPathTests {
     func drainPacketsToSendDrainsEveryPathActiveFirst() throws {
         let connection = try self.makeConnection(role: .server)
         connection.receivePacket(AddressedEnvelope(remoteAddress: Self.newAddress, data: Self.payload))
-        connection.handlePathChanged(remote: Self.pathAddress.toAddressEndpoint())
         try #require(connection.otherPaths.count == 1)
         for path in [connection.otherPaths[0], connection.activePath] {
             if let datagrams = try path.getDatagramsToSend(.init(), maximumDatagramCount: 1, minimumDatagramSize: 100) {

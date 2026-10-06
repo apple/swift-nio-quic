@@ -74,7 +74,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
     }
     // The address of the active path, shared with this connection's channels so they can read it from any thread.
     private let remoteAddressBox: NIOLockedValueBox<SocketAddress>
-    // The path SwiftNetwork sends on, as far as its events tell. Checked first for every packet.
+    // The newest validated path, the likeliest one SwiftNetwork sends on. Checked first for every packet.
     private(set) var activePath: QUICConnectionPath<Consumer> {
         didSet {
             let remoteAddress = self.activePath.remoteAddress
@@ -1536,12 +1536,9 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
         }
     }
 
-    /// The path that isn't validated yet, if any. A server tracks at most one.
+    /// The path that isn't validated yet, if any. A server tracks at most one, and it is never the active path.
     private var unvalidatedPath: QUICConnectionPath<Consumer>? {
-        if !self.activePath.isValidated {
-            return self.activePath
-        }
-        return self.otherPaths.first { !$0.isValidated }
+        self.otherPaths.first { !$0.isValidated }
     }
 
     /// Sets up a path to `remoteAddress` and attaches it to SwiftNetwork.
@@ -1558,8 +1555,8 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
             bufferPoolCapacity: self.pathBufferPoolCapacity,
             logger: self.logger
         )
-        // Track the path before attaching it: SwiftNetwork announces it with 'pathChanged' (and may queue
-        // a PATH_CHALLENGE on it) before the attach returns.
+        // Track the path before attaching it: SwiftNetwork may queue a PATH_CHALLENGE on it before the attach
+        // returns.
         path.attach(PathView(self))
         self.otherPaths.append(path)
 
@@ -1589,17 +1586,15 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
         return path
     }
 
-    /// Stops tracking `path`. Removing the active path promotes the newest validated path, or else the
-    /// newest path. The last remaining path is kept until the connection closes.
+    /// Stops tracking `path`. Removing the active path promotes the newest validated path. Without one, the
+    /// active path is kept: the connection never moves to an address the peer didn't prove it receives on.
     ///
     /// - Parameter notifySwiftNetwork: Whether SwiftNetwork still uses the path and has to be told to drop it.
     private func removePath(_ path: QUICConnectionPath<Consumer>, notifySwiftNetwork: Bool) {
         if path === self.activePath {
-            // Prefer the newest validated path: it is the likeliest one SwiftNetwork sends on.
-            guard let index = self.otherPaths.lastIndex(where: { $0.isValidated }) ?? self.otherPaths.indices.last
-            else {
+            guard let index = self.otherPaths.lastIndex(where: { $0.isValidated }) else {
                 self.log(
-                    "Keeping the last path",
+                    "Keeping the active path, no validated path can replace it",
                     metadata: [LoggingKeys.packetRemoteAddress: "\(path.remoteAddress)"]
                 )
                 return
@@ -1624,23 +1619,8 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
         return self.otherPaths.first { $0.addressEndpoint == remote }
     }
 
-    /// SwiftNetwork announced the path to `remote`. Promotes it to the active path.
-    func handlePathChanged(remote: AddressEndpoint) {
-        if self.activePath.addressEndpoint == remote {
-            return
-        }
-        guard let index = self.otherPaths.firstIndex(where: { $0.addressEndpoint == remote }) else {
-            self.log(
-                "Ignoring change of untracked path",
-                metadata: [LoggingKeys.packetRemoteAddress: "\(remote)"]
-            )
-            return
-        }
-        self.otherPaths.append(self.activePath)
-        self.activePath = self.otherPaths.remove(at: index)
-    }
-
-    /// SwiftNetwork validated the path to `remote`.
+    /// SwiftNetwork validated the path to `remote`: the peer proved that it receives packets there. Promotes
+    /// the path to the active path.
     func handlePathValidated(remote: AddressEndpoint) {
         guard let path = self.trackedPath(remote) else {
             self.log(
@@ -1650,6 +1630,12 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
             return
         }
         path.isValidated = true
+        // TODO: Promote the path SwiftNetwork reports to send on once it does. A peer can validate a path
+        // without migrating to it (RFC 9000, Section 9.1).
+        if let index = self.otherPaths.firstIndex(where: { $0 === path }) {
+            self.otherPaths.append(self.activePath)
+            self.activePath = self.otherPaths.remove(at: index)
+        }
     }
 
     /// SwiftNetwork gave up on the path to `remote`.
@@ -1776,10 +1762,6 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
 
         func retireConnectionID(_ cid: QUICConnectionID) {
             self.connection.handleRetireConnectionID(cid)
-        }
-
-        func pathChanged(remote: AddressEndpoint) {
-            self.connection.handlePathChanged(remote: remote)
         }
 
         func pathValidated(remote: AddressEndpoint) {
