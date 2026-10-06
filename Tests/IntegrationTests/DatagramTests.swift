@@ -539,6 +539,184 @@ struct DatagramTests {
 
         try await serverChannel.close()
     }
+
+    @available(anyAppleOS 26, *)
+    @Test(arguments: [
+        (InitialPacketSize.fixed(1200), [6]),
+        (InitialPacketSize.fixed(1350), [1250, 6]),
+    ])
+    func serverSendsLargeDatagramOnlyWithLargerInitialPacketSize(
+        serverInitialPacketSize: InitialPacketSize,
+        expectedSizes: [Int]
+    ) async throws {
+        let eventLoopGroup = MultiThreadedEventLoopGroup.singleton
+        let loggers = getChannelLoggers()
+        let host = "127.0.0.1"
+        let syncSignal = ByteBuffer(string: "ready")
+
+        let payload = ByteBuffer(repeating: UInt8(ascii: "x"), count: 1250)
+        let marker = ByteBuffer(string: "marker")
+
+        let serverReceivedSync = eventLoopGroup.any().makePromise(of: Void.self)
+        let clientReceivedMarker = makePromise(of: Void.self, timeout: .seconds(5))
+        let clientReceived = NIOLockedValueBox<[ByteBuffer]>([])
+
+        let serverChannel = try await createServerChannel(
+            eventLoopGroup: eventLoopGroup,
+            host: host,
+            port: 0,
+            logger: loggers.serverLogger,
+            initialPacketSize: serverInitialPacketSize,
+            inboundConnectionInitializer: { connectionChannel, _ in
+                connectionChannel.eventLoop.makeCompletedFuture {
+                    try connectionChannel.pipeline.syncOperations.addHandler(
+                        DatagramCapture(onDatagram: { buffer in
+                            // An echo that is too large is dropped silently, the marker shows that
+                            // everything that fits was delivered.
+                            connectionChannel.writeAndFlush(buffer, promise: nil)
+                            connectionChannel.writeAndFlush(marker, promise: nil)
+                        })
+                    )
+                }
+            },
+            inboundStreamInitializer: { streamChannel in
+                streamChannel.eventLoop.makeCompletedFuture {
+                    try streamChannel.pipeline.syncOperations.addHandler(
+                        SyncSignalHandler(receivedPromise: serverReceivedSync)
+                    )
+                }
+            },
+            noMoreConnections: {}
+        ).get()
+        let serverPort = serverChannel.localAddress!.port!
+
+        let clientChannel = try await createClientChannel(
+            eventLoopGroup: eventLoopGroup,
+            host: host,
+            port: 0,
+            logger: loggers.clientLogger,
+            initialPacketSize: 1350
+        ).get()
+
+        let (clientConnectionChannel, streamCreator) = try await connectOutbound(
+            clientChannel,
+            host: host,
+            port: serverPort
+        ) { connectionChannel, _ in
+            connectionChannel.eventLoop.makeCompletedFuture {
+                try connectionChannel.pipeline.syncOperations.addHandler(
+                    DatagramCapture(onDatagram: { buffer in
+                        clientReceived.withLockedValue { $0.append(buffer) }
+                        if buffer == marker {
+                            clientReceivedMarker.succeed()
+                        }
+                    })
+                )
+            }
+        }
+
+        try await performSyncHandshake(streamCreator, signal: syncSignal, serverReceived: serverReceivedSync)
+
+        clientConnectionChannel.writeAndFlush(payload, promise: nil)
+        try await clientReceivedMarker.futureResult.get()
+
+        let receivedSizes = clientReceived.withLockedValue { $0.map(\.readableBytes) }
+        #expect(receivedSizes == expectedSizes)
+
+        try await serverChannel.close()
+    }
+
+    @available(anyAppleOS 26, *)
+    @Test
+    func serverPacketSizeMatchesClientInitial() async throws {
+        let eventLoopGroup = MultiThreadedEventLoopGroup.singleton
+        let loggers = getChannelLoggers()
+        let host = "127.0.0.1"
+        let syncSignal = ByteBuffer(string: "ready")
+
+        let payload = ByteBuffer(repeating: UInt8(ascii: "x"), count: 1250)
+        let exceedsClientInitial = ByteBuffer(repeating: UInt8(ascii: "y"), count: 1400)
+        let marker = ByteBuffer(string: "marker")
+
+        let serverReceivedSync = eventLoopGroup.any().makePromise(of: Void.self)
+        let serverConnectionChannelPromise = eventLoopGroup.any().makePromise(of: (any Channel).self)
+        let clientReceivedEcho = makePromise(of: Void.self, timeout: .seconds(5))
+        let clientReceivedMarker = makePromise(of: Void.self, timeout: .seconds(5))
+        let clientReceived = NIOLockedValueBox<[ByteBuffer]>([])
+
+        let serverChannel = try await createServerChannel(
+            eventLoopGroup: eventLoopGroup,
+            host: host,
+            port: 0,
+            logger: loggers.serverLogger,
+            initialPacketSize: .matchingClientInitial(upTo: 1500),
+            inboundConnectionInitializer: { connectionChannel, _ in
+                connectionChannel.eventLoop.makeCompletedFuture {
+                    try connectionChannel.pipeline.syncOperations.addHandler(
+                        DatagramCapture(onDatagram: { buffer in
+                            connectionChannel.writeAndFlush(buffer, promise: nil)
+                        })
+                    )
+                    serverConnectionChannelPromise.succeed(connectionChannel)
+                }
+            },
+            inboundStreamInitializer: { streamChannel in
+                streamChannel.eventLoop.makeCompletedFuture {
+                    try streamChannel.pipeline.syncOperations.addHandler(
+                        SyncSignalHandler(receivedPromise: serverReceivedSync)
+                    )
+                }
+            },
+            noMoreConnections: {}
+        ).get()
+        let serverPort = serverChannel.localAddress!.port!
+
+        let clientChannel = try await createClientChannel(
+            eventLoopGroup: eventLoopGroup,
+            host: host,
+            port: 0,
+            logger: loggers.clientLogger,
+            initialPacketSize: 1350
+        ).get()
+
+        let (clientConnectionChannel, streamCreator) = try await connectOutbound(
+            clientChannel,
+            host: host,
+            port: serverPort
+        ) { connectionChannel, _ in
+            connectionChannel.eventLoop.makeCompletedFuture {
+                try connectionChannel.pipeline.syncOperations.addHandler(
+                    DatagramCapture(onDatagram: { buffer in
+                        clientReceived.withLockedValue { $0.append(buffer) }
+                        if buffer == payload {
+                            clientReceivedEcho.succeed()
+                        } else if buffer == marker {
+                            clientReceivedMarker.succeed()
+                        }
+                    })
+                )
+            }
+        }
+
+        try await performSyncHandshake(streamCreator, signal: syncSignal, serverReceived: serverReceivedSync)
+
+        clientConnectionChannel.writeAndFlush(payload, promise: nil)
+        try await clientReceivedEcho.futureResult.get()
+
+        // Send these only once the echo arrived. SwiftNetwork currently drops datagrams after
+        // filling one packet when sending them in a batch.
+        let serverConnectionChannel = try await serverConnectionChannelPromise.futureResult.get()
+        serverConnectionChannel.write(exceedsClientInitial, promise: nil)
+        serverConnectionChannel.writeAndFlush(marker, promise: nil)
+        try await clientReceivedMarker.futureResult.get()
+
+        // The echo (1250 bytes) and the marker (6 bytes) arrive.
+        // The 1400-byte datagram was silently dropped due to its size.
+        let receivedSizes = clientReceived.withLockedValue { $0.map(\.readableBytes) }
+        #expect(receivedSizes == [1250, 6])
+
+        try await serverChannel.close()
+    }
 }
 
 /// Opens an outbound QUIC connection on `clientChannel` to `host:port`, running
