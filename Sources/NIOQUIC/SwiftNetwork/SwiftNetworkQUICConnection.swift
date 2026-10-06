@@ -79,6 +79,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
         didSet {
             let remoteAddress = self.activePath.remoteAddress
             self.remoteAddressBox.withLockedValue { $0 = remoteAddress }
+            self.logger[metadataKey: LoggingKeys.addressRemote] = "\(remoteAddress)"
         }
     }
     // The connection's other paths, oldest first. A demoted active path counts as the newest one.
@@ -91,7 +92,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
     // The SwiftNetwork path properties every path on this connection is attached with.
     private let swiftNetworkPath: SwiftNetwork.PathProperties
 
-    private let logger: Logger
+    private var logger: Logger
     let role: Role
     private let swiftNetworkParameters: SwiftNetwork.Parameters
     private let eventLoop: any EventLoop
@@ -987,8 +988,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
         self.log(
             "received packet on path",
             metadata: [
-                LoggingKeys.addressRemote: Logger.MetadataValue("\(envelope.remoteAddress)"),
-                LoggingKeys.packetBytes: Logger.MetadataValue("\(envelope.data.readableBytes)"),
+                LoggingKeys.packetBytes: Logger.MetadataValue("\(envelope.data.readableBytes)")
             ]
         )
         path.enqueueInboundPacket(envelope.data)
@@ -1564,7 +1564,10 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
             return nil
         }
 
-        self.log("Set up a path to \(remoteAddress)")
+        self.log(
+            "Set up a path",
+            metadata: [LoggingKeys.packetRemoteAddress: "\(remoteAddress)"]
+        )
         return path
     }
 
@@ -1575,7 +1578,10 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
             // Prefer the newest validated path: it is the likeliest one SwiftNetwork sends on.
             guard let index = self.otherPaths.lastIndex(where: { $0.isValidated }) ?? self.otherPaths.indices.last
             else {
-                self.log("Keeping the last path to \(path.remoteAddress)")
+                self.log(
+                    "Keeping the last path",
+                    metadata: [LoggingKeys.packetRemoteAddress: "\(path.remoteAddress)"]
+                )
                 return
             }
             self.activePath = self.otherPaths.remove(at: index)
@@ -1601,7 +1607,10 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
             return
         }
         guard let index = self.otherPaths.firstIndex(where: { $0.addressEndpoint == remote }) else {
-            self.log("Ignoring change of untracked path to \(remote)")
+            self.log(
+                "Ignoring change of untracked path",
+                metadata: [LoggingKeys.packetRemoteAddress: "\(remote)"]
+            )
             return
         }
         self.otherPaths.append(self.activePath)
@@ -1611,7 +1620,10 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
     /// SwiftNetwork validated the path to `remote`.
     func handlePathValidated(remote: AddressEndpoint) {
         guard let path = self.trackedPath(remote) else {
-            self.log("Ignoring validation of untracked path to \(remote)")
+            self.log(
+                "Ignoring validation of untracked path",
+                metadata: [LoggingKeys.packetRemoteAddress: "\(remote)"]
+            )
             return
         }
         path.isValidated = true
@@ -1620,7 +1632,10 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
     /// SwiftNetwork gave up on the path to `remote`.
     func handlePathUnreachable(remote: AddressEndpoint) {
         guard let path = self.trackedPath(remote) else {
-            self.log("Ignoring untracked unreachable path to \(remote)")
+            self.log(
+                "Ignoring untracked unreachable path",
+                metadata: [LoggingKeys.packetRemoteAddress: "\(remote)"]
+            )
             return
         }
         self.removePath(path)
