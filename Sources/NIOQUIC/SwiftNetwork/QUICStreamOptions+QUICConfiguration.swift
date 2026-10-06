@@ -40,6 +40,9 @@ extension QUICProtocol {
         }
 
         perProtocolOptions.quicConnectionOptions.idleTimeout = NetworkDuration(duration: config.maxIdleTimeout)
+        perProtocolOptions.quicConnectionOptions.initialPacketSize = UInt16(
+            clamping: config.initialPacketSize.size(forClientInitial: nil)
+        )
 
         if let qLogConfiguration = config.qLogConfiguration {
             perProtocolOptions.quicConnectionOptions.qlogConfiguration = QLogConfiguration(
