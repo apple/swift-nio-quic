@@ -941,10 +941,12 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
         }
 
         let handle = self.nextConnectionHandle()
+        let handshakePromise = self.eventLoop.makePromise(of: Void.self)
+        let channel: QUICConnectionChannel<Consumer>
 
         switch self.multiplexerContinuation {
         case .closure(let connectionInitializer, let inboundStreamInitializer, _, let role):
-            let channel = self.makeQUICConnectionChannel(
+            channel = self.makeQUICConnectionChannel(
                 quicConnection: quicConnection,
                 handle: handle
             )
@@ -962,7 +964,6 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
 
             let streamCreator = channel.makeStreamCreator(role: role)
             let initPromise = self.eventLoop.makePromise(of: Void.self)
-            let handshakePromise = self.eventLoop.makePromise(of: Void.self)
 
             view.initialize(readyPromise: initPromise, handshakePromise: handshakePromise) { ch in
                 connectionInitializer(ch, streamCreator)
@@ -979,18 +980,8 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
                 }
             }
 
-            handshakePromise.futureResult.assumeIsolated().whenComplete { _ in
-                // Make sure we release the slot for new connections.
-                self.connectionAdmissionController.finishedHandshake()
-            }
-
-            channel.closeFuture.assumeIsolated().whenComplete { _ in
-                self.connectionAdmissionController.closingConnection()
-                self.connectionDidClose(handle)
-            }
-
         case .connectionMultiplexerContinuation(let multiplexerContinuation):
-            let channel = self.makeQUICConnectionChannel(
+            channel = self.makeQUICConnectionChannel(
                 quicConnection: quicConnection,
                 handle: handle
             )
@@ -1007,7 +998,6 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
             let outputPromise = self.eventLoop.makePromise(of: (any Sendable).self)
             let initPromise = self.eventLoop.makePromise(of: Void.self)
             initPromise.futureResult.cascadeFailure(to: outputPromise)
-            let handshakePromise = self.eventLoop.makePromise(of: Void.self)
 
             view.initialize(readyPromise: initPromise, handshakePromise: handshakePromise) { _ in
                 multiplexerContinuation.initialize(
@@ -1035,19 +1025,9 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
                     }
                 }
 
-            handshakePromise.futureResult.assumeIsolated().whenComplete { _ in
-                // Make sure we release the slot for new connections.
-                self.connectionAdmissionController.finishedHandshake()
-            }
-
-            channel.closeFuture.assumeIsolated().whenComplete { _ in
-                self.connectionAdmissionController.closingConnection()
-                self.connectionDidClose(handle)
-            }
-
         case .none:
             // No continuation means the consumer is used.
-            let channel = self.makeQUICConnectionChannel(quicConnection: quicConnection, handle: handle)
+            channel = self.makeQUICConnectionChannel(quicConnection: quicConnection, handle: handle)
             let view = channel.transportView
             self.connectionRegistry.insert(view, forHandle: handle, connectionID: newSourceConnectionID)
 
@@ -1058,7 +1038,6 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
             }
 
             let initPromise = self.eventLoop.makePromise(of: Void.self)
-            let handshakePromise = self.eventLoop.makePromise(of: Void.self)
 
             view.initialize(readyPromise: initPromise, handshakePromise: handshakePromise) {
                 $0.eventLoop.makeSucceededVoidFuture()
@@ -1072,16 +1051,16 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
                     ()
                 }
             }
+        }
 
-            handshakePromise.futureResult.assumeIsolated().whenComplete { _ in
-                // Make sure we release the slot for new connections.
-                self.connectionAdmissionController.finishedHandshake()
-            }
+        handshakePromise.futureResult.assumeIsolated().whenComplete { _ in
+            // Make sure we release the slot for new connections.
+            self.connectionAdmissionController.finishedHandshake()
+        }
 
-            channel.closeFuture.assumeIsolated().whenComplete { _ in
-                self.connectionAdmissionController.closingConnection()
-                self.connectionDidClose(handle)
-            }
+        channel.closeFuture.assumeIsolated().whenComplete { _ in
+            self.connectionAdmissionController.closingConnection()
+            self.connectionDidClose(handle)
         }
     }
 }
