@@ -110,11 +110,13 @@ struct ConnectionAdmissionController: ~Copyable {
 
     /// Call when the connection's handshake completes or the connection closes.
     mutating func finishedHandshake() {
+        assert(self.handshakeCount > 0)
         self.handshakeCount -= 1
     }
 
     /// Call when the connection closes.
     mutating func closingConnection() {
+        assert(self.activeCount > 0)
         self.activeCount -= 1
     }
 }

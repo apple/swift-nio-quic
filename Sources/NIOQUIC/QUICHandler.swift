@@ -233,9 +233,8 @@ public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
 
             let streamCreator = channel.makeStreamCreator(role: self.quicConfiguration.role)
             let activePromise = self.eventLoop.makePromise(of: Void.self)
-            let handshakePromise = self.eventLoop.makePromise(of: Void.self)
 
-            view.initialize(readyPromise: activePromise, handshakePromise: handshakePromise) { channel in
+            view.initialize(readyPromise: activePromise, handshakePromise: nil) { channel in
                 connectionInitializer(channel, streamCreator)
             }
 
@@ -249,11 +248,6 @@ public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
                         promise.fail(error)
                     }
                 }
-
-            handshakePromise.futureResult.assumeIsolated().whenComplete { _ in
-                // Make sure we release the slot for new connections.
-                self.connectionAdmissionController.finishedHandshake()
-            }
 
             channel.closeFuture.assumeIsolated().whenComplete { _ in
                 self.connectionDidClose(handle)
