@@ -268,8 +268,16 @@ struct QUICConnectionPathTests {
             }
         }
 
-        var remoteAddresses: [SocketAddress] = []
-        connection.drainPacketsToSend { remoteAddresses.append($0.remoteAddress) }
+        let transport = RecordingTransport()
+        connection.drainPacketsToSend(to: transport)
+        let remoteAddresses = transport.events.map { event -> SocketAddress? in
+            switch event {
+            case .wrote(let envelope):
+                envelope.remoteAddress
+            case .flushed, .read:
+                nil
+            }
+        }
         #expect(remoteAddresses == [Self.pathAddress, Self.newAddress])
     }
 

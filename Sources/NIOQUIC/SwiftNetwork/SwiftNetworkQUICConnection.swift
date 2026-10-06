@@ -988,7 +988,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
             "received packet on path",
             metadata: [
                 LoggingKeys.addressRemote: Logger.MetadataValue("\(envelope.remoteAddress)"),
-                LoggingKeys.packetBytes: Logger.MetadataValue("\(envelope.data.readableBytes)")
+                LoggingKeys.packetBytes: Logger.MetadataValue("\(envelope.data.readableBytes)"),
             ]
         )
         path.enqueueInboundPacket(envelope.data)
@@ -1021,7 +1021,6 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
     ///
     @inlinable
     func drainPacketsToSend(to transport: some QUICTransport) {
-        // Visit each path once. For now the active path is the only one.
         self.activePath.drainPacketsToSend(to: transport)
         for path in self.otherPaths {
             path.drainPacketsToSend(to: transport)
