@@ -34,7 +34,6 @@ final class CertificateAuthTests: XCTestCase {
     ) async throws -> (any Channel, QUICHandler<QUICStreamChannels>.ConnectionMultiplexer<Never>) {
         let eventLoopGroup = MultiThreadedEventLoopGroup.singleton
         let (channel, multiplexer) = try await DatagramBootstrap(group: eventLoopGroup)
-            .channelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
             .bind(host: address, port: bindPort) { channel in
                 channel.eventLoop.makeCompletedFuture {
                     let (quicHandler, connectionMultiplexer) = try QUICHandler<QUICStreamChannels>
@@ -67,7 +66,6 @@ final class CertificateAuthTests: XCTestCase {
     ) {
         let eventLoopGroup = MultiThreadedEventLoopGroup.singleton
         let (channel, multiplexer) = try await DatagramBootstrap(group: eventLoopGroup)
-            .channelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
             .bind(host: address, port: 0) { channel in
                 channel.eventLoop.makeCompletedFuture {
                     let (quicHandler, connectionMultiplexer) = try QUICHandler<QUICStreamChannels>

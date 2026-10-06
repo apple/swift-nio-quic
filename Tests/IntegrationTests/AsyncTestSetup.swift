@@ -254,7 +254,6 @@ private func setUpClientConnectionMultiplexer(
     QUICHandler<QUICStreamChannels>.ConnectionMultiplexer<Never>
 ) {
     let (channel, multiplexer) = try await DatagramBootstrap(group: eventLoopGroup)
-        .channelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
         .channelOption(ChannelOptions.maxMessagesPerRead, value: 32)
         .bind(host: host, port: 0) { channel in
             channel.eventLoop.makeCompletedFuture {
@@ -309,7 +308,6 @@ private func setUpServerChannelAndConnectionMultiplexer(
     mutableLogger.logLevel = .debug
     let logger = mutableLogger
     let (channel, multiplexer) = try await DatagramBootstrap(group: eventLoopGroup)
-        .channelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
         .channelOption(ChannelOptions.maxMessagesPerRead, value: 32)
         .bind(host: host, port: 0) { channel in
             channel.eventLoop.makeCompletedFuture {
