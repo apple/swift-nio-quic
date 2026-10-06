@@ -24,70 +24,56 @@ struct ConnectionMigrationTests {
     @available(anyAppleOS 26, *)
     @Test(.timeLimit(.minutes(1)))
     func clientContinuesConnectionFromNewAddress() async throws {
-        // One thread: the relay hands datagrams from one channel's pipeline to the other's synchronously.
-        let eventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: 1)
-        let host = "127.0.0.1"
-        let serverConnectionChannel = NIOLockedValueBox<(any Channel)?>(nil)
-
-        let serverChannel = try await createServerChannel(
-            eventLoopGroup: eventLoopGroup,
-            host: host,
-            port: 0,
-            logger: Logger(label: "Server"),
-            inboundConnectionInitializer: { connectionChannel, _ in
-                serverConnectionChannel.withLockedValue { $0 = connectionChannel }
-                return connectionChannel.eventLoop.makeSucceededVoidFuture()
-            },
-            inboundStreamInitializer: { streamChannel in
-                streamChannel.eventLoop.makeCompletedFuture {
-                    try streamChannel.pipeline.syncOperations.addHandler(TestServerHandler())
-                }
-            },
-            noMoreConnections: {}
-        ).get()
-        let serverPort = serverChannel.localAddress!.port!
-
-        let clientChannel = try await createClientChannel(
-            eventLoopGroup: eventLoopGroup,
-            host: host,
-            port: 0,
-            logger: Logger(label: "Client"),
-            udpChannelInitializer: { channel in
-                try channel.pipeline.syncOperations.addHandler(AddressSwitchHandler())
-            }
-        ).get()
-        let (_, streamCreator) = try await clientChannel.pipeline.handler(type: QUICHandler<QUICStreamChannels>.self)
-            .flatMap { quicHandler in
-                quicHandler.createOutboundConnection(
-                    serverName: "\(host):\(serverPort)",
-                    remoteAddress: try! .init(ipAddress: host, port: serverPort),
-                    connectionInitializer: { channel, _ in channel.eventLoop.makeSucceededVoidFuture() },
-                    inboundStreamInitializer: { channel in channel.eventLoop.makeSucceededVoidFuture() }
-                )
-            }.get()
-        #expect(try await Self.request(on: streamCreator) == ByteBuffer(string: "<b>Success</b>"))
+        let peers = try await ConnectedPeers.connect()
 
         // The client's socket "rebinds": its packets now come from a new port and its old address is gone.
-        let newSocket = try await DatagramBootstrap(group: eventLoopGroup)
-            .channelInitializer { channel in
-                channel.eventLoop.makeCompletedFuture {
-                    try channel.pipeline.syncOperations.addHandler(RelayHandler(clientChannel: clientChannel))
-                }
-            }
-            .bind(host: host, port: 0)
-            .get()
-        try await clientChannel.eventLoop.submit {
-            try clientChannel.pipeline.syncOperations.handler(type: AddressSwitchHandler.self).newSocket = newSocket
-        }.get()
+        let newSocket = try await peers.makeClientSocket()
+        try await peers.rebindClient(to: newSocket)
 
         // Only succeeds if the server moves the connection over to the client's new address.
-        #expect(try await Self.request(on: streamCreator) == ByteBuffer(string: "<b>Success</b>"))
-        #expect(serverConnectionChannel.withLockedValue { $0 }?.remoteAddress == newSocket.localAddress)
+        #expect(try await Self.request(on: peers.streamCreator) == ByteBuffer(string: "<b>Success</b>"))
+        #expect(peers.serverConnectionChannel.remoteAddress == newSocket.localAddress)
 
         try await newSocket.close()
-        try await clientChannel.close()
-        try await serverChannel.close()
-        try await eventLoopGroup.shutdownGracefully()
+        try await peers.close()
+    }
+
+    @available(anyAppleOS 26, *)
+    @Test(.timeLimit(.minutes(1)))
+    func clientMigratesToTwoNewAddresses() async throws {
+        let peers = try await ConnectedPeers.connect()
+
+        var newSockets: [any Channel] = []
+        for _ in 0..<2 {
+            let newSocket = try await peers.makeClientSocket()
+            newSockets.append(newSocket)
+            try await peers.rebindClient(to: newSocket)
+
+            #expect(try await Self.request(on: peers.streamCreator) == ByteBuffer(string: "<b>Success</b>"))
+            #expect(peers.serverConnectionChannel.remoteAddress == newSocket.localAddress)
+        }
+
+        for newSocket in newSockets {
+            try await newSocket.close()
+        }
+        try await peers.close()
+    }
+
+    @available(anyAppleOS 26, *)
+    @Test(.timeLimit(.minutes(1)))
+    func clientMigratesBackToItsFirstAddress() async throws {
+        let peers = try await ConnectedPeers.connect()
+        let newSocket = try await peers.makeClientSocket()
+        try await peers.rebindClient(to: newSocket)
+        #expect(try await Self.request(on: peers.streamCreator) == ByteBuffer(string: "<b>Success</b>"))
+        #expect(peers.serverConnectionChannel.remoteAddress == newSocket.localAddress)
+
+        try await peers.rebindClient(to: nil)
+        #expect(try await Self.request(on: peers.streamCreator) == ByteBuffer(string: "<b>Success</b>"))
+        #expect(peers.serverConnectionChannel.remoteAddress == peers.clientChannel.localAddress)
+
+        try await newSocket.close()
+        try await peers.close()
     }
 
     /// Anyone who sees the connection's traffic can send packets to it from any address.
@@ -150,6 +136,7 @@ struct ConnectionMigrationTests {
         var streamCreator: QUICStreamCreator
 
         static func connect() async throws -> ConnectedPeers {
+            // One thread: the relay hands datagrams from one channel's pipeline to the other's synchronously.
             let eventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: 1)
             let serverConnectionChannel = NIOLockedValueBox<(any Channel)?>(nil)
 
@@ -180,6 +167,7 @@ struct ConnectionMigrationTests {
                 port: 0,
                 logger: Logger(label: "Client"),
                 udpChannelInitializer: { channel in
+                    try channel.pipeline.syncOperations.addHandler(AddressSwitchHandler())
                     try channel.pipeline.syncOperations.addHandler(ShortHeaderRecorder())
                 }
             ).get()
@@ -227,6 +215,28 @@ struct ConnectionMigrationTests {
             return packet
         }
 
+        /// A new socket for the client: what it receives goes into the client's pipeline while the client uses it.
+        func makeClientSocket() async throws -> any Channel {
+            let clientChannel = self.clientChannel
+            return try await DatagramBootstrap(group: self.eventLoopGroup)
+                .channelInitializer { channel in
+                    channel.eventLoop.makeCompletedFuture {
+                        try channel.pipeline.syncOperations.addHandler(RelayHandler(clientChannel: clientChannel))
+                    }
+                }
+                .bind(host: ConnectionMigrationTests.host, port: 0)
+                .get()
+        }
+
+        /// Makes the client use `socket`, or its own socket for `nil`, as if its socket rebound to that port.
+        func rebindClient(to socket: (any Channel)?) async throws {
+            let clientChannel = self.clientChannel
+            try await clientChannel.eventLoop.submit {
+                let switchHandler = try clientChannel.pipeline.syncOperations.handler(type: AddressSwitchHandler.self)
+                switchHandler.currentSocket = socket
+            }.get()
+        }
+
         func close() async throws {
             try await self.clientChannel.close()
             try await self.serverChannel.close()
@@ -261,33 +271,33 @@ struct ConnectionMigrationTests {
     }
 }
 
-/// Sits in front of the client's `QUICHandler` and simulates its socket rebinding to a new port: once
-/// `newSocket` is set, datagrams leave through it, and datagrams still arriving on the old socket are
-/// dropped because the old address is gone.
+/// Sits in front of the client's `QUICHandler` and simulates its socket rebinding to other ports: datagrams
+/// leave through `currentSocket`, or the client's own socket while it is `nil`. Datagrams arriving on any
+/// other socket are dropped because that address is gone.
 @available(anyAppleOS 26, *)
 private final class AddressSwitchHandler: ChannelDuplexHandler {
     typealias InboundIn = AddressedEnvelope<ByteBuffer>
     typealias OutboundIn = AddressedEnvelope<ByteBuffer>
 
-    var newSocket: (any Channel)?
+    var currentSocket: (any Channel)?
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
-        if self.newSocket == nil {
+        if self.currentSocket == nil {
             context.fireChannelRead(data)
         }
     }
 
     func write(context: ChannelHandlerContext, data: NIOAny, promise: EventLoopPromise<Void>?) {
-        if let newSocket = self.newSocket {
-            newSocket.writeAndFlush(self.unwrapOutboundIn(data), promise: promise)
+        if let currentSocket = self.currentSocket {
+            currentSocket.writeAndFlush(self.unwrapOutboundIn(data), promise: promise)
         } else {
             context.write(data, promise: promise)
         }
     }
 }
 
-/// Installed on the client's new socket. Feeds what arrives there into the client's pipeline just past
-/// the `AddressSwitchHandler`, so the client's `QUICHandler` receives it as before.
+/// Installed on a new socket of the client. While the client uses that socket, feeds what arrives there into
+/// the client's pipeline just past the `AddressSwitchHandler`, so the client's `QUICHandler` receives it as before.
 @available(anyAppleOS 26, *)
 private final class RelayHandler: ChannelInboundHandler {
     typealias InboundIn = AddressedEnvelope<ByteBuffer>
@@ -299,16 +309,22 @@ private final class RelayHandler: ChannelInboundHandler {
     }
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
-        self.switchContext()?.fireChannelRead(data)
+        self.switchContext(for: context.channel)?.fireChannelRead(data)
     }
 
     func channelReadComplete(context: ChannelHandlerContext) {
-        self.switchContext()?.fireChannelReadComplete()
+        self.switchContext(for: context.channel)?.fireChannelReadComplete()
     }
 
     // Both channels share the test's event loop, so the client's pipeline can be used synchronously.
-    private func switchContext() -> ChannelHandlerContext? {
-        try? self.clientChannel.pipeline.syncOperations.context(handlerType: AddressSwitchHandler.self)
+    private func switchContext(for socket: any Channel) -> ChannelHandlerContext? {
+        let operations = self.clientChannel.pipeline.syncOperations
+        guard let switchHandler = try? operations.handler(type: AddressSwitchHandler.self),
+            switchHandler.currentSocket === socket
+        else {
+            return nil
+        }
+        return try? operations.context(handlerType: AddressSwitchHandler.self)
     }
 }
 
