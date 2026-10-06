@@ -58,13 +58,13 @@ struct DontFragmentTests {
     )
     #endif
 
-    static let isIPv6LoopbackAvailable: Bool = {
-        let channel = try? DatagramBootstrap(group: MultiThreadedEventLoopGroup.singleton)
+    static func isIPv6LoopbackAvailable() async -> Bool {
+        let channel = try? await DatagramBootstrap(group: MultiThreadedEventLoopGroup.singleton)
             .bind(host: "::1", port: 0)
-            .wait()
-        try? channel?.close().wait()
+            .get()
+        try? await channel?.close()
         return channel != nil
-    }()
+    }
 
     @available(anyAppleOS 26, *)
     @Test(arguments: Installation.allCases)
@@ -76,7 +76,7 @@ struct DontFragmentTests {
     }
 
     @available(anyAppleOS 26, *)
-    @Test(.enabled(if: Self.isIPv6LoopbackAvailable), arguments: Installation.allCases)
+    @Test(.enabled { await Self.isIPv6LoopbackAvailable() }, arguments: Installation.allCases)
     func setsDontFragmentOnIPv6Socket(installation: Installation) async throws {
         let channel = try await Self.makeChannel(host: "::1", installation: installation)
         let value = try await channel.getOption(Self.ipv6.option).get()
@@ -89,13 +89,15 @@ struct DontFragmentTests {
         try await channel.close()
     }
 
-    /// Without a local address the address family, and so the option to set, is unknown.
+    /// Without a local address the handler can't set the bit, but keeps the channel usable.
+    @available(anyAppleOS 26, *)
     @Test
-    func throwsWithoutLocalAddress() {
+    func keepsChannelWithoutLocalAddressUsable() throws {
         let channel = EmbeddedChannel()
-        #expect(throws: ChannelError.unknownLocalAddress) {
-            try DontFragment.set(on: channel)
-        }
+        try channel.pipeline.syncOperations.addHandler(Self.makeHandler(channel: channel))
+        try channel.connect(to: SocketAddress(ipAddress: "127.0.0.1", port: 443), promise: nil)
+        #expect(channel.isActive)
+        try channel.throwIfErrorCaught()
     }
 
     @available(anyAppleOS 26, *)

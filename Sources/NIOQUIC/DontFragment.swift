@@ -53,7 +53,7 @@ enum DontFragment {
             throw ChannelError.operationUnsupported
         }
         guard let localAddress = channel.localAddress else {
-            throw ChannelError.unknownLocalAddress
+            throw QUICError.noLocalAddress
         }
         switch localAddress {
         case .v4:
