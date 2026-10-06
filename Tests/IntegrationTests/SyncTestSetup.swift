@@ -123,7 +123,6 @@ private func createQUICChannel(
     noMoreConnections: @Sendable @escaping () -> Void
 ) -> EventLoopFuture<any Channel> {
     DatagramBootstrap(group: eventLoopGroup)
-        .channelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
         .channelOption(ChannelOptions.maxMessagesPerRead, value: 32)
         .bind(host: host, port: port)
         .flatMapThrowing { channel in
