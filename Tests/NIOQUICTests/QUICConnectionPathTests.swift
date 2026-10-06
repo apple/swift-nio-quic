@@ -268,6 +268,26 @@ struct QUICConnectionPathTests {
 
     @available(anyAppleOS 26, *)
     @Test
+    func swiftNetworkDetachingFlushesQueuedPacketsBeforeRemovingPath() throws {
+        let connection = try self.makeConnection(role: .server)
+        connection.receivePacket(AddressedEnvelope(remoteAddress: Self.newAddress, data: Self.payload))
+        let path = try #require(connection.otherPaths.first)
+        // The last packet SwiftNetwork sends on the path, e.g. a CONNECTION_CLOSE.
+        if let datagrams = try path.getDatagramsToSend(.init(), maximumDatagramCount: 1, minimumDatagramSize: 100) {
+            try path.sendDatagrams(.init(), datagrams: datagrams)
+        }
+
+        try path.detach(.init())
+        #expect(connection.otherPaths.map(\.remoteAddress) == [Self.newAddress])
+
+        let transport = RecordingTransport()
+        connection.drainPacketsToSend(to: transport)
+        #expect(self.writtenAddresses(transport) == [Self.newAddress])
+        #expect(connection.otherPaths.isEmpty)
+    }
+
+    @available(anyAppleOS 26, *)
+    @Test
     func receivePacketsCompleteFeedsEveryPath() throws {
         let connection = try self.makeConnection(role: .server)
         connection.receivePacket(AddressedEnvelope(remoteAddress: Self.newAddress, data: Self.payload))
@@ -295,15 +315,7 @@ struct QUICConnectionPathTests {
 
         let transport = RecordingTransport()
         connection.drainPacketsToSend(to: transport)
-        let remoteAddresses = transport.events.map { event -> SocketAddress? in
-            switch event {
-            case .wrote(let envelope):
-                envelope.remoteAddress
-            case .flushed, .read:
-                nil
-            }
-        }
-        #expect(remoteAddresses == [Self.pathAddress, Self.newAddress])
+        #expect(self.writtenAddresses(transport) == [Self.pathAddress, Self.newAddress])
     }
 
     /// Every path `connection` tracks, the active one first.
@@ -312,6 +324,18 @@ struct QUICConnectionPathTests {
         _ connection: SwiftNetworkQUICConnection<QUICStreamChannels>
     ) -> [QUICConnectionPath<QUICStreamChannels>] {
         [connection.activePath] + connection.otherPaths
+    }
+
+    /// Where the datagrams written to `transport` went, in order. Flushes and reads show up as `nil`.
+    private func writtenAddresses(_ transport: RecordingTransport) -> [SocketAddress?] {
+        transport.events.map { event in
+            switch event {
+            case .wrote(let envelope):
+                envelope.remoteAddress
+            case .flushed, .read:
+                nil
+            }
+        }
     }
 
     private static let pathAddress = try! SocketAddress(ipAddress: "127.0.0.1", port: 9000)

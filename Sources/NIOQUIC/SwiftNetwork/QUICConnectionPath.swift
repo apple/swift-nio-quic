@@ -42,6 +42,9 @@ final class QUICConnectionPath<Consumer: QUICStreamConsumer & ~Copyable>:
     let addressEndpoint: SwiftNetwork.AddressEndpoint
     /// QUIC path validation status.
     var isValidated: Bool
+    /// Whether SwiftNetwork detached from the path. It sends nothing more on it, but the packets it already
+    /// queued still have to get out.
+    private(set) var isDetachedBySwiftNetwork = false
 
     private let logger: Logger
     private var logPrefix: String
@@ -248,6 +251,7 @@ extension QUICConnectionPath: LowerProtocolHandler where Consumer: ~Copyable {
         // For example, when the outputhandler is being removed all of the packets need to be flushed first so that
         // frames such as APPLICATION_CLOSE or CONNECTION_CLOSE make it to the peer.  Resetting the linkage here stop
         // prevents that from happening.
+        self.isDetachedBySwiftNetwork = true
         switch self.state {
         case .attached(let connectionView):
             // The connection decides whether the path is still needed.

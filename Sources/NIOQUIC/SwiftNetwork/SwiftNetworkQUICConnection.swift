@@ -1024,6 +1024,10 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
         self.activePath.drainPacketsToSend(to: transport)
         for path in self.otherPaths {
             path.drainPacketsToSend(to: transport)
+            // SwiftNetwork let go of the path, which only stayed to flush the packets just written.
+            if path.isDetachedBySwiftNetwork {
+                self.removePath(path, notifySwiftNetwork: false)
+            }
         }
     }
 
@@ -1653,8 +1657,9 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
 
     /// SwiftNetwork detached from `path`, e.g. after migrating away from it.
     private func handleUpperProtocolDetached(from path: QUICConnectionPath<Consumer>) {
-        // The active path has to flush its last packets, e.g. a CONNECTION_CLOSE.
-        if path === self.activePath {
+        // The packets SwiftNetwork queued on the path still have to get out, e.g. a CONNECTION_CLOSE. The active
+        // path stays, and another path is removed by the drain that flushes it.
+        if path === self.activePath || path.hasQueuedOutboundData {
             return
         }
         self.removePath(path, notifySwiftNetwork: false)
