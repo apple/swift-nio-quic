@@ -90,15 +90,16 @@ struct ConnectionMigrationTests {
         try await eventLoopGroup.shutdownGracefully()
     }
 
+    /// Anyone who sees the connection's traffic can send packets to it from any address.
     @available(anyAppleOS 26, *)
-    @Test(.timeLimit(.minutes(1)))
-    func serverSurvivesPacketsFromTwoNewAddresses() async throws {
+    @Test(.timeLimit(.minutes(1)), arguments: [1, 2, 100])
+    func serverIgnoresUnauthenticatedPacketsFromNewAddresses(addressCount: Int) async throws {
         let peers = try await ConnectedPeers.connect()
         let packet = try await peers.unauthenticatedPacket()
 
         // Every new address makes the server set up a path, which SwiftNetwork then probes.
         var spoofers: [any Channel] = []
-        for _ in 0..<2 {
+        for _ in 0..<addressCount {
             let spoofer = try await DatagramBootstrap(group: peers.eventLoopGroup).bind(host: Self.host, port: 0).get()
             try await spoofer.writeAndFlush(AddressedEnvelope(remoteAddress: peers.serverAddress, data: packet))
             spoofers.append(spoofer)
@@ -106,11 +107,32 @@ struct ConnectionMigrationTests {
         // Let SwiftNetwork's migration timer fire: two paths probing at once used to crash the process.
         try await Task.sleep(for: .seconds(1))
 
+        #expect(peers.serverConnectionChannel.remoteAddress == peers.clientChannel.localAddress)
         #expect(try await Self.request(on: peers.streamCreator) == ByteBuffer(string: "<b>Success</b>"))
 
         for spoofer in spoofers {
             try await spoofer.close()
         }
+        try await peers.close()
+    }
+
+    @available(anyAppleOS 26, *)
+    @Test(.timeLimit(.minutes(1)))
+    func serverCloseReachesClientAfterUnauthenticatedPacket() async throws {
+        let peers = try await ConnectedPeers.connect()
+        let spoofer = try await DatagramBootstrap(group: peers.eventLoopGroup).bind(host: Self.host, port: 0).get()
+        try await spoofer.writeAndFlush(
+            AddressedEnvelope(remoteAddress: peers.serverAddress, data: try await peers.unauthenticatedPacket())
+        )
+        try await Task.sleep(for: .milliseconds(100))
+
+        let start = ContinuousClock.now
+        try await peers.serverConnectionChannel.close()
+        try await peers.clientConnectionChannel.closeFuture.get()
+        // Without the server's CONNECTION_CLOSE the client only notices once its idle timeout fires.
+        #expect(ContinuousClock.now - start < .seconds(5))
+
+        try await spoofer.close()
         try await peers.close()
     }
 
@@ -124,6 +146,7 @@ struct ConnectionMigrationTests {
         var serverAddress: SocketAddress
         var serverConnectionChannel: any Channel
         var clientChannel: any Channel
+        var clientConnectionChannel: any Channel
         var streamCreator: QUICStreamCreator
 
         static func connect() async throws -> ConnectedPeers {
@@ -160,7 +183,7 @@ struct ConnectionMigrationTests {
                     try channel.pipeline.syncOperations.addHandler(ShortHeaderRecorder())
                 }
             ).get()
-            let (_, streamCreator) = try await clientChannel.pipeline.handler(
+            let (clientConnectionChannel, streamCreator) = try await clientChannel.pipeline.handler(
                 type: QUICHandler<QUICStreamChannels>.self
             )
             .flatMap { quicHandler in
@@ -181,6 +204,7 @@ struct ConnectionMigrationTests {
                 serverAddress: serverAddress,
                 serverConnectionChannel: try #require(serverConnectionChannel.withLockedValue { $0 }),
                 clientChannel: clientChannel,
+                clientConnectionChannel: clientConnectionChannel,
                 streamCreator: streamCreator
             )
         }
