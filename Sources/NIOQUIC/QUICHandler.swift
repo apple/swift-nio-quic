@@ -32,6 +32,9 @@ private enum MultiplexerContinuation<Consumer: QUICStreamConsumer & ~Copyable> {
 /// A handler for QUIC connections.
 /// Add this to a UDP channel.
 /// It can multiplex multiple QUIC connections.
+///
+/// NOTE: The handler sets the don't fragment bit on the channel's socket (RFC 9000, § 14),
+/// overriding the socket's previous setting. The bit stays set after the handler is removed.
 @available(anyAppleOS 26, *)
 public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
     private enum State {
