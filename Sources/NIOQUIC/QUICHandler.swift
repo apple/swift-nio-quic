@@ -48,6 +48,8 @@ public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
 
     /// A registry of connections.
     private var connectionRegistry: ConnectionRegistry<QUICConnectionChannel<Consumer>.TransportView>
+    /// Decides whether new connections may be admitted.
+    private var connectionAdmissionController: ConnectionAdmissionController
 
     /// How new connections are surfaced to the user: either a multiplexer continuation or a pair
     /// of initializer closures.
@@ -93,6 +95,7 @@ public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
     /// - Parameters:
     ///   - channel: The channel this handler resides in.
     ///   - quicConfiguration: The quic configuration to use for this handler.
+    ///   - connectionLimits: Limits on the inbound connections this handler admits.
     ///   - asyncVerifier: Callback provider for SwiftTLS certificate verification.
     ///   - logger: The logger.
     ///   - makeConsumer: Builds the consumer servicing a connection's streams, or nil
@@ -102,6 +105,7 @@ public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
     init(
         channel: any Channel,
         quicConfiguration: QUICConfiguration,
+        connectionLimits: QUICConnectionLimits,
         asyncVerifier: AsyncVerifier?,
         authenticator: Authenticator?,
         logger: Logger,
@@ -122,6 +126,11 @@ public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
         self.connectionHandle = .initial
         self.connectionRegistry = ConnectionRegistry()
         self.makeConsumer = makeConsumer
+        self.connectionAdmissionController = makeConnectionAdmissionController(
+            for: connectionLimits,
+            logger: logger,
+            eventLoop: channel.eventLoop
+        )
     }
 
     /// Shuts the server down gracefully.
@@ -224,7 +233,8 @@ public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
 
             let streamCreator = channel.makeStreamCreator(role: self.quicConfiguration.role)
             let activePromise = self.eventLoop.makePromise(of: Void.self)
-            view.initialize(promise: activePromise) { channel in
+
+            view.initialize(readyPromise: activePromise, handshakePromise: nil) { channel in
                 connectionInitializer(channel, streamCreator)
             }
 
@@ -364,18 +374,23 @@ extension QUICHandler where Consumer == QUICStreamChannels {
     /// - Parameters:
     ///   - channel: The channel this handler resides in.
     ///   - QUICConfiguration: The quic configuration to use for this handler.
+    ///   - connectionLimits: Limits on the inbound connections this handler admits. Only used by servers.
+    ///     Defaults to ``QUICConnectionLimits/perHandler(activeLimit:handshakeLimit:newConnectionRateLimit:)``
+    ///     with 10,000 active connections and a rate limit of 1,000 new connections per second.
     ///   - logger: The logger.
     ///   - inboundStreamChannelInitializer: A closure called for any new inbound stream.
     /// - Returns: The handler and the connection multiplexer.
     public static func makeHandlerAndConnectionMultiplexer<Output: Sendable>(
         channel: any Channel,
         quicConfiguration: QUICConfiguration,
+        connectionLimits: QUICConnectionLimits = .perHandler(),
         logger: Logger,
         inboundStreamChannelInitializer: @Sendable @escaping (any Channel) -> EventLoopFuture<Output>
     ) throws -> (QUICHandler, QUICHandler.ConnectionMultiplexer<Output>) {
         try self.makeHandlerAndConnectionMultiplexer(
             channel: channel,
             quicConfiguration: quicConfiguration,
+            connectionLimits: connectionLimits,
             logger: logger,
             inboundStreamChannelInitializer: inboundStreamChannelInitializer,
             connectionIDGenerator: QUICConnectionID.RandomGenerator(),
@@ -393,6 +408,9 @@ extension QUICHandler where Consumer == QUICStreamChannels {
     /// - Parameters:
     ///   - channel: The channel this handler resides in.
     ///   - QUICConfiguration: The quic configuration to use for this handler.
+    ///   - connectionLimits: Limits on the inbound connections this handler admits. Only used by servers.
+    ///     Defaults to ``QUICConnectionLimits/perHandler(activeLimit:handshakeLimit:newConnectionRateLimit:)``
+    ///     with 10,000 active connections and a rate limit of 1,000 new connections per second.
     ///   - logger: The logger.
     ///   - inboundStreamChannelInitializer: A closure called for any new inbound stream.
     ///   - connectionIDGenerator: The generator used for creating source connection IDs.
@@ -401,6 +419,7 @@ extension QUICHandler where Consumer == QUICStreamChannels {
     public static func makeHandlerAndConnectionMultiplexer<Output: Sendable>(
         channel: any Channel,
         quicConfiguration: QUICConfiguration,
+        connectionLimits: QUICConnectionLimits = .perHandler(),
         logger: Logger,
         inboundStreamChannelInitializer: @Sendable @escaping (any Channel) -> EventLoopFuture<Output>,
         connectionIDGenerator: any QUICConnectionID.Generator,
@@ -452,6 +471,7 @@ extension QUICHandler where Consumer == QUICStreamChannels {
         let handler = QUICHandler(
             channel: channel,
             quicConfiguration: quicConfiguration,
+            connectionLimits: connectionLimits,
             asyncVerifier: asyncVerifier,
             authenticator: authenticator,
             logger: logger,
@@ -482,6 +502,9 @@ extension QUICHandler where Consumer == QUICStreamChannels {
     /// - Parameters:
     ///   - channel: The channel this handler resides in.
     ///   - quicConfiguration: The quic configuration to use for this handler.
+    ///   - connectionLimits: Limits on the inbound connections this handler admits. Only used by servers.
+    ///     Defaults to ``QUICConnectionLimits/perHandler(activeLimit:handshakeLimit:newConnectionRateLimit:)``
+    ///     with 10,000 active connections and a rate limit of 1,000 new connections per second.
     ///   - asyncVerifier: Callback provider for SwiftTLS certificate verification.
     ///   - authenticator: Authenticator for SwiftTLS certificate verification.
     ///   - logger: The logger.
@@ -493,6 +516,7 @@ extension QUICHandler where Consumer == QUICStreamChannels {
     public convenience init(
         channel: any Channel,
         quicConfiguration: QUICConfiguration,
+        connectionLimits: QUICConnectionLimits = .perHandler(),
         asyncVerifier: AsyncVerifier?,
         authenticator: Authenticator?,
         logger: Logger,
@@ -505,6 +529,7 @@ extension QUICHandler where Consumer == QUICStreamChannels {
         self.init(
             channel: channel,
             quicConfiguration: quicConfiguration,
+            connectionLimits: connectionLimits,
             asyncVerifier: asyncVerifier,
             authenticator: authenticator,
             logger: logger,
@@ -565,6 +590,9 @@ extension QUICHandler where Consumer: ~Copyable {
     /// - Parameters:
     ///   - channel: The channel this handler resides in.
     ///   - quicConfiguration: The quic configuration to use for this handler.
+    ///   - connectionLimits: Limits on the inbound connections this handler admits. Only used by servers.
+    ///     Defaults to ``QUICConnectionLimits/perHandler(activeLimit:handshakeLimit:newConnectionRateLimit:)``
+    ///     with 10,000 active connections and a rate limit of 1,000 new connections per second.
     ///   - asyncVerifier: Callback provider for SwiftTLS certificate verification.
     ///   - authenticator: Authenticator for SwiftTLS certificate verification.
     ///   - logger: The logger.
@@ -575,6 +603,7 @@ extension QUICHandler where Consumer: ~Copyable {
     public convenience init(
         channel: any Channel,
         quicConfiguration: QUICConfiguration,
+        connectionLimits: QUICConnectionLimits = .perHandler(),
         asyncVerifier: AsyncVerifier?,
         authenticator: Authenticator?,
         logger: Logger,
@@ -585,6 +614,7 @@ extension QUICHandler where Consumer: ~Copyable {
         self.init(
             channel: channel,
             quicConfiguration: quicConfiguration,
+            connectionLimits: connectionLimits,
             asyncVerifier: asyncVerifier,
             authenticator: authenticator,
             logger: logger,
@@ -732,13 +762,26 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
                     // pass packets with unknown versions to Swift QUIC to initiate version
                     // negotation.
                     if header.type == .initial || header.type == .versionNegotiation {
-                        try self.acceptNewConnection(
-                            for: addressedEnvelope,
-                            sourceConnectionID: header.sourceConnectionID,
-                            destinationConnectionID: header.destinationConnectionID,
-                            // This force unwrap is fine. We really need to have a local address at this point
-                            localAddress: context.localAddress!
-                        )
+                        switch self.connectionAdmissionController.acceptNewConnection() {
+                        case .accept:
+                            try self.acceptNewConnection(
+                                for: addressedEnvelope,
+                                sourceConnectionID: header.sourceConnectionID,
+                                destinationConnectionID: header.destinationConnectionID,
+                                // This force unwrap is fine. We really need to have a local address at this point
+                                localAddress: context.localAddress!
+                            )
+                        case .drop(let reason):
+                            self.logger.trace(
+                                "QUICHandler dropping new connection",
+                                metadata: [
+                                    LoggingKeys.connectionDropReason: "\(reason)",
+                                    LoggingKeys.addressRemote: "\(addressedEnvelope.remoteAddress)",
+                                    LoggingKeys.connectionDCID:
+                                        "\(header.destinationConnectionID.description)",
+                                ]
+                            )
+                        }
                     } else {
                         self.logger.trace(
                             "QUICHandler dropping non-INITIAL packet without a connection",
@@ -875,24 +918,35 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
         configuration.initialPacketSize = .fixed(
             configuration.initialPacketSize.size(forClientInitial: addressedEnvelope.data.readableBytes)
         )
-        // The context is set when the channel becomes active so force unwrapping is okay here
-        let quicConnection = try SwiftNetworkQUICConnection<Consumer>.server(
-            configuration: configuration,
-            sourceConnectionID: newSourceConnectionID,
-            statelessResetTokenGenerator: self.statelessResetTokenGenerator,
-            authenticator: self.authenticator,
-            localAddress: localAddress,
-            remoteAddress: addressedEnvelope.remoteAddress,
-            logger: connectionLogger,
-            eventLoop: self.context!.eventLoop,
-            usesStreamTable: self.makeConsumer != nil
-        )
+        let quicConnection: SwiftNetworkQUICConnection<Consumer>
+        do {
+            // The context is set when the channel becomes active so force unwrapping is okay here
+            quicConnection = try SwiftNetworkQUICConnection<Consumer>.server(
+                configuration: configuration,
+                sourceConnectionID: newSourceConnectionID,
+                statelessResetTokenGenerator: self.statelessResetTokenGenerator,
+                authenticator: self.authenticator,
+                localAddress: localAddress,
+                remoteAddress: addressedEnvelope.remoteAddress,
+                logger: connectionLogger,
+                eventLoop: self.context!.eventLoop,
+                usesStreamTable: self.makeConsumer != nil
+            )
+        } catch {
+            // Admission already counted this connection, but its release callbacks are only
+            // registered once it exists. Give the slots back here.
+            self.connectionAdmissionController.finishedHandshake()
+            self.connectionAdmissionController.closingConnection()
+            throw error
+        }
 
         let handle = self.nextConnectionHandle()
+        let handshakePromise = self.eventLoop.makePromise(of: Void.self)
+        let channel: QUICConnectionChannel<Consumer>
 
         switch self.multiplexerContinuation {
         case .closure(let connectionInitializer, let inboundStreamInitializer, _, let role):
-            let channel = self.makeQUICConnectionChannel(
+            channel = self.makeQUICConnectionChannel(
                 quicConnection: quicConnection,
                 handle: handle
             )
@@ -900,6 +954,7 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
 
             let view = channel.transportView
             self.connectionRegistry.insert(view, forHandle: handle, connectionID: newSourceConnectionID)
+
             // Keep track of the original DCID the peer used in case they retransmit or send
             // additional INITIAL packets.
             // TODO: Remove the DCID alias from multiplexing.
@@ -909,7 +964,8 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
 
             let streamCreator = channel.makeStreamCreator(role: role)
             let initPromise = self.eventLoop.makePromise(of: Void.self)
-            view.initialize(promise: initPromise) { ch in
+
+            view.initialize(readyPromise: initPromise, handshakePromise: handshakePromise) { ch in
                 connectionInitializer(ch, streamCreator)
             }
 
@@ -924,17 +980,14 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
                 }
             }
 
-            channel.closeFuture.assumeIsolated().whenComplete { _ in
-                self.connectionDidClose(handle)
-            }
-
         case .connectionMultiplexerContinuation(let multiplexerContinuation):
-            let channel = self.makeQUICConnectionChannel(
+            channel = self.makeQUICConnectionChannel(
                 quicConnection: quicConnection,
                 handle: handle
             )
             let view = channel.transportView
             self.connectionRegistry.insert(view, forHandle: handle, connectionID: newSourceConnectionID)
+
             // Keep track of the original DCID the peer used in case they retransmit or send
             // additional INITIAL packets.
             // TODO: Remove the DCID alias from multiplexing.
@@ -946,7 +999,7 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
             let initPromise = self.eventLoop.makePromise(of: Void.self)
             initPromise.futureResult.cascadeFailure(to: outputPromise)
 
-            view.initialize(promise: initPromise) { _ in
+            view.initialize(readyPromise: initPromise, handshakePromise: handshakePromise) { _ in
                 multiplexerContinuation.initialize(
                     channel: channel,
                     logger: connectionLogger
@@ -972,13 +1025,9 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
                     }
                 }
 
-            channel.closeFuture.assumeIsolated().whenComplete { _ in
-                self.connectionDidClose(handle)
-            }
-
         case .none:
             // No continuation means the consumer is used.
-            let channel = self.makeQUICConnectionChannel(quicConnection: quicConnection, handle: handle)
+            channel = self.makeQUICConnectionChannel(quicConnection: quicConnection, handle: handle)
             let view = channel.transportView
             self.connectionRegistry.insert(view, forHandle: handle, connectionID: newSourceConnectionID)
 
@@ -989,7 +1038,10 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
             }
 
             let initPromise = self.eventLoop.makePromise(of: Void.self)
-            view.initialize(promise: initPromise) { $0.eventLoop.makeSucceededVoidFuture() }
+
+            view.initialize(readyPromise: initPromise, handshakePromise: handshakePromise) {
+                $0.eventLoop.makeSucceededVoidFuture()
+            }
 
             initPromise.futureResult.assumeIsolated().whenComplete { result in
                 switch result {
@@ -999,10 +1051,16 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
                     ()
                 }
             }
+        }
 
-            channel.closeFuture.assumeIsolated().whenComplete { _ in
-                self.connectionDidClose(handle)
-            }
+        handshakePromise.futureResult.assumeIsolated().whenComplete { _ in
+            // Make sure we release the slot for new connections.
+            self.connectionAdmissionController.finishedHandshake()
+        }
+
+        channel.closeFuture.assumeIsolated().whenComplete { _ in
+            self.connectionAdmissionController.closingConnection()
+            self.connectionDidClose(handle)
         }
     }
 }
@@ -1182,5 +1240,51 @@ struct ConnectionHandle: Hashable, Sendable {
         var next = self
         next.formNext()
         return next
+    }
+}
+
+/// Create a connection admission control for the given connection limits.
+@available(anyAppleOS 26, *)
+private func makeConnectionAdmissionController(
+    for connectionLimits: QUICConnectionLimits,
+    logger: Logger,
+    eventLoop: any EventLoop
+) -> ConnectionAdmissionController {
+    switch connectionLimits.mode {
+    case .unlimited:
+        return ConnectionAdmissionController(
+            activeLimit: nil,
+            handshakeLimit: nil,
+            newConnectionRateLimit: nil,
+            eventLoop: eventLoop
+        )
+
+    case .perHandler(let activeLimit, let handshakeLimit, let newConnectionRateLimit):
+        if activeLimit == 0 || handshakeLimit == 0 || newConnectionRateLimit == 0 {
+            logger.warning(
+                "QUICConnectionLimits has a limit of 0; this handler rejects every new connection (use nil for no limit)",
+                metadata: [
+                    LoggingKeys.connectionLimitActive: "\(activeLimit?.description ?? "none")",
+                    LoggingKeys.connectionLimitHandshake: "\(handshakeLimit?.description ?? "none")",
+                    LoggingKeys.connectionLimitNewConnectionRate: "\(newConnectionRateLimit?.description ?? "none")",
+                ]
+            )
+        }
+        if let activeLimit, let handshakeLimit, handshakeLimit > activeLimit {
+            logger.warning(
+                "QUICConnectionLimits handshakeLimit is looser than activeLimit; the active limit binds first, so the handshake limit has no effect",
+                metadata: [
+                    LoggingKeys.connectionLimitActive: "\(activeLimit)",
+                    LoggingKeys.connectionLimitHandshake: "\(handshakeLimit)",
+                ]
+            )
+        }
+
+        return ConnectionAdmissionController(
+            activeLimit: activeLimit,
+            handshakeLimit: handshakeLimit,
+            newConnectionRateLimit: newConnectionRateLimit,
+            eventLoop: eventLoop
+        )
     }
 }
