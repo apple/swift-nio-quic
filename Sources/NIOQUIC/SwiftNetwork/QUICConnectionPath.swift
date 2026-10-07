@@ -42,8 +42,7 @@ final class QUICConnectionPath<Consumer: QUICStreamConsumer & ~Copyable>:
     let addressEndpointType: AddressEndpoint.AddressEndpointType
     /// QUIC path validation status.
     var isValidated: Bool
-    /// Whether SwiftNetwork detached from the path. It sends nothing more on it, but the packets it already
-    /// queued still have to get out.
+    /// After detaching the path SwiftNetwork, swift-nio-quic should keep the path until draining its outgoing packets.
     private(set) var isDetachedBySwiftNetwork = false
 
     private let logger: Logger

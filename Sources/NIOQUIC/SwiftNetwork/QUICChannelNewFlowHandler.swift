@@ -332,8 +332,7 @@ extension QUICChannelNewFlowHandler: UpperProtocolHandler where Consumer: ~Copya
             case .remoteUnidirectionalStreamsBlocked:
                 break
             case .pathChanged:
-                // SwiftNetwork announces a path as soon as it is attached, before the peer proved that it receives
-                // packets there, so the announcement says nothing about where the peer is.
+                // SwiftNetwork announces a path as soon as it is attached. Not much to do at that point.
                 break
             case .pathValidated(let info):
                 self.connectionView.pathValidated(remote: info.remote)
