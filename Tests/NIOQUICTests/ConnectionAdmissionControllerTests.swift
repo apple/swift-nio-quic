@@ -104,6 +104,26 @@ struct ConnectionAdmissionControllerTests {
     }
 
     @Test
+    func rateLimitNeverRefillsFasterThanConfigured() {
+        let eventLoop = EmbeddedEventLoop()
+        var controller = ConnectionAdmissionController(
+            activeLimit: 0,
+            handshakeLimit: 0,
+            newConnectionRateLimit: 3,
+            eventLoop: eventLoop
+        )
+        for _ in 0..<3 {
+            #expect(controller.acceptNewConnection() == .accept)
+        }
+
+        // 1s / 3 is 333_333_333.3ns, so a token takes 333_333_334ns to come back.
+        eventLoop.advanceTime(by: .nanoseconds(333_333_333))
+        #expect(controller.acceptNewConnection() == .drop(.rateLimited))
+        eventLoop.advanceTime(by: .nanoseconds(1))
+        #expect(controller.acceptNewConnection() == .accept)
+    }
+
+    @Test
     func countLimitsTakePriorityOverRateLimit() {
         var controller = ConnectionAdmissionController(
             activeLimit: 1,

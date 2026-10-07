@@ -77,7 +77,10 @@ struct ConnectionAdmissionController: ~Copyable {
             newConnectionRateLimit > 0
             ? TokenBucket(
                 capacity: newConnectionRateLimit,
-                refillInterval: .nanoseconds(1_000_000_000 / Int64(newConnectionRateLimit)),
+                // Round up so tokens never refill faster than the configured rate.
+                refillInterval: .nanoseconds(
+                    (1_000_000_000 + Int64(newConnectionRateLimit) - 1) / Int64(newConnectionRateLimit)
+                ),
                 now: eventLoop.now
             )
             : nil
