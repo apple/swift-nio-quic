@@ -841,14 +841,6 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
                                 ]
                             )
                         }
-                    } else if header.type == .versionNegotiation {
-                        try self.acceptNewConnection(
-                            for: addressedEnvelope,
-                            sourceConnectionID: header.sourceConnectionID,
-                            destinationConnectionID: header.destinationConnectionID,
-                            // This force unwrap is fine. We really need to have a local address at this point
-                            localAddress: context.localAddress!
-                        )
                     } else if header.type == .unsupportedVersion {
                         self.trySendVersionNegotiation(for: header, triggeredBy: addressedEnvelope)
                     } else {
