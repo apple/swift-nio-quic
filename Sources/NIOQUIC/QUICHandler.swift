@@ -1253,14 +1253,24 @@ private func makeConnectionAdmissionController(
     switch connectionLimits.mode {
     case .unlimited:
         return ConnectionAdmissionController(
-            activeLimit: 0,
-            handshakeLimit: 0,
-            newConnectionRateLimit: 0,
+            activeLimit: nil,
+            handshakeLimit: nil,
+            newConnectionRateLimit: nil,
             eventLoop: eventLoop
         )
 
     case .perHandler(let activeLimit, let handshakeLimit, let newConnectionRateLimit):
-        if activeLimit > 0, handshakeLimit > 0, handshakeLimit > activeLimit {
+        if activeLimit == 0 || handshakeLimit == 0 || newConnectionRateLimit == 0 {
+            logger.warning(
+                "QUICConnectionLimits has a limit of 0; this handler rejects every new connection (use nil for no limit)",
+                metadata: [
+                    LoggingKeys.connectionLimitActive: "\(activeLimit?.description ?? "none")",
+                    LoggingKeys.connectionLimitHandshake: "\(handshakeLimit?.description ?? "none")",
+                    LoggingKeys.connectionLimitNewConnectionRate: "\(newConnectionRateLimit?.description ?? "none")",
+                ]
+            )
+        }
+        if let activeLimit, let handshakeLimit, handshakeLimit > activeLimit {
             logger.warning(
                 "QUICConnectionLimits handshakeLimit is looser than activeLimit; the active limit binds first, so the handshake limit has no effect",
                 metadata: [

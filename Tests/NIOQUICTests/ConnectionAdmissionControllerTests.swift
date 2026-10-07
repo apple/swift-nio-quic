@@ -21,9 +21,9 @@ struct ConnectionAdmissionControllerTests {
     @Test
     func unboundedAlwaysAccepts() {
         var controller = ConnectionAdmissionController(
-            activeLimit: 0,
-            handshakeLimit: 0,
-            newConnectionRateLimit: 0,
+            activeLimit: nil,
+            handshakeLimit: nil,
+            newConnectionRateLimit: nil,
             eventLoop: EmbeddedEventLoop()
         )
         for _ in 0..<1_000 {
@@ -35,8 +35,8 @@ struct ConnectionAdmissionControllerTests {
     func activeLimitDropsAtTheLimit() {
         var controller = ConnectionAdmissionController(
             activeLimit: 2,
-            handshakeLimit: 0,
-            newConnectionRateLimit: 0,
+            handshakeLimit: nil,
+            newConnectionRateLimit: nil,
             eventLoop: EmbeddedEventLoop()
         )
 
@@ -50,7 +50,7 @@ struct ConnectionAdmissionControllerTests {
         var controller = ConnectionAdmissionController(
             activeLimit: 10,
             handshakeLimit: 1,
-            newConnectionRateLimit: 0,
+            newConnectionRateLimit: nil,
             eventLoop: EmbeddedEventLoop()
         )
 
@@ -63,7 +63,7 @@ struct ConnectionAdmissionControllerTests {
         var controller = ConnectionAdmissionController(
             activeLimit: 10,
             handshakeLimit: 1,
-            newConnectionRateLimit: 0,
+            newConnectionRateLimit: nil,
             eventLoop: EmbeddedEventLoop()
         )
 
@@ -80,7 +80,7 @@ struct ConnectionAdmissionControllerTests {
         var controller = ConnectionAdmissionController(
             activeLimit: 1,
             handshakeLimit: 5,
-            newConnectionRateLimit: 0,
+            newConnectionRateLimit: nil,
             eventLoop: EmbeddedEventLoop()
         )
         #expect(controller.acceptNewConnection() == .accept)
@@ -93,8 +93,8 @@ struct ConnectionAdmissionControllerTests {
     @Test
     func rateLimitDropsIndependentlyOfCounts() {
         var controller = ConnectionAdmissionController(
-            activeLimit: 0,
-            handshakeLimit: 0,
+            activeLimit: nil,
+            handshakeLimit: nil,
             newConnectionRateLimit: 1,
             eventLoop: EmbeddedEventLoop()
         )
@@ -107,8 +107,8 @@ struct ConnectionAdmissionControllerTests {
     func rateLimitNeverRefillsFasterThanConfigured() {
         let eventLoop = EmbeddedEventLoop()
         var controller = ConnectionAdmissionController(
-            activeLimit: 0,
-            handshakeLimit: 0,
+            activeLimit: nil,
+            handshakeLimit: nil,
             newConnectionRateLimit: 3,
             eventLoop: eventLoop
         )
@@ -121,6 +121,22 @@ struct ConnectionAdmissionControllerTests {
         #expect(controller.acceptNewConnection() == .drop(.rateLimited))
         eventLoop.advanceTime(by: .nanoseconds(1))
         #expect(controller.acceptNewConnection() == .accept)
+    }
+
+    @Test
+    func zeroRateLimitRejectsEveryConnection() {
+        let eventLoop = EmbeddedEventLoop()
+        var controller = ConnectionAdmissionController(
+            activeLimit: nil,
+            handshakeLimit: nil,
+            newConnectionRateLimit: 0,
+            eventLoop: eventLoop
+        )
+        #expect(controller.acceptNewConnection() == .drop(.rateLimited))
+
+        // No amount of time refills a bucket without capacity.
+        eventLoop.advanceTime(by: .hours(1))
+        #expect(controller.acceptNewConnection() == .drop(.rateLimited))
     }
 
     @Test
@@ -142,7 +158,7 @@ struct ConnectionAdmissionControllerTests {
     func countLimitRejectionDoesNotConsumeARateLimitToken() {
         var controller = ConnectionAdmissionController(
             activeLimit: 1,
-            handshakeLimit: 0,
+            handshakeLimit: nil,
             newConnectionRateLimit: 2,
             eventLoop: EmbeddedEventLoop()
         )
@@ -164,7 +180,7 @@ struct ConnectionAdmissionControllerTests {
         var controller = ConnectionAdmissionController(
             activeLimit: 1,
             handshakeLimit: 1,
-            newConnectionRateLimit: 0,
+            newConnectionRateLimit: nil,
             eventLoop: EmbeddedEventLoop()
         )
 

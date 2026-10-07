@@ -42,10 +42,10 @@ struct ConnectionAdmissionController: ~Copyable {
         case drop(_ reason: DropReason)
     }
 
-    /// Maximum active connections allowed, or `0` for unbounded.
-    private let activeLimit: Int
-    /// Maximum connections allowed to be mid-handshake at once, or `0` for unbounded.
-    private let handshakeLimit: Int
+    /// Maximum active connections allowed, or `nil` for unbounded.
+    private let activeLimit: Int?
+    /// Maximum connections allowed to be mid-handshake at once, or `nil` for unbounded.
+    private let handshakeLimit: Int?
     /// Throttles how fast new connection attempts are admitted. `nil` when unbounded.
     private var rateLimiter: TokenBucket?
     /// Supplies the current time for the rate limit.
@@ -57,33 +57,39 @@ struct ConnectionAdmissionController: ~Copyable {
     private var handshakeCount: Int
 
     /// - Parameters:
-    ///   - activeLimit: Maximum active connections allowed, or `0` for unbounded.
-    ///   - handshakeLimit: Maximum connections allowed to be mid-handshake at once, or `0` for
+    ///   - activeLimit: Maximum active connections allowed, or `nil` for unbounded.
+    ///   - handshakeLimit: Maximum connections allowed to be mid-handshake at once, or `nil` for
     ///     unbounded.
-    ///   - newConnectionRateLimit: Maximum new-connection attempts per second, or `0` for
+    ///   - newConnectionRateLimit: Maximum new-connection attempts per second, or `nil` for
     ///     unbounded.
     ///   - eventLoop: Supplies the current time for the rate limit, so `EmbeddedEventLoop`-based
     ///     tests can control it with `advanceTime(by:)`.
     init(
-        activeLimit: Int,
-        handshakeLimit: Int,
-        newConnectionRateLimit: Int,
+        activeLimit: Int?,
+        handshakeLimit: Int?,
+        newConnectionRateLimit: Int?,
         eventLoop: any EventLoop
     ) {
         self.activeLimit = activeLimit
         self.handshakeLimit = handshakeLimit
         self.eventLoop = eventLoop
-        self.rateLimiter =
-            newConnectionRateLimit > 0
-            ? TokenBucket(
-                capacity: newConnectionRateLimit,
-                // Round up so tokens never refill faster than the configured rate.
-                refillInterval: .nanoseconds(
-                    (1_000_000_000 + Int64(newConnectionRateLimit) - 1) / Int64(newConnectionRateLimit)
-                ),
+        if let rateLimit = newConnectionRateLimit {
+            let refillInterval: TimeAmount
+            if rateLimit == 0 {
+                // Avoid division by 0.
+                refillInterval = .nanoseconds(.max)
+            } else {
+                // Round up so tokens never refill faster than the configured rate. A rate of 0 never refills.
+                refillInterval = .nanoseconds((1_000_000_000 + Int64(rateLimit) - 1) / Int64(rateLimit))
+            }
+            self.rateLimiter = TokenBucket(
+                capacity: rateLimit,
+                refillInterval: refillInterval,
                 now: eventLoop.now
             )
-            : nil
+        } else {
+            self.rateLimiter = nil
+        }
         self.activeCount = 0
         self.handshakeCount = 0
     }
@@ -97,10 +103,10 @@ struct ConnectionAdmissionController: ~Copyable {
     /// - Returns `Decision.accept` if a connection can be accepted (this will consume the respective slots)
     ///     or `Decision.drop` when a connection limit was reached.
     mutating func acceptNewConnection() -> Decision {
-        if self.activeLimit > 0, self.activeCount >= self.activeLimit {
+        if let activeLimit = self.activeLimit, self.activeCount >= activeLimit {
             return .drop(.activeLimitReached)
         }
-        if self.handshakeLimit > 0, self.handshakeCount >= self.handshakeLimit {
+        if let handshakeLimit = self.handshakeLimit, self.handshakeCount >= handshakeLimit {
             return .drop(.handshakeLimitReached)
         }
         if let withinRateLimit = self.rateLimiter?.tryConsume(now: self.eventLoop.now), !withinRateLimit {

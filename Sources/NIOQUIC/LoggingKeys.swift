@@ -29,4 +29,5 @@ enum LoggingKeys {
     static let connectionDropReason = "quic.connectionLimit.dropReason"
     static let connectionLimitActive = "quic.connectionLimit.active"
     static let connectionLimitHandshake = "quic.connectionLimit.handshake"
+    static let connectionLimitNewConnectionRate = "quic.connectionLimit.newConnectionRate"
 }

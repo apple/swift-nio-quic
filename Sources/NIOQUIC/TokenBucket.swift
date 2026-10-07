@@ -25,10 +25,11 @@ struct TokenBucket {
     private var lastRefill: NIODeadline
 
     /// - Parameters:
-    ///   - capacity: The maximum number of tokens the bucket can hold. Must be positive.
+    ///   - capacity: The maximum number of tokens the bucket can hold. Must not be negative. A bucket
+    ///     without capacity never grants a token.
     ///   - refillInterval: How long it takes to generate one token. Must be positive.
     init(capacity: Int, refillInterval: TimeAmount, now: NIODeadline = .now()) {
-        precondition(capacity > 0, "capacity must be positive")
+        precondition(capacity >= 0, "capacity must not be negative")
         precondition(refillInterval.nanoseconds > 0, "refillInterval must be positive")
         self.capacity = capacity
         self.refillInterval = refillInterval

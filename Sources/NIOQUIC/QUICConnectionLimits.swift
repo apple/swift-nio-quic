@@ -25,7 +25,7 @@ public struct QUICConnectionLimits: Sendable {
         // No limits will be enforced.
         case unlimited
         // Connection limits are tracked separately by each `QUICHandler`.
-        case perHandler(activeLimit: Int, handshakeLimit: Int, newConnectionRateLimit: Int)
+        case perHandler(activeLimit: Int?, handshakeLimit: Int?, newConnectionRateLimit: Int?)
     }
 
     let mode: Mode
@@ -33,33 +33,39 @@ public struct QUICConnectionLimits: Sendable {
     /// Admits every new connection.
     public static var unlimited: Self { Self(mode: .unlimited) }
 
-    /// Limits that each ``QUICHandler`` enforces on its own. `0` means no limit.
+    /// Limits that each ``QUICHandler`` enforces on its own. `nil` means no limit.
     ///
     /// Limits you don't pass keep their ``default`` values, so raising one limit doesn't remove
-    /// the others. Pass `0` to turn a single limit off.
+    /// the others. Pass `nil` to turn a single limit off.
     ///
-    /// Note: Limits must not be negative.
+    /// Note: Limits must not be negative. A limit of `0` rejects every new connection.
     ///
     /// - Parameters:
     ///   - activeLimit: Maximum number of connections the server may process at once, including those
     ///   still completing their handshake. New connection attempts beyond this limit are dropped.
     ///   Defaults to 10,000.
     ///   - handshakeLimit: Maximum number of connections that may be mid-handshake at once. Defaults
-    ///     to `0` (no limit).
+    ///     to `nil` (no limit).
     ///   - newConnectionRateLimit: Maximum number of new connections accepted per second. A burst of
     ///     up to this many is admitted at once; after that, capacity refills at this rate. Must be
     ///     between `0` and `1_000_000_000`. Defaults to 1,000.
     public static func perHandler(
-        activeLimit: Int = 10_000,
-        handshakeLimit: Int = 0,
-        newConnectionRateLimit: Int = 1_000
+        activeLimit: Int? = 10_000,
+        handshakeLimit: Int? = nil,
+        newConnectionRateLimit: Int? = 1_000
     ) -> Self {
-        precondition(activeLimit >= 0, "activeLimit must not be negative")
-        precondition(handshakeLimit >= 0, "handshakeLimit must not be negative")
-        precondition(
-            newConnectionRateLimit >= 0 && newConnectionRateLimit <= 1_000_000_000,
-            "newConnectionRateLimit must be between 0 and 1,000,000,000"
-        )
+        if let activeLimit {
+            precondition(activeLimit >= 0, "activeLimit must not be negative")
+        }
+        if let handshakeLimit {
+            precondition(handshakeLimit >= 0, "handshakeLimit must not be negative")
+        }
+        if let newConnectionRateLimit {
+            precondition(
+                newConnectionRateLimit >= 0 && newConnectionRateLimit <= 1_000_000_000,
+                "newConnectionRateLimit must be between 0 and 1,000,000,000"
+            )
+        }
         return Self(
             mode: .perHandler(
                 activeLimit: activeLimit,
