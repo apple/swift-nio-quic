@@ -179,7 +179,7 @@ struct QUICConnectionPathTests {
         let connection = try self.makeConnection(role: .server)
         connection.receivePacket(AddressedEnvelope(remoteAddress: Self.newAddress, data: Self.payload))
         try #require(connection._forTesting_getOtherPaths().count == 1)
-        let removedPath = connection._forTesting_getOtherPaths()[0]
+        var removedPath = connection._forTesting_getOtherPaths()[0]
 
         connection._forTesting_handlePathUnreachable(remote: Self.newAddress.toAddressEndpoint())
         #expect(connection._forTesting_getOtherPaths().isEmpty)
@@ -187,6 +187,9 @@ struct QUICConnectionPathTests {
         #expect(!removedPath.hasQueuedInboundPackets)
         // SwiftNetwork keeps unreachable paths until it is told to drop them.
         #expect(connection._forTesting_getSwiftNetworkPathCount() == 1)
+        // Nothing holds on to the removed path anymore, neither the connection nor SwiftNetwork.
+        let isReleased = isKnownUniquelyReferenced(&removedPath)
+        #expect(isReleased)
     }
 
     @available(anyAppleOS 26, *)
@@ -195,13 +198,36 @@ struct QUICConnectionPathTests {
         let connection = try self.makeConnection(role: .server)
         let replacedAddress = try SocketAddress(ipAddress: "127.0.0.1", port: 9002)
         connection.receivePacket(AddressedEnvelope(remoteAddress: replacedAddress, data: Self.payload))
-        let replacedPath = try #require(self.trackedPaths(connection).first { $0.remoteAddress == replacedAddress })
+        var replacedPath = try #require(self.trackedPaths(connection).first { $0.remoteAddress == replacedAddress })
 
         connection.receivePacket(AddressedEnvelope(remoteAddress: Self.newAddress, data: Self.payload))
         #expect(Set(self.trackedPaths(connection).map(\.remoteAddress)) == [Self.pathAddress, Self.newAddress])
         #expect(connection._forTesting_getSwiftNetworkPathCount() == 2)
         replacedPath.enqueueInboundPacket(Self.payload)
         #expect(!replacedPath.hasQueuedInboundPackets)
+        // Nothing holds on to the replaced path anymore, neither the connection nor SwiftNetwork.
+        let isReleased = isKnownUniquelyReferenced(&replacedPath)
+        #expect(isReleased)
+    }
+
+    @available(anyAppleOS 26, *)
+    @Test
+    func closingTheConnectionReleasesItsPaths() throws {
+        var firstPath: QUICConnectionPath<QUICStreamChannels>
+        var newPath: QUICConnectionPath<QUICStreamChannels>
+        do {
+            let connection = try self.makeConnection(role: .server)
+            connection.receivePacket(AddressedEnvelope(remoteAddress: Self.newAddress, data: Self.payload))
+            firstPath = connection._forTesting_getActivePath()
+            newPath = try #require(connection._forTesting_getOtherPaths().first)
+            _ = connection.close(sendApplicationClose: false, errorCode: 0, reason: "")
+        }
+
+        // The connection is gone: nothing but this test holds on to its paths, SwiftNetwork included.
+        let isFirstPathReleased = isKnownUniquelyReferenced(&firstPath)
+        let isNewPathReleased = isKnownUniquelyReferenced(&newPath)
+        #expect(isFirstPathReleased)
+        #expect(isNewPathReleased)
     }
 
     @available(anyAppleOS 26, *)

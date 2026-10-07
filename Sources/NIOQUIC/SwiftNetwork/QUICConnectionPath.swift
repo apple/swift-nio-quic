@@ -197,10 +197,12 @@ final class QUICConnectionPath<Consumer: QUICStreamConsumer & ~Copyable>:
 
     // MARK: - Teardown
 
-    /// Detaches the path from its connection, breaking the cycle with it. A detached path drops inbound
-    /// packets and outbound datagrams.
+    /// Detaches the path from its connection and from SwiftNetwork, breaking the cycles with both. A detached path
+    /// drops inbound packets and outbound datagrams.
     func detach() {
         self.state = .detached
+        // SwiftNetwork's path holds this path as its lower protocol, so drop the reference back to it.
+        self.upperProtocol = UpperProtocol(reference: .init())
     }
 }
 

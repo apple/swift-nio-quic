@@ -1646,12 +1646,13 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
             self.otherPaths.removeAll { $0 === path }
         }
 
-        path.finalizeQueuedInboundFramesAsFailed()
-        path.finalizeQueuedOutboundFramesAsFailed()
-        path.detach()
         if notifySwiftNetwork {
             path.invokeDisconnected()
         }
+        path.finalizeQueuedInboundFramesAsFailed()
+        path.finalizeQueuedOutboundFramesAsFailed()
+        // Last: detaching drops the path's link to SwiftNetwork, which the notification goes through.
+        path.detach()
     }
 
     /// The tracked path to `remote`, if any, identified by the address and port.
