@@ -1498,6 +1498,22 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
 
 // MARK: - Paths
 
+// How a connection's paths come and go:
+//
+// * A server sets up a path when a packet arrives from a new address, before the packet is authenticated.
+//   SwiftNetwork then validates the path by probing it with PATH_CHALLENGEs.
+// * SwiftNetwork crashes when two paths probe at once: sending a PATH_CHALLENGE re-arms its migration timer, which
+//   starts sending on every other path with validation pending while the first send is still running. So a server
+//   tracks at most one unvalidated path, and drops it before it sets up the next one. SwiftNetwork probes the paths
+//   it tracks itself, so it has to be told about the drop (`removePath(_:notifySwiftNetwork:)`). The cost: a client
+//   that probes two new paths at once only gets the newer one validated.
+// * A path becomes the active path once SwiftNetwork validated it. SwiftNetwork doesn't report which path it sends
+//   on, so a peer that validates a path without migrating to it moves the active path too.
+// * When SwiftNetwork detaches from a path, the path stays until the packets queued on it are flushed.
+//
+// TODO: Revisit once we adopt SwiftNetwork 0.5.0. Its events should drive promotion.
+// * Paths can become active before validation. And validation does not mean that a path becomes the active path.
+
 @available(anyAppleOS 26, *)
 extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
     /// Returns the path for packets from `remoteAddress`, setting up a new one on a connected server.
@@ -1530,9 +1546,8 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
                 )
                 return nil
             }
-            // Anyone who sees the connection's traffic can send packets to it from any address. Tracking one
-            // unvalidated path at a time keeps them from making SwiftNetwork probe a path per address, and
-            // replacing that path, rather than refusing new addresses, keeps them from blocking a real migration.
+            // One unvalidated path at a time, dropped before the next one is attached: SwiftNetwork crashes when two
+            // paths probe at once.
             if let unvalidatedPath = self.unvalidatedPath {
                 self.removePath(unvalidatedPath, notifySwiftNetwork: true)
             }
