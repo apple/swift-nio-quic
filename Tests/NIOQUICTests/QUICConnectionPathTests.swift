@@ -112,7 +112,7 @@ struct QUICConnectionPathTests {
 
         #expect(connection.receivePacket(AddressedEnvelope(remoteAddress: Self.newAddress, data: Self.payload)) == 0)
         #expect(connection.receivePacket(AddressedEnvelope(remoteAddress: Self.pathAddress, data: Self.payload)) == 50)
-        #expect(connection.otherPaths.isEmpty)
+        #expect(connection._forTesting_getOtherPaths().isEmpty)
     }
 
     @available(anyAppleOS 26, *)
@@ -121,7 +121,7 @@ struct QUICConnectionPathTests {
         let connection = try self.makeConnection(role: .client)
 
         #expect(connection.receivePacket(AddressedEnvelope(remoteAddress: Self.newAddress, data: Self.payload)) == 0)
-        #expect(connection.otherPaths.isEmpty)
+        #expect(connection._forTesting_getOtherPaths().isEmpty)
     }
 
     @available(anyAppleOS 26, *)
@@ -130,9 +130,22 @@ struct QUICConnectionPathTests {
         let connection = try self.makeConnection(role: .server)
 
         #expect(connection.receivePacket(AddressedEnvelope(remoteAddress: Self.newAddress, data: Self.payload)) == 50)
-        try #require(connection.otherPaths.map(\.remoteAddress) == [Self.newAddress])
-        #expect(!connection.otherPaths[0].isValidated)
-        #expect(connection.otherPaths[0].hasQueuedInboundPackets)
+        try #require(connection._forTesting_getOtherPaths().map(\.remoteAddress) == [Self.newAddress])
+        #expect(!connection._forTesting_getOtherPaths()[0].isValidated)
+        #expect(connection._forTesting_getOtherPaths()[0].hasQueuedInboundPackets)
+    }
+
+    @available(anyAppleOS 26, *)
+    @Test
+    func addressesDifferingOnlyInIPv6FlowInfoShareAPath() throws {
+        let connection = try self.makeConnection(role: .server)
+        connection.receivePacket(AddressedEnvelope(remoteAddress: Self.ipv6Address(flowInfo: 1), data: Self.payload))
+        let path = try #require(connection._forTesting_getOtherPaths().first)
+
+        // SwiftNetwork tells paths apart by address and port only, so this is the same path.
+        connection.receivePacket(AddressedEnvelope(remoteAddress: Self.ipv6Address(flowInfo: 2), data: Self.payload))
+        #expect(connection._forTesting_getOtherPaths().count == 1)
+        #expect(connection._forTesting_getOtherPaths().first === path)
     }
 
     @available(anyAppleOS 26, *)
@@ -143,8 +156,8 @@ struct QUICConnectionPathTests {
         // SwiftNetwork announces the new path with 'pathChanged' while it is being attached, before the peer
         // proved that it receives packets at the new address.
         connection.receivePacket(AddressedEnvelope(remoteAddress: Self.newAddress, data: Self.payload))
-        #expect(connection.activePath.remoteAddress == Self.pathAddress)
-        #expect(connection.otherPaths.map(\.remoteAddress) == [Self.newAddress])
+        #expect(connection._forTesting_getActivePath().remoteAddress == Self.pathAddress)
+        #expect(connection._forTesting_getOtherPaths().map(\.remoteAddress) == [Self.newAddress])
     }
 
     @available(anyAppleOS 26, *)
@@ -152,12 +165,12 @@ struct QUICConnectionPathTests {
     func pathValidatedPromotesPath() throws {
         let connection = try self.makeConnection(role: .server)
         connection.receivePacket(AddressedEnvelope(remoteAddress: Self.newAddress, data: Self.payload))
-        try #require(connection.activePath.remoteAddress == Self.pathAddress)
+        try #require(connection._forTesting_getActivePath().remoteAddress == Self.pathAddress)
 
-        connection.handlePathValidated(remote: Self.newAddress.toAddressEndpoint())
-        #expect(connection.activePath.remoteAddress == Self.newAddress)
-        #expect(connection.activePath.isValidated)
-        #expect(connection.otherPaths.map(\.remoteAddress) == [Self.pathAddress])
+        connection._forTesting_handlePathValidated(remote: Self.newAddress.toAddressEndpoint())
+        #expect(connection._forTesting_getActivePath().remoteAddress == Self.newAddress)
+        #expect(connection._forTesting_getActivePath().isValidated)
+        #expect(connection._forTesting_getOtherPaths().map(\.remoteAddress) == [Self.pathAddress])
     }
 
     @available(anyAppleOS 26, *)
@@ -165,15 +178,15 @@ struct QUICConnectionPathTests {
     func pathUnreachableRemovesPath() throws {
         let connection = try self.makeConnection(role: .server)
         connection.receivePacket(AddressedEnvelope(remoteAddress: Self.newAddress, data: Self.payload))
-        try #require(connection.otherPaths.count == 1)
-        let removedPath = connection.otherPaths[0]
+        try #require(connection._forTesting_getOtherPaths().count == 1)
+        let removedPath = connection._forTesting_getOtherPaths()[0]
 
-        connection.handlePathUnreachable(remote: Self.newAddress.toAddressEndpoint())
-        #expect(connection.otherPaths.isEmpty)
-        #expect(connection.activePath.remoteAddress == Self.pathAddress)
+        connection._forTesting_handlePathUnreachable(remote: Self.newAddress.toAddressEndpoint())
+        #expect(connection._forTesting_getOtherPaths().isEmpty)
+        #expect(connection._forTesting_getActivePath().remoteAddress == Self.pathAddress)
         #expect(!removedPath.hasQueuedInboundPackets)
         // SwiftNetwork keeps unreachable paths until it is told to drop them.
-        #expect(connection._forTesting_swiftNetworkPathCount() == 1)
+        #expect(connection._forTesting_getSwiftNetworkPathCount() == 1)
     }
 
     @available(anyAppleOS 26, *)
@@ -186,7 +199,7 @@ struct QUICConnectionPathTests {
 
         connection.receivePacket(AddressedEnvelope(remoteAddress: Self.newAddress, data: Self.payload))
         #expect(Set(self.trackedPaths(connection).map(\.remoteAddress)) == [Self.pathAddress, Self.newAddress])
-        #expect(connection._forTesting_swiftNetworkPathCount() == 2)
+        #expect(connection._forTesting_getSwiftNetworkPathCount() == 2)
         replacedPath.enqueueInboundPacket(Self.payload)
         #expect(!replacedPath.hasQueuedInboundPackets)
     }
@@ -197,7 +210,7 @@ struct QUICConnectionPathTests {
         let connection = try self.makeConnection(role: .server)
         let validatedAddress = try SocketAddress(ipAddress: "127.0.0.1", port: 9002)
         connection.receivePacket(AddressedEnvelope(remoteAddress: validatedAddress, data: Self.payload))
-        connection.handlePathValidated(remote: validatedAddress.toAddressEndpoint())
+        connection._forTesting_handlePathValidated(remote: validatedAddress.toAddressEndpoint())
 
         connection.receivePacket(AddressedEnvelope(remoteAddress: Self.newAddress, data: Self.payload))
         #expect(
@@ -216,15 +229,17 @@ struct QUICConnectionPathTests {
         // Validating a path promotes it, so the path validated last ends up active.
         for address in [validated, active] {
             connection.receivePacket(AddressedEnvelope(remoteAddress: address, data: Self.payload))
-            connection.handlePathValidated(remote: address.toAddressEndpoint())
+            connection._forTesting_handlePathValidated(remote: address.toAddressEndpoint())
         }
         connection.receivePacket(AddressedEnvelope(remoteAddress: unvalidated, data: Self.payload))
-        try #require(connection.activePath.remoteAddress == active)
-        try #require(connection.otherPaths.map(\.remoteAddress) == [Self.pathAddress, validated, unvalidated])
+        try #require(connection._forTesting_getActivePath().remoteAddress == active)
+        try #require(
+            connection._forTesting_getOtherPaths().map(\.remoteAddress) == [Self.pathAddress, validated, unvalidated]
+        )
 
-        connection.handlePathUnreachable(remote: active.toAddressEndpoint())
-        #expect(connection.activePath.remoteAddress == validated)
-        #expect(connection.otherPaths.map(\.remoteAddress) == [Self.pathAddress, unvalidated])
+        connection._forTesting_handlePathUnreachable(remote: active.toAddressEndpoint())
+        #expect(connection._forTesting_getActivePath().remoteAddress == validated)
+        #expect(connection._forTesting_getOtherPaths().map(\.remoteAddress) == [Self.pathAddress, unvalidated])
     }
 
     @available(anyAppleOS 26, *)
@@ -233,9 +248,9 @@ struct QUICConnectionPathTests {
         let connection = try self.makeConnection(role: .server)
         connection.receivePacket(AddressedEnvelope(remoteAddress: Self.newAddress, data: Self.payload))
 
-        connection.handlePathUnreachable(remote: Self.pathAddress.toAddressEndpoint())
-        #expect(connection.activePath.remoteAddress == Self.pathAddress)
-        #expect(connection.otherPaths.map(\.remoteAddress) == [Self.newAddress])
+        connection._forTesting_handlePathUnreachable(remote: Self.pathAddress.toAddressEndpoint())
+        #expect(connection._forTesting_getActivePath().remoteAddress == Self.pathAddress)
+        #expect(connection._forTesting_getOtherPaths().map(\.remoteAddress) == [Self.newAddress])
     }
 
     @available(anyAppleOS 26, *)
@@ -243,11 +258,11 @@ struct QUICConnectionPathTests {
     func lastPathSurvivesPathUnreachable() throws {
         let connection = try self.makeConnection(role: .server)
 
-        connection.handlePathUnreachable(remote: Self.pathAddress.toAddressEndpoint())
-        #expect(connection.activePath.remoteAddress == Self.pathAddress)
-        #expect(connection._forTesting_swiftNetworkPathCount() == 1)
+        connection._forTesting_handlePathUnreachable(remote: Self.pathAddress.toAddressEndpoint())
+        #expect(connection._forTesting_getActivePath().remoteAddress == Self.pathAddress)
+        #expect(connection._forTesting_getSwiftNetworkPathCount() == 1)
         connection.receivePacket(AddressedEnvelope(remoteAddress: Self.pathAddress, data: Self.payload))
-        #expect(connection.activePath.hasQueuedInboundPackets)
+        #expect(connection._forTesting_getActivePath().hasQueuedInboundPackets)
     }
 
     @available(anyAppleOS 26, *)
@@ -255,15 +270,15 @@ struct QUICConnectionPathTests {
     func swiftNetworkDetachingRemovesOnlyNonActivePaths() throws {
         let connection = try self.makeConnection(role: .server)
         connection.receivePacket(AddressedEnvelope(remoteAddress: Self.newAddress, data: Self.payload))
-        try #require(connection.otherPaths.count == 1)
+        try #require(connection._forTesting_getOtherPaths().count == 1)
 
         // The active path keeps flushing its last packets.
-        try connection.activePath.detach(.init())
-        try #require(connection.otherPaths.count == 1)
-        #expect(connection.activePath.remoteAddress == Self.pathAddress)
+        try connection._forTesting_getActivePath().detach(.init())
+        try #require(connection._forTesting_getOtherPaths().count == 1)
+        #expect(connection._forTesting_getActivePath().remoteAddress == Self.pathAddress)
 
-        try connection.otherPaths[0].detach(.init())
-        #expect(connection.otherPaths.isEmpty)
+        try connection._forTesting_getOtherPaths()[0].detach(.init())
+        #expect(connection._forTesting_getOtherPaths().isEmpty)
     }
 
     @available(anyAppleOS 26, *)
@@ -271,19 +286,19 @@ struct QUICConnectionPathTests {
     func swiftNetworkDetachingFlushesQueuedPacketsBeforeRemovingPath() throws {
         let connection = try self.makeConnection(role: .server)
         connection.receivePacket(AddressedEnvelope(remoteAddress: Self.newAddress, data: Self.payload))
-        let path = try #require(connection.otherPaths.first)
+        let path = try #require(connection._forTesting_getOtherPaths().first)
         // The last packet SwiftNetwork sends on the path, e.g. a CONNECTION_CLOSE.
         if let datagrams = try path.getDatagramsToSend(.init(), maximumDatagramCount: 1, minimumDatagramSize: 100) {
             try path.sendDatagrams(.init(), datagrams: datagrams)
         }
 
         try path.detach(.init())
-        #expect(connection.otherPaths.map(\.remoteAddress) == [Self.newAddress])
+        #expect(connection._forTesting_getOtherPaths().map(\.remoteAddress) == [Self.newAddress])
 
         let transport = RecordingTransport()
         connection.drainPacketsToSend(to: transport)
         #expect(self.writtenAddresses(transport) == [Self.newAddress])
-        #expect(connection.otherPaths.isEmpty)
+        #expect(connection._forTesting_getOtherPaths().isEmpty)
     }
 
     @available(anyAppleOS 26, *)
@@ -292,13 +307,13 @@ struct QUICConnectionPathTests {
         let connection = try self.makeConnection(role: .server)
         connection.receivePacket(AddressedEnvelope(remoteAddress: Self.newAddress, data: Self.payload))
         connection.receivePacket(AddressedEnvelope(remoteAddress: Self.pathAddress, data: Self.payload))
-        try #require(connection.otherPaths.count == 1)
-        try #require(connection.activePath.hasQueuedInboundPackets)
-        try #require(connection.otherPaths[0].hasQueuedInboundPackets)
+        try #require(connection._forTesting_getOtherPaths().count == 1)
+        try #require(connection._forTesting_getActivePath().hasQueuedInboundPackets)
+        try #require(connection._forTesting_getOtherPaths()[0].hasQueuedInboundPackets)
 
         connection.receivePacketsComplete()
-        #expect(!connection.activePath.hasQueuedInboundPackets)
-        #expect(!connection.otherPaths[0].hasQueuedInboundPackets)
+        #expect(!connection._forTesting_getActivePath().hasQueuedInboundPackets)
+        #expect(!connection._forTesting_getOtherPaths()[0].hasQueuedInboundPackets)
     }
 
     @available(anyAppleOS 26, *)
@@ -306,8 +321,8 @@ struct QUICConnectionPathTests {
     func drainPacketsToSendDrainsEveryPathActiveFirst() throws {
         let connection = try self.makeConnection(role: .server)
         connection.receivePacket(AddressedEnvelope(remoteAddress: Self.newAddress, data: Self.payload))
-        try #require(connection.otherPaths.count == 1)
-        for path in [connection.otherPaths[0], connection.activePath] {
+        try #require(connection._forTesting_getOtherPaths().count == 1)
+        for path in [connection._forTesting_getOtherPaths()[0], connection._forTesting_getActivePath()] {
             if let datagrams = try path.getDatagramsToSend(.init(), maximumDatagramCount: 1, minimumDatagramSize: 100) {
                 try path.sendDatagrams(.init(), datagrams: datagrams)
             }
@@ -323,7 +338,7 @@ struct QUICConnectionPathTests {
     private func trackedPaths(
         _ connection: SwiftNetworkQUICConnection<QUICStreamChannels>
     ) -> [QUICConnectionPath<QUICStreamChannels>] {
-        [connection.activePath] + connection.otherPaths
+        [connection._forTesting_getActivePath()] + connection._forTesting_getOtherPaths()
     }
 
     /// Where the datagrams written to `transport` went, in order. Flushes and reads show up as `nil`.
@@ -341,6 +356,16 @@ struct QUICConnectionPathTests {
     private static let pathAddress = try! SocketAddress(ipAddress: "127.0.0.1", port: 9000)
     private static let newAddress = try! SocketAddress(ipAddress: "127.0.0.1", port: 9001)
     private static let payload = ByteBuffer(repeating: 0xAA, count: 50)
+
+    /// `[::1]:9001` with the given IPv6 flow information.
+    private static func ipv6Address(flowInfo: UInt32) -> SocketAddress {
+        var address = sockaddr_in6()
+        address.sin6_family = sa_family_t(AF_INET6)
+        address.sin6_port = in_port_t(9001).bigEndian
+        address.sin6_addr = in6addr_loopback
+        address.sin6_flowinfo = flowInfo
+        return SocketAddress(address, host: "::1")
+    }
 
     /// A connection whose only path leads to `pathAddress`.
     @available(anyAppleOS 26, *)

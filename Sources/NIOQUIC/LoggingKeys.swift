@@ -25,5 +25,6 @@ enum LoggingKeys {
     static let packetVersion = "quic.packet.version"
     static let packetRemoteAddress = "quic.packet.remoteAddress"
     static let packetBytes = "quic.packet.bytes"
+    static let pathRemoteEndpoint = "quic.path.remoteEndpoint"
     static let role = "quic.role"
 }

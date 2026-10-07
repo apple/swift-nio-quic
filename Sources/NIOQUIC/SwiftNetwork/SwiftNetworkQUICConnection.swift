@@ -75,7 +75,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
     // The address of the active path, shared with this connection's channels so they can read it from any thread.
     private let remoteAddressBox: NIOLockedValueBox<SocketAddress>
     // The newest validated path, the likeliest one SwiftNetwork sends on. Checked first for every packet.
-    private(set) var activePath: QUICConnectionPath<Consumer> {
+    private var activePath: QUICConnectionPath<Consumer> {
         didSet {
             let remoteAddress = self.activePath.remoteAddress
             self.remoteAddressBox.withLockedValue { $0 = remoteAddress }
@@ -83,7 +83,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
         }
     }
     // The connection's other paths, oldest first. A demoted active path counts as the newest one.
-    private(set) var otherPaths: [QUICConnectionPath<Consumer>]
+    private var otherPaths: [QUICConnectionPath<Consumer>]
     // The pool for frames shared across QUIC connection paths.
     private let framePool: FramePool
     // The GSO settings every path on this connection is built with.
@@ -1490,8 +1490,28 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
     }
 
     /// The number of paths SwiftNetwork tracks for this connection.
-    func _forTesting_swiftNetworkPathCount() -> Int {
+    func _forTesting_getSwiftNetworkPathCount() -> Int {
         self.swiftNetworkQUICConnection.multiplexingPaths.count
+    }
+
+    /// The path considered active.
+    func _forTesting_getActivePath() -> QUICConnectionPath<Consumer> {
+        self.activePath
+    }
+
+    /// The connection's other paths, oldest first.
+    func _forTesting_getOtherPaths() -> [QUICConnectionPath<Consumer>] {
+        self.otherPaths
+    }
+
+    /// Simulate a path validation event for the path to `remote`.
+    func _forTesting_handlePathValidated(remote: AddressEndpoint) {
+        self.handlePathValidated(remote: remote)
+    }
+
+    /// Simulate a path unreachable event for the path to `remote`.
+    func _forTesting_handlePathUnreachable(remote: AddressEndpoint) {
+        self.handlePathUnreachable(remote: remote)
     }
     #endif
 }
@@ -1523,7 +1543,10 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
         if self.activePath.remoteAddress == remoteAddress {
             return self.activePath
         }
-        if let path = self.otherPaths.first(where: { $0.remoteAddress == remoteAddress }) {
+        // SwiftNetwork's Address Endpoint and SwiftNIO's SocketAddress handle IPv6 comparision
+        // differently with regard to the scope ID. If the active path does not match, use the
+        // SwiftNetwork type since it dictates path equality in SwiftNetwork.
+        if let path = self.trackedPath(remoteAddress.toAddressEndpoint()) {
             return path
         }
 
@@ -1631,6 +1654,7 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
         }
     }
 
+    /// The tracked path to `remote`, if any, identified by the address and port.
     private func trackedPath(_ remote: AddressEndpoint) -> QUICConnectionPath<Consumer>? {
         if self.activePath.addressEndpoint == remote {
             return self.activePath
@@ -1640,11 +1664,11 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
 
     /// SwiftNetwork validated the path to `remote`: the peer proved that it receives packets there. Promotes
     /// the path to the active path.
-    func handlePathValidated(remote: AddressEndpoint) {
+    private func handlePathValidated(remote: AddressEndpoint) {
         guard let path = self.trackedPath(remote) else {
             self.log(
                 "Ignoring validation of untracked path",
-                metadata: [LoggingKeys.packetRemoteAddress: "\(remote)"]
+                metadata: [LoggingKeys.pathRemoteEndpoint: "\(remote)"]
             )
             return
         }
@@ -1658,11 +1682,11 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
     }
 
     /// SwiftNetwork gave up on the path to `remote`.
-    func handlePathUnreachable(remote: AddressEndpoint) {
+    private func handlePathUnreachable(remote: AddressEndpoint) {
         guard let path = self.trackedPath(remote) else {
             self.log(
                 "Ignoring untracked unreachable path",
-                metadata: [LoggingKeys.packetRemoteAddress: "\(remote)"]
+                metadata: [LoggingKeys.pathRemoteEndpoint: "\(remote)"]
             )
             return
         }

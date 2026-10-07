@@ -20,109 +20,106 @@ import Testing
 
 @testable import NIOQUIC
 
+@Suite(.timeLimit(.minutes(1)))
 struct ConnectionMigrationTests {
     @available(anyAppleOS 26, *)
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func clientContinuesConnectionFromNewAddress() async throws {
-        let peers = try await ConnectedPeers.connect()
-
-        // The client's socket "rebinds": its packets now come from a new port and its old address is gone.
-        let newSocket = try await peers.makeClientSocket()
-        try await peers.rebindClient(to: newSocket)
-
-        // Only succeeds if the server moves the connection over to the client's new address.
-        #expect(try await Self.request(on: peers.streamCreator) == ByteBuffer(string: "<b>Success</b>"))
-        #expect(peers.serverConnectionChannel.remoteAddress == newSocket.localAddress)
-
-        try await newSocket.close()
-        try await peers.close()
-    }
-
-    @available(anyAppleOS 26, *)
-    @Test(.timeLimit(.minutes(1)))
-    func clientMigratesToTwoNewAddresses() async throws {
-        let peers = try await ConnectedPeers.connect()
-
-        var newSockets: [any Channel] = []
-        for _ in 0..<2 {
+        try await Self.withConnectedPeers { peers in
+            // The client's socket "rebinds": its packets now come from a new port and its old address is gone.
             let newSocket = try await peers.makeClientSocket()
-            newSockets.append(newSocket)
             try await peers.rebindClient(to: newSocket)
 
+            // Only succeeds if the server moves the connection over to the client's new address.
             #expect(try await Self.request(on: peers.streamCreator) == ByteBuffer(string: "<b>Success</b>"))
             #expect(peers.serverConnectionChannel.remoteAddress == newSocket.localAddress)
         }
-
-        for newSocket in newSockets {
-            try await newSocket.close()
-        }
-        try await peers.close()
     }
 
     @available(anyAppleOS 26, *)
-    @Test(.timeLimit(.minutes(1)))
+    @Test
+    func clientMigratesToTwoNewAddresses() async throws {
+        try await Self.withConnectedPeers { peers in
+            for _ in 0..<2 {
+                let newSocket = try await peers.makeClientSocket()
+                try await peers.rebindClient(to: newSocket)
+
+                #expect(try await Self.request(on: peers.streamCreator) == ByteBuffer(string: "<b>Success</b>"))
+                #expect(peers.serverConnectionChannel.remoteAddress == newSocket.localAddress)
+            }
+        }
+    }
+
+    @available(anyAppleOS 26, *)
+    @Test
     func clientMigratesBackToItsFirstAddress() async throws {
-        let peers = try await ConnectedPeers.connect()
-        let newSocket = try await peers.makeClientSocket()
-        try await peers.rebindClient(to: newSocket)
-        #expect(try await Self.request(on: peers.streamCreator) == ByteBuffer(string: "<b>Success</b>"))
-        #expect(peers.serverConnectionChannel.remoteAddress == newSocket.localAddress)
+        try await Self.withConnectedPeers { peers in
+            let newSocket = try await peers.makeClientSocket()
+            try await peers.rebindClient(to: newSocket)
+            #expect(try await Self.request(on: peers.streamCreator) == ByteBuffer(string: "<b>Success</b>"))
+            #expect(peers.serverConnectionChannel.remoteAddress == newSocket.localAddress)
 
-        try await peers.rebindClient(to: nil)
-        #expect(try await Self.request(on: peers.streamCreator) == ByteBuffer(string: "<b>Success</b>"))
-        #expect(peers.serverConnectionChannel.remoteAddress == peers.clientChannel.localAddress)
-
-        try await newSocket.close()
-        try await peers.close()
+            try await peers.rebindClient(to: nil)
+            #expect(try await Self.request(on: peers.streamCreator) == ByteBuffer(string: "<b>Success</b>"))
+            #expect(peers.serverConnectionChannel.remoteAddress == peers.clientChannel.localAddress)
+        }
     }
 
     /// Anyone who sees the connection's traffic can send packets to it from any address.
     @available(anyAppleOS 26, *)
-    @Test(.timeLimit(.minutes(1)), arguments: [1, 2, 100])
+    @Test(arguments: [1, 2, 100])
     func serverIgnoresUnauthenticatedPacketsFromNewAddresses(addressCount: Int) async throws {
-        let peers = try await ConnectedPeers.connect()
-        let packet = try await peers.unauthenticatedPacket()
+        try await Self.withConnectedPeers { peers in
+            let packet = try await peers.unauthenticatedPacket()
 
-        // Every new address makes the server set up a path, which SwiftNetwork then probes.
-        var spoofers: [any Channel] = []
-        for _ in 0..<addressCount {
-            let spoofer = try await DatagramBootstrap(group: peers.eventLoopGroup).bind(host: Self.host, port: 0).get()
-            try await spoofer.writeAndFlush(AddressedEnvelope(remoteAddress: peers.serverAddress, data: packet))
-            spoofers.append(spoofer)
+            // Every new address makes the server set up a path, which SwiftNetwork then probes.
+            for _ in 0..<addressCount {
+                let spoofer = try await DatagramBootstrap(group: peers.eventLoopGroup)
+                    .bind(host: Self.host, port: 0)
+                    .get()
+                try await spoofer.writeAndFlush(AddressedEnvelope(remoteAddress: peers.serverAddress, data: packet))
+            }
+            // Let SwiftNetwork's migration timer fire: two paths probing at once used to crash the process.
+            try await Task.sleep(for: .seconds(1))
+
+            #expect(peers.serverConnectionChannel.remoteAddress == peers.clientChannel.localAddress)
+            #expect(try await Self.request(on: peers.streamCreator) == ByteBuffer(string: "<b>Success</b>"))
         }
-        // Let SwiftNetwork's migration timer fire: two paths probing at once used to crash the process.
-        try await Task.sleep(for: .seconds(1))
-
-        #expect(peers.serverConnectionChannel.remoteAddress == peers.clientChannel.localAddress)
-        #expect(try await Self.request(on: peers.streamCreator) == ByteBuffer(string: "<b>Success</b>"))
-
-        for spoofer in spoofers {
-            try await spoofer.close()
-        }
-        try await peers.close()
     }
 
     @available(anyAppleOS 26, *)
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func serverCloseReachesClientAfterUnauthenticatedPacket() async throws {
-        let peers = try await ConnectedPeers.connect()
-        let spoofer = try await DatagramBootstrap(group: peers.eventLoopGroup).bind(host: Self.host, port: 0).get()
-        try await spoofer.writeAndFlush(
-            AddressedEnvelope(remoteAddress: peers.serverAddress, data: try await peers.unauthenticatedPacket())
-        )
-        try await Task.sleep(for: .milliseconds(100))
+        try await Self.withConnectedPeers { peers in
+            let spoofer = try await DatagramBootstrap(group: peers.eventLoopGroup).bind(host: Self.host, port: 0).get()
+            try await spoofer.writeAndFlush(
+                AddressedEnvelope(remoteAddress: peers.serverAddress, data: try await peers.unauthenticatedPacket())
+            )
+            try await Task.sleep(for: .milliseconds(100))
 
-        let start = ContinuousClock.now
-        try await peers.serverConnectionChannel.close()
-        try await peers.clientConnectionChannel.closeFuture.get()
-        // Without the server's CONNECTION_CLOSE the client only notices once its idle timeout fires.
-        #expect(ContinuousClock.now - start < .seconds(5))
-
-        try await spoofer.close()
-        try await peers.close()
+            let start = ContinuousClock.now
+            try await peers.serverConnectionChannel.close()
+            try await peers.clientConnectionChannel.closeFuture.get()
+            // Without the server's CONNECTION_CLOSE the client only notices once its idle timeout fires.
+            #expect(ContinuousClock.now - start < .seconds(5))
+        }
     }
 
     private static let host = "127.0.0.1"
+
+    /// Connects a client to a server, runs `body`, and tears both down, also when `body` throws. That includes
+    /// the sockets `body` opens on the peers' event loop group.
+    @available(anyAppleOS 26, *)
+    private static func withConnectedPeers(_ body: (ConnectedPeers) async throws -> Void) async throws {
+        let peers = try await ConnectedPeers.connect()
+        do {
+            try await body(peers)
+        } catch {
+            try? await peers.close()
+            throw error
+        }
+        try await peers.close()
+    }
 
     /// A client connected to a server over loopback, after one successful request.
     @available(anyAppleOS 26, *)
@@ -138,6 +135,16 @@ struct ConnectionMigrationTests {
         static func connect() async throws -> ConnectedPeers {
             // One thread: the relay hands datagrams from one channel's pipeline to the other's synchronously.
             let eventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+            do {
+                return try await Self.connect(on: eventLoopGroup)
+            } catch {
+                // Shutting down the event loop group also closes the channels set up so far.
+                try? await eventLoopGroup.shutdownGracefully()
+                throw error
+            }
+        }
+
+        private static func connect(on eventLoopGroup: MultiThreadedEventLoopGroup) async throws -> ConnectedPeers {
             let serverConnectionChannel = NIOLockedValueBox<(any Channel)?>(nil)
 
             let serverChannel = try await createServerChannel(
