@@ -131,7 +131,7 @@ final class QUICConnectionPath<Consumer: QUICStreamConsumer & ~Copyable>:
         }
     }
 
-    /// Tells SwiftNetwork that the path is gone, so that it stops using it.
+    /// Notify SwiftNetwork that the path is gone.
     func invokeDisconnected() {
         let reference = self.reference
         reference.fromExternal {
@@ -249,10 +249,8 @@ extension QUICConnectionPath: LowerProtocolHandler where Consumer: ~Copyable {
 
     func detach(_ from: SwiftNetwork.ProtocolInstanceReference) throws(SwiftNetwork.NetworkError) {
         log("received detach")
-        // Do not reset the upper linkage here so the last packets can get out the door.
-        // For example, when the outputhandler is being removed all of the packets need to be flushed first so that
-        // frames such as APPLICATION_CLOSE or CONNECTION_CLOSE make it to the peer.  Resetting the linkage here stop
-        // prevents that from happening.
+        // Do not reset the upper linkage here so the last packets can get out the door, e.g.,
+        // APPLICATION_CLOSE or CONNECTION_CLOSE frames.
         self.isDetachedBySwiftNetwork = true
         switch self.state {
         case .attached(let connectionView):

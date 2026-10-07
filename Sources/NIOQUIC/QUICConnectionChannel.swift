@@ -195,7 +195,7 @@ extension QUICConnectionChannel: Channel where Consumer: ~Copyable {
     }
 
     var remoteAddress: SocketAddress? {
-        // Follows the connection's active path; the connection makes this safe to read from any thread.
+        // Follows the connection's active path. This access is thread-safe.
         self._connection.remoteAddress
     }
 
