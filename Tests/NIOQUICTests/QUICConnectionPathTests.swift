@@ -359,6 +359,20 @@ struct QUICConnectionPathTests {
         #expect(self.writtenAddresses(transport) == [Self.pathAddress, Self.newAddress])
     }
 
+    @available(anyAppleOS 26, *)
+    @Test
+    func connectionRemembersOnlyTheMostRecentRetiredConnectionIDs() throws {
+        let connection = try self.makeConnection(role: .server)
+        var rng: any RandomNumberGenerator = SystemRandomNumberGenerator()
+        let retiredIDs = (0..<17).map { _ in QUICConnectionID.random(using: &rng) }
+
+        for retiredID in retiredIDs {
+            connection._forTesting_addRetiredSCID(retiredID)
+        }
+        // Twice the 8 connection IDs a connection hands out at most.
+        #expect(connection._forTesting_getRetiredSCIDs() == Array(retiredIDs.suffix(16)))
+    }
+
     /// Every path `connection` tracks, the active one first.
     @available(anyAppleOS 26, *)
     private func trackedPaths(

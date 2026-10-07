@@ -15,14 +15,13 @@
 import Crypto
 import DequeModule
 import Logging
+import NIOConcurrencyHelpers
 @_spi(CustomByteBufferAllocator) import NIOCore
 import NIOQUICHelpers
 @_spi(Essentials) @_spi(ProtocolProvider) import SwiftNetwork
 @_spi(SwiftTLSOptions) @_spi(SwiftTLSProtocol) import SwiftTLS
 import Synchronization
 import X509
-
-import struct NIOConcurrencyHelpers.NIOLockedValueBox
 
 #if canImport(Glibc)
 import Glibc
@@ -49,10 +48,14 @@ extension NIOCore.ByteBuffer {
 private enum ConnectionConstants {
     /// The RFC gives a minimum number of connection IDs that implementations should support.
     /// Exception: Connections with zero-length connection IDs should not advertise additional ones.
-    static let minimumConnectionIDs: Int = 2
+    static var minimumConnectionIDs: Int { 2 }
 
     /// Even if our peer supports more connection IDs, we will only advertise up to this limit.
-    static let maximumAnnouncedConnectionIDs: Int = 8
+    static var maximumAnnouncedConnectionIDs: Int { 8 }
+
+    /// Retired connection IDs are remembered to catch reissuance, but only up to twice as many as we advertise.
+    /// Older ones are forgotten to avoid boundless state.
+    static var maximumRetiredConnectionIDs: Int { 2 * Self.maximumAnnouncedConnectionIDs }
 
     /// Track IDs for qlog files to ensure connections write individual logs.
     private static let clientConnectionQLogIDCounter = Atomic<Int>(1)
@@ -80,6 +83,10 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
             let remoteAddress = self.activePath.remoteAddress
             self.remoteAddressBox.withLockedValue { $0 = remoteAddress }
             self.logger[metadataKey: LoggingKeys.addressRemote] = "\(remoteAddress)"
+            self.logger.debug(
+                "Active path changed",
+                metadata: [LoggingKeys.previousRemoteAddress: "\(oldValue.remoteAddress)"]
+            )
         }
     }
     // The connection's other paths, oldest first. A demoted active path counts as the newest one.
@@ -99,7 +106,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
 
     // All active source connection IDs.
     private var activeSCIDs: [QUICConnectionID]
-    // All retired connection IDs.
+    // The most recently retired connection IDs, oldest first.
     private var retiredSCIDs = [QUICConnectionID]()
     // The order of adding and retiring new connection IDs might leave us with an empty list.
     // To prevent that we buffer removal of the last ID until we receive a new one.
@@ -1158,6 +1165,14 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
         }
     }
 
+    /// Cache recently a retired connection IDs to catch reissuance.
+    private func rememberRetiredSCID(_ connectionID: QUICConnectionID) {
+        self.retiredSCIDs.append(connectionID)
+        if self.retiredSCIDs.count > ConnectionConstants.maximumRetiredConnectionIDs {
+            self.retiredSCIDs.removeFirst()
+        }
+    }
+
     /// Handles removal of retired inbound connection IDs propagated by the peer.
     /// This method is called when a `RETIRE_CONNECTION_ID` frame is received from the peer.
     /// It forwards the removal request to the QUICHandler which owns the multiplexer.
@@ -1202,7 +1217,7 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
 
         if retired {
             // It's gone. Save it to check ID reuse. This might not be worth it, but we can save them for now.
-            self.retiredSCIDs.append(retiredConnectionID)
+            self.rememberRetiredSCID(retiredConnectionID)
             // Generate a replacement CID.
             self.announceNewConnectionID()
             return true
@@ -1458,7 +1473,12 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
     /// Injects a connection ID into the retired set. Useful for testing because it allows
     /// triggering the protocol violation path when the peer reissues this ID.
     func _forTesting_addRetiredSCID(_ connectionID: QUICConnectionID) {
-        self.retiredSCIDs.append(connectionID)
+        self.rememberRetiredSCID(connectionID)
+    }
+
+    /// Returns the retired source connection IDs that are checked against reissued ones, oldest first.
+    func _forTesting_getRetiredSCIDs() -> [QUICConnectionID] {
+        self.retiredSCIDs
     }
 
     /// Returns the current list of active source connection IDs.
@@ -1482,7 +1502,7 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
         }
 
         self.activeSCIDs.remove(at: index)
-        self.retiredSCIDs.append(connectionID)
+        self.rememberRetiredSCID(connectionID)
     }
 
     /// Moves the connection to the connected state, as if the handshake had completed.
@@ -1547,10 +1567,10 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
         if self.activePath.remoteAddress == remoteAddress {
             return self.activePath
         }
-        // SwiftNetwork's Address Endpoint and SwiftNIO's SocketAddress handle IPv6 comparison
-        // differently with regard to the scope ID. If the active path does not match, use the
-        // SwiftNetwork type since it dictates path equality in SwiftNetwork.
-        if let path = self.trackedPath(remoteAddress.toAddressEndpoint()) {
+        // NIO's `SocketAddress` compares IPv6 flow information and scope IDs,
+        // SwiftNetwork's `AddressEndpoint` doesn't. If the active path doesn't
+        // match exactly, match paths using SwiftNetworks type.
+        if let path = self.trackedPath(remoteAddress.addressEndpointType) {
             return path
         }
 
@@ -1613,7 +1633,7 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
         } catch {
             self.logger.error(
                 "Failed to attach a new path",
-                metadata: [LoggingKeys.pathRemoteEndpoint: "\(remoteAddress.toAddressEndpoint())", "error": "\(error)"]
+                metadata: [LoggingKeys.pathRemoteEndpoint: "\(remoteAddress)", "error": "\(error)"]
             )
             self.removePath(path, notifySwiftNetwork: false)
             return nil
@@ -1621,7 +1641,7 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
 
         self.log(
             "Set up a path",
-            metadata: [LoggingKeys.pathRemoteEndpoint: "\(remoteAddress.toAddressEndpoint())"]
+            metadata: [LoggingKeys.pathRemoteEndpoint: "\(remoteAddress)"]
         )
         return path
     }
@@ -1629,15 +1649,17 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
     /// Stops tracking `path`. Removing the active path promotes the newest validated path. Without one, the
     /// active path is kept: the connection never moves to an address the peer didn't prove it receives on.
     ///
+    /// The SwiftNetwork version we're on never asks to remove the active path: it only reports paths it probes as
+    /// unreachable, a validated path is never probed again, and the first path reports no events. Handling the
+    /// active path is a safeguard.
+    ///
     /// - Parameter notifySwiftNetwork: Whether SwiftNetwork still uses the path and has to be told to drop it.
     // TODO: The validation requirement will not hold once active path events are available.
     private func removePath(_ path: QUICConnectionPath<Consumer>, notifySwiftNetwork: Bool) {
         if path === self.activePath {
             guard let index = self.otherPaths.lastIndex(where: { $0.isValidated }) else {
-                self.log(
-                    "Keeping the active path, no validated path can replace it",
-                    metadata: [LoggingKeys.packetRemoteAddress: "\(path.remoteAddress)"]
-                )
+                // The logger's metadata already carries the active path's address.
+                self.log("Keeping the active path, no validated path can replace it")
                 return
             }
             self.activePath = self.otherPaths.remove(at: index)
@@ -1655,17 +1677,17 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
     }
 
     /// The tracked path to `remote`, if any, identified by the address and port.
-    private func trackedPath(_ remote: AddressEndpoint) -> QUICConnectionPath<Consumer>? {
-        if self.activePath.addressEndpoint == remote {
+    private func trackedPath(_ remote: AddressEndpoint.AddressEndpointType) -> QUICConnectionPath<Consumer>? {
+        if self.activePath.addressEndpointType == remote {
             return self.activePath
         }
-        return self.otherPaths.first { $0.addressEndpoint == remote }
+        return self.otherPaths.first { $0.addressEndpointType == remote }
     }
 
     /// SwiftNetwork validated the path to `remote`: the peer proved that it receives packets there. Promotes
     /// the path to the active path.
     private func handlePathValidated(remote: AddressEndpoint) {
-        guard let path = self.trackedPath(remote) else {
+        guard let path = self.trackedPath(remote.type) else {
             self.log(
                 "Ignoring validation of untracked path",
                 metadata: [LoggingKeys.pathRemoteEndpoint: "\(remote)"]
@@ -1683,7 +1705,7 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
 
     /// SwiftNetwork gave up on the path to `remote`.
     private func handlePathUnreachable(remote: AddressEndpoint) {
-        guard let path = self.trackedPath(remote) else {
+        guard let path = self.trackedPath(remote.type) else {
             self.log(
                 "Ignoring untracked unreachable path",
                 metadata: [LoggingKeys.pathRemoteEndpoint: "\(remote)"]

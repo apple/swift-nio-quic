@@ -79,7 +79,7 @@ struct ConnectionMigrationTests {
                     .get()
                 try await spoofer.writeAndFlush(AddressedEnvelope(remoteAddress: peers.serverAddress, data: packet))
             }
-            // Let SwiftNetwork's migration timer fire: two paths probing at once used to crash the process.
+            // Let SwiftNetwork's migration timer fire.
             try await Task.sleep(for: .seconds(1))
 
             #expect(peers.serverConnectionChannel.remoteAddress == peers.clientChannel.localAddress)
@@ -87,6 +87,7 @@ struct ConnectionMigrationTests {
         }
     }
 
+    /// The unauthenticated packet must not interrupt .
     @available(anyAppleOS 26, *)
     @Test
     func serverCloseReachesClientAfterUnauthenticatedPacket() async throws {

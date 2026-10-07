@@ -52,4 +52,22 @@ extension SocketAddress {
             preconditionFailure("Unexpected endpoint type")
         }
     }
+
+    /// The address and port of this `SocketAddress` in SwiftNetwork's terms, which is how SwiftNetwork tells paths
+    /// apart. Unlike ``toAddressEndpoint()``, this doesn't allocate an `Endpoint`.
+    var addressEndpointType: AddressEndpoint.AddressEndpointType {
+        switch self {
+        case .v4(let addr):
+            precondition(self.port != nil)
+            return .v4(SwiftNetwork.IPv4Address(UInt32(addr.address.sin_addr.s_addr)), UInt16(self.port!))
+        case .v6(let addr):
+            precondition(self.port != nil)
+            let tuple = withUnsafeBytes(of: addr.address.sin6_addr) {
+                $0.loadUnaligned(as: (UInt32, UInt32, UInt32, UInt32).self)
+            }
+            return .v6(SwiftNetwork.IPv6Address(tuple), UInt16(self.port!))
+        case .unixDomainSocket(_):
+            fatalError("Unix domain sockets are not supported.")
+        }
+    }
 }

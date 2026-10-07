@@ -13,11 +13,10 @@
 //===----------------------------------------------------------------------===//
 
 import Logging
+import NIOConcurrencyHelpers
 import NIOCore
 import NIOQUICHelpers
 @_spi(Essentials) @_spi(ProtocolProvider) import SwiftNetwork
-
-import struct NIOConcurrencyHelpers.NIOLockedValueBox
 
 #if canImport(Darwin)
 import Darwin

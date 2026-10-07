@@ -38,8 +38,8 @@ final class QUICConnectionPath<Consumer: QUICStreamConsumer & ~Copyable>:
 
     /// The endpoint information (IP, port) for this path.
     let remoteAddress: SocketAddress
-    /// Representation used by SwiftNetwork events.
-    let addressEndpoint: SwiftNetwork.AddressEndpoint
+    /// The address and port the way SwiftNetwork tells paths apart and names them in its events.
+    let addressEndpointType: AddressEndpoint.AddressEndpointType
     /// QUIC path validation status.
     var isValidated: Bool
     /// Whether SwiftNetwork detached from the path. It sends nothing more on it, but the packets it already
@@ -82,7 +82,7 @@ final class QUICConnectionPath<Consumer: QUICStreamConsumer & ~Copyable>:
         logger: Logger
     ) {
         self.remoteAddress = remoteAddress
-        self.addressEndpoint = remoteAddress.toAddressEndpoint()
+        self.addressEndpointType = remoteAddress.addressEndpointType
         self.isValidated = isValidated
         self.logPrefix = "[\(role.description)][Path]"
         self.logger = logger

@@ -18,6 +18,7 @@ enum LoggingKeys {
     static let channelOutboundBytes = "channel.outboundBytes"
     static let addressLocal = "quic.localAddress"
     static let addressRemote = "quic.remoteAddress"
+    static let previousRemoteAddress = "quic.previousRemoteAddress"
     static let connectionSCID = "quic.connection.scid"
     static let connectionOriginalSCID = "quic.connection.originalSCID"
     static let connectionDCID = "quic.connection.dcid"
