@@ -817,10 +817,9 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
                 if let view = self.connectionRegistry[header.destinationConnectionID] {
                     self.deliverPacket(addressedEnvelope, to: view)
                 } else if self.quicConfiguration.role == .server {
-                    // Only INITIAL packets can create new connections. However, we do need to
-                    // pass packets with unknown versions to Swift QUIC to initiate version
-                    // negotation.
-                    if header.type == .initial {
+                    switch header.type {
+                    case .initial:
+                        // Only INITIAL packets can create new connections.
                         switch self.connectionAdmissionController.acceptNewConnection() {
                         case .accept:
                             try self.acceptNewConnection(
@@ -841,9 +840,35 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
                                 ]
                             )
                         }
-                    } else if header.type == .unsupportedVersion {
+                    case .unsupportedVersion:
                         self.trySendVersionNegotiation(for: header, triggeredBy: addressedEnvelope)
-                    } else {
+                    case .short:
+                        self.logger.trace(
+                            "QUICHandler attempting to send stateless reset to packet without a connection",
+                            metadata: {
+                                [
+                                    LoggingKeys.addressRemote: "\(addressedEnvelope.remoteAddress)",
+                                    LoggingKeys.connectionSCID: "\(header.sourceConnectionID?.description ?? "none")",
+                                    LoggingKeys.connectionDCID:
+                                        "\(header.destinationConnectionID.description)",
+                                    LoggingKeys.packetType: "\(header.type)",
+                                ]
+                            }()
+                        )
+                        self.trySendStatelessReset(for: header, triggeredBy: addressedEnvelope)
+                    case .retry, .handshake, .zeroRTT, .versionNegotiation:
+                        // RFC 9000, § 10.3:
+                        //
+                        // "An endpoint MAY send a Stateless Reset in response to a packet with a long
+                        // header. Sending a Stateless Reset is not effective prior to the stateless
+                        // reset token being available to a peer. In this QUIC version, packets with
+                        // a long header are only used during connection establishment. Because the
+                        // stateless reset token is not available until connection establishment is
+                        // complete or near completion, ignoring an unknown packet with a long header
+                        // might be as effective as sending a Stateless Reset."
+                        //
+                        // Similarly, a server does not need to respond to version negotiation. Let's
+                        // drop these.
                         self.logger.trace(
                             "QUICHandler dropping non-INITIAL packet without a connection",
                             metadata: {
@@ -856,7 +881,21 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
                                 ]
                             }()
                         )
-                        self.trySendStatelessReset(for: header, triggeredBy: addressedEnvelope)
+                    default:
+                        // The underlying enum is exhausively covered by the cases above.
+                        assertionFailure("Unexpected header type: \(header.type)")
+                        self.logger.warning(
+                            "QUICHandler dropping non-INITIAL packet of unexpected type",
+                            metadata: {
+                                [
+                                    LoggingKeys.addressRemote: "\(addressedEnvelope.remoteAddress)",
+                                    LoggingKeys.connectionSCID: "\(header.sourceConnectionID?.description ?? "none")",
+                                    LoggingKeys.connectionDCID:
+                                        "\(header.destinationConnectionID.description)",
+                                    LoggingKeys.packetType: "\(header.type)",
+                                ]
+                            }()
+                        )
                     }
                 } else {
                     self.logger.warning(
