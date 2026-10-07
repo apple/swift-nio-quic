@@ -26,4 +26,8 @@ enum LoggingKeys {
     static let packetRemoteAddress = "quic.packet.remoteAddress"
     static let packetBytes = "quic.packet.bytes"
     static let role = "quic.role"
+    static let connectionDropReason = "quic.connectionLimit.dropReason"
+    static let connectionLimitActive = "quic.connectionLimit.active"
+    static let connectionLimitHandshake = "quic.connectionLimit.handshake"
+    static let connectionLimitNewConnectionRate = "quic.connectionLimit.newConnectionRate"
 }

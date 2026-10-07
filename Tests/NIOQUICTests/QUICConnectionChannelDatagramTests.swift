@@ -306,7 +306,9 @@ extension QUICConnectionChannelDatagramTests {
         // A server channel's initializer promise completes without waiting for the handshake, so
         // the pipeline is set up while the channel is still negotiating.
         let promise = channel.eventLoop.makePromise(of: Void.self)
-        channel.transportView.initialize(promise: promise) { $0.pipeline.addHandler(recorder) }
+        channel.transportView.initialize(readyPromise: promise, handshakePromise: nil) {
+            $0.pipeline.addHandler(recorder)
+        }
         try promise.futureResult.wait()
 
         try body(channel, connection, recorder)
@@ -357,7 +359,9 @@ extension QUICConnectionChannelDatagramTests {
 
         let recorder = DatagramRecorder()
         let promise = eventLoop.makePromise(of: Void.self)
-        channel.transportView.initialize(promise: promise) { $0.pipeline.addHandler(recorder) }
+        channel.transportView.initialize(readyPromise: promise, handshakePromise: nil) {
+            $0.pipeline.addHandler(recorder)
+        }
         try promise.futureResult.wait()
 
         try body(connection, DatagramTestTransport(), recorder)
