@@ -434,6 +434,33 @@ struct QUICConnectionChannelTests {
 
         @available(anyAppleOS 26, *)
         @Test
+        func handshakePromiseFailsIfClosedBeforeInitializerCompletes() throws {
+            let channel = try makeChannel()
+            let view = channel.transportView
+            let initializerPromise = channel.eventLoop.makePromise(of: Void.self)
+            let handshakePromise = channel.eventLoop.makePromise(of: Void.self)
+            var handshakeResult: Result<Void, any Error>?
+            handshakePromise.futureResult.assumeIsolated().whenComplete { handshakeResult = $0 }
+            view.initialize(readyPromise: nil, handshakePromise: handshakePromise) { _ in
+                initializerPromise.futureResult
+            }
+
+            let closeFuture = channel.close()
+            channel.embeddedEventLoop.run()
+            try closeFuture.wait()
+
+            // QUICHandler releases the connection's handshake slot when this promise completes, so
+            // closing must fail it without waiting for an initializer that may never complete.
+            #expect(throws: ChannelError.alreadyClosed) {
+                try handshakeResult?.get()
+            }
+
+            // Completing the initializer afterwards must not complete the promise a second time.
+            initializerPromise.succeed()
+        }
+
+        @available(anyAppleOS 26, *)
+        @Test
         func initializeClientChannel() throws {
             let channel = try makeChannel(isServer: false)
             let view = channel.transportView

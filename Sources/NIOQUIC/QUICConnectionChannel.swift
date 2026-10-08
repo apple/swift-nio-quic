@@ -564,6 +564,10 @@ extension QUICConnectionChannel.TransportView where Consumer: ~Copyable {
             return
         }
 
+        // Store the handshake promise before the initializer runs, so closing the channel fails it
+        // even if the initializer never completes.
+        self.channel._handshakePromise = handshakePromise
+
         // Inherit autoRead from the parent UDP channel; default if unreadable.
         let autoRead = (try? self.channel.parent?.syncOptions?.getOption(.autoRead)) ?? true
         self.channel._autoRead = autoRead
@@ -572,24 +576,18 @@ extension QUICConnectionChannel.TransportView where Consumer: ~Copyable {
             .hop(to: self.channel.eventLoop)
             .assumeIsolated()
             .whenComplete { result in
-                self._initializerCompleted(
-                    result: result,
-                    readyPromise: readyPromise,
-                    handshakePromise: handshakePromise
-                )
+                self._initializerCompleted(result: result, readyPromise: readyPromise)
             }
     }
 
     private func _initializerCompleted(
         result: Result<Void, any Error>,
-        readyPromise: EventLoopPromise<Void>?,
-        handshakePromise: EventLoopPromise<Void>?
+        readyPromise: EventLoopPromise<Void>?
     ) {
         switch result {
         case .success:
             switch self.channel._lifecycle.initialized() {
             case .awaitingActivation:
-                self.channel._handshakePromise = handshakePromise
                 if self.channel.isServer {
                     self.channel.drainAndReconcileLifecycle()
                     readyPromise?.succeed()
@@ -602,13 +600,13 @@ extension QUICConnectionChannel.TransportView where Consumer: ~Copyable {
                 // Closed completed before init; fail the promise now.
                 self.channel.drainAndReconcileLifecycle()
                 readyPromise?.fail(ChannelError.alreadyClosed)
-                handshakePromise?.fail(ChannelError.alreadyClosed)
+                self.channel._handshakePromise.take()?.fail(ChannelError.alreadyClosed)
             }
 
         case .failure(let error):
             self.channel.failInitialization(error: error)
             readyPromise?.fail(error)
-            handshakePromise?.fail(error)
+            self.channel._handshakePromise.take()?.fail(error)
         }
     }
 
