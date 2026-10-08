@@ -119,4 +119,40 @@ struct TokenBucketTests {
         let exactlyOneInterval = bucket.tryConsume(now: .uptimeNanoseconds(500_000_000))
         #expect(exactlyOneInterval)
     }
+
+    @Test
+    func timeSpentAtCapacityDoesNotCountTowardsTheNextToken() {
+        // Refill progress made while the bucket is full must be discarded,
+        // not banked towards the token after the next consumption.
+        var bucket = TokenBucket(capacity: 1, refillInterval: .seconds(1), now: .uptimeNanoseconds(0))
+
+        // The initial token is held until t=999ms.
+        let at999ms = bucket.tryConsume(now: .uptimeNanoseconds(999_000_000))
+        #expect(at999ms)
+
+        // Only 1ms has passed since the token was consumed.
+        let at1000ms = bucket.tryConsume(now: .uptimeNanoseconds(1_000_000_000))
+        #expect(!at1000ms)
+
+        // One full interval after the consumption at t=999ms, the token is back.
+        let at1999ms = bucket.tryConsume(now: .uptimeNanoseconds(1_999_000_000))
+        #expect(at1999ms)
+    }
+
+    @Test
+    func timeSpentAtCapacityAfterRefillingDoesNotCountTowardsTheNextToken() {
+        // Like `timeSpentAtCapacityDoesNotCountTowardsTheNextToken`, but the bucket reaches
+        // capacity by refilling instead of starting full.
+        var bucket = TokenBucket(capacity: 1, refillInterval: .seconds(1), now: .uptimeNanoseconds(0))
+        let atStart = bucket.tryConsume(now: .uptimeNanoseconds(0))
+        #expect(atStart)
+
+        // The bucket is full again from t=1000ms, and the token is held until t=1999ms.
+        let at1999ms = bucket.tryConsume(now: .uptimeNanoseconds(1_999_000_000))
+        #expect(at1999ms)
+
+        // Only 1ms has passed since the token was consumed.
+        let at2000ms = bucket.tryConsume(now: .uptimeNanoseconds(2_000_000_000))
+        #expect(!at2000ms)
+    }
 }
