@@ -857,15 +857,13 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
                         )
                         self.trySendStatelessReset(for: header, triggeredBy: addressedEnvelope)
                     case .retry, .handshake, .zeroRTT, .versionNegotiation:
-                        // RFC 9000, § 10.3:
-                        //
-                        // "An endpoint MAY send a Stateless Reset in response to a packet with a long
-                        // header. Sending a Stateless Reset is not effective prior to the stateless
-                        // reset token being available to a peer. In this QUIC version, packets with
-                        // a long header are only used during connection establishment. Because the
-                        // stateless reset token is not available until connection establishment is
-                        // complete or near completion, ignoring an unknown packet with a long header
-                        // might be as effective as sending a Stateless Reset."
+                        // RFC 9000, § 10.3: "An endpoint MAY send a Stateless Reset in response to
+                        // a packet with a long header. Sending a Stateless Reset is not effective
+                        // prior to the stateless reset token being available to a peer. In this QUIC
+                        // version, packets with a long header are only used during connection
+                        // establishment. Because the stateless reset token is not available until
+                        // connection establishment is complete or near completion, ignoring an unknown
+                        // packet with a long header might be as effective as sending a Stateless Reset."
                         //
                         // RFC 9000, § 6.1: "An endpoint MUST NOT send a Version Negotiation packet
                         // in response to receiving a Version Negotiation packet."
