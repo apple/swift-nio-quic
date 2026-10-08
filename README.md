@@ -42,7 +42,7 @@ let package = Package(
 ### Prerequisites
 
 - [Swift 6.3 and up](https://swift.org/install)
-- macOS 26.0 and up or Linux (Ubuntu 22.04+)
+- macOS 26.0 and up, Linux (Ubuntu 22.04+), Android API 23+
 - Xcode 26.0 and up (Apple platforms only)
 
 ### Building and testing
