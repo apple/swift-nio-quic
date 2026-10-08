@@ -35,6 +35,13 @@ let swiftSettings: [SwiftSetting] =
         .enableUpcomingFeature("StrictConcurrency"),
         .enableExperimentalFeature("AnyAppleOSAvailability"),
         .enableExperimentalFeature("Lifetimes"),
+        .enableExperimentalFeature("SuppressedAssociatedTypesWithDefaults"),
+        .enableExperimentalFeature("LifetimeDependence"),
+        .enableUpcomingFeature("LifetimeDependence"),
+        .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
+        .enableUpcomingFeature("InferIsolatedConformances"),
+        .enableUpcomingFeature("MemberImportVisibility"),
+        .enableUpcomingFeature("InternalImportsByDefault"),
     ]
 
 let package = Package(
@@ -45,6 +52,7 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/apple/swift-nio", from: "2.92.0"),
         .package(url: "https://github.com/apple/swift-log", from: "1.12.1"),
+        .package(url: "https://github.com/apple/swift-asn1.git", from: "1.0.0"),
         .package(url: "https://github.com/apple/swift-certificates.git", from: "1.21.0"),
         .package(url: "https://github.com/apple/swift-collections.git", from: "1.6.0"),
         .package(url: "https://github.com/apple/swift-crypto.git", from: "5.0.0"),
@@ -63,6 +71,10 @@ let package = Package(
                 .product(name: "NIOCore", package: "swift-nio"),
                 .product(name: "NIOPosix", package: "swift-nio"),
                 .product(name: "Logging", package: "swift-log"),
+                .product(name: "NIOQUICHelpers", package: "swift-nio-quic-helpers"),
+                .product(name: "Crypto", package: "swift-crypto"),
+                .product(name: "X509", package: "swift-certificates"),
+                .product(name: "SwiftASN1", package: "swift-asn1"),
                 .target(name: "NIOQUIC"),
             ],
             swiftSettings: swiftSettings
@@ -71,13 +83,16 @@ let package = Package(
             name: "NIOQUIC",
             dependencies: [
                 .product(name: "NIOCore", package: "swift-nio"),
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
                 .product(name: "NIOQUICHelpers", package: "swift-nio-quic-helpers"),
                 .product(name: "Logging", package: "swift-log"),
                 .product(name: "Crypto", package: "swift-crypto"),
                 .product(name: "X509", package: "swift-certificates"),
+                .product(name: "SwiftASN1", package: "swift-asn1"),
                 .product(name: "SwiftTLS", package: "swift-tls"),
                 .product(name: "SwiftNetwork", package: "swift-network-evolution"),
                 .product(name: "DequeModule", package: "swift-collections"),
+                .product(name: "BasicContainers", package: "swift-collections"),
             ],
             swiftSettings: swiftSettings
         ),
@@ -85,9 +100,20 @@ let package = Package(
             name: "NIOQUICTests",
             dependencies: [
                 .target(name: "NIOQUIC"),
+                .product(name: "NIOCore", package: "swift-nio"),
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+                .product(name: "NIOPosix", package: "swift-nio"),
                 .product(name: "NIOEmbedded", package: "swift-nio"),
                 .product(name: "NIOTestUtils", package: "swift-nio"),
+                .product(name: "NIOQUICHelpers", package: "swift-nio-quic-helpers"),
+                .product(name: "Logging", package: "swift-log"),
+                .product(name: "Crypto", package: "swift-crypto"),
                 .product(name: "X509", package: "swift-certificates"),
+                .product(name: "SwiftASN1", package: "swift-asn1"),
+                .product(name: "SwiftTLS", package: "swift-tls"),
+                .product(name: "SwiftNetwork", package: "swift-network-evolution"),
+                .product(name: "DequeModule", package: "swift-collections"),
+                .product(name: "BasicContainers", package: "swift-collections"),
             ],
             resources: [
                 .copy("testcert.pem"),
@@ -107,6 +133,7 @@ let package = Package(
                 .product(name: "NIOEmbedded", package: "swift-nio"),
                 .product(name: "Logging", package: "swift-log"),
                 .product(name: "NIOQUICHelpers", package: "swift-nio-quic-helpers"),
+                .product(name: "Crypto", package: "swift-crypto"),
             ],
             resources: [
                 .copy("testcert.pem"),
