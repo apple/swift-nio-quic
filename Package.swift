@@ -31,17 +31,16 @@ if isRunningInCI {
 
 let swiftSettings: [SwiftSetting] =
     [
-        .enableUpcomingFeature("ExistentialAny"),
-        .enableUpcomingFeature("StrictConcurrency"),
         .enableExperimentalFeature("AnyAppleOSAvailability"),
         .enableExperimentalFeature("Lifetimes"),
         .enableExperimentalFeature("SuppressedAssociatedTypesWithDefaults"),
-        .enableExperimentalFeature("LifetimeDependence"),
-        .enableUpcomingFeature("LifetimeDependence"),
-        .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
+        .enableUpcomingFeature("ExistentialAny"),
         .enableUpcomingFeature("InferIsolatedConformances"),
-        .enableUpcomingFeature("MemberImportVisibility"),
         .enableUpcomingFeature("InternalImportsByDefault"),
+        .enableUpcomingFeature("LifetimeDependence"),
+        .enableUpcomingFeature("MemberImportVisibility"),
+        .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
+        .enableUpcomingFeature("StrictConcurrency"),
     ]
 
 let package = Package(
