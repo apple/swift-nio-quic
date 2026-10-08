@@ -47,6 +47,17 @@ struct QUICPacketHeader: Hashable, Sendable {
         init(_ headerVersionField: UInt32) {
             self.backing = headerVersionField
         }
+
+        /// SwiftNetwork doesn't expose the versions it supports. Switching exhaustively over its
+        /// `QUICVersion` at least breaks the build when a version is added there.
+        var isSupportedBySwiftNetwork: Bool {
+            switch QUICVersion(rawValue: self.backing) {
+            case .v1:
+                return true
+            case .negotiation, .negotiationPattern, nil:
+                return false
+            }
+        }
     }
 
     /// QUIC packet type.
@@ -64,6 +75,8 @@ struct QUICPacketHeader: Hashable, Sendable {
             case short
             /// Version negotiation packet.
             case versionNegotiation
+            /// Unsupported version.
+            case unsupportedVersion
         }
 
         fileprivate static let typeMask: UInt8 = 0x30
@@ -130,7 +143,7 @@ struct QUICPacketHeader: Hashable, Sendable {
                     fatalError("Unknown packet type: \(maskedByte)")
                 }
 
-            case Version.v2:
+            case Version.v2 where version.isSupportedBySwiftNetwork:
                 switch maskedByte {
                 case 0b01:
                     self = .initial
@@ -145,16 +158,15 @@ struct QUICPacketHeader: Hashable, Sendable {
                 }
 
             default:
-                // We pass other cases as a version negotiation request to SwiftQUIC and let it decide
-                // how to handle them. This includes:
+                // Servers answer these with a stateless Version Negotiation packet. This includes:
                 // * Forced version negotiation (RFC 9000, Section 15): "Versions that follow the pattern
                 //   0x?a?a?a?a are reserved for use in forcing version negotiation to be exercised -- that
                 //   is, any version number where the low four bits of all bytes is 1010 (in binary)."
                 // * Unrecognized version numbers (RFC 9000, Section 5.2.2): "If a server receives a packet
                 //   that indicates an unsupported version and if the packet is large enough to initiate a
-                //   new connection for any supported version, the server Version Negotiation packet as
-                //   described in Section 6.1."
-                self = .versionNegotiation
+                //   new connection for any supported version, the server SHOULD send a Version Negotiation
+                //   packet as described in Section 6.1."
+                self = .unsupportedVersion
             }
 
         }
@@ -171,6 +183,8 @@ struct QUICPacketHeader: Hashable, Sendable {
         static let short = PacketType(.short)
         /// Version negotiation packet.
         static let versionNegotiation = PacketType(.versionNegotiation)
+        /// Unsupported version
+        static let unsupportedVersion = PacketType(.unsupportedVersion)
 
         var rawValue: UInt8 {
             self.base.rawValue

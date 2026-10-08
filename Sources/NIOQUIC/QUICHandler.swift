@@ -14,6 +14,7 @@
 
 import Logging
 import NIOCore
+@_spi(ProtocolProvider) import SwiftNetwork
 import X509
 
 @available(anyAppleOS 26, *)
@@ -355,6 +356,64 @@ public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
 
         self.writeDatagram(
             AddressedEnvelope(remoteAddress: envelope.remoteAddress, data: reset),
+            promise: nil
+        )
+    }
+
+    /// Answers a packet indicating an unsupported version with a Version Negotiation packet
+    /// (RFC 9000 § 6.1).
+    ///
+    /// No packet will be sent if these requirements are not met:
+    /// * A server MUST drop smaller packets that specify unsupported versions rather than
+    ///   respond (RFC 9000 § 5.2.2, § 14.1).
+    ///
+    /// - Precondition: `header` is not a Version Negotiation packet. An endpoint MUST NOT send
+    ///   a Version Negotiation packet in response to receiving one (RFC 9000 § 6.1).
+    ///
+    /// - Parameters:
+    ///   - header: The parsed header of the packet that triggered this.
+    ///   - envelope: The datagram it arrived in.
+    private func trySendVersionNegotiation(
+        for header: QUICPacketHeader,
+        triggeredBy envelope: AddressedEnvelope<ByteBuffer>
+    ) {
+        self.eventLoop.assertInEventLoop()
+
+        // "The Version field of a Version Negotiation packet MUST be set to 0x00000000."
+        // (RFC 9000 § 17.2.1)
+        assert(header.version != .negotiation)
+
+        // "A server MUST discard an Initial packet that is carried in a UDP datagram
+        // with a payload that is smaller than the smallest allowed maximum datagram
+        // size of 1200 bytes." (RFC 9000 § 14.1)
+        guard envelope.data.readableBytes >= 1200 else { return }
+
+        // SwiftNetwork swaps the connection IDs, we pass them in as they are.
+        let bytes = try? QUICConnectionUtilities.createVersionNegotiationPacket(
+            destinationConnectionID: .init(header.destinationConnectionID),
+            sourceConnectionID: .init(
+                header.sourceConnectionID ?? QUICConnectionID(bytes: InlineArray(repeating: 0), length: 0)
+            )
+        )
+
+        // SwiftNetwork fails to build packets shorter than 21 bytes, e.g., due to malformed connection IDs.
+        guard let bytes else { return }
+        assert(!bytes.isEmpty)
+
+        var buffer = self.udpChannel.allocator.buffer(capacity: bytes.count)
+        buffer.writeBytes(bytes)
+
+        self.logger.trace(
+            "QUICHandler sending version negotiation",
+            metadata: [
+                LoggingKeys.addressRemote: "\(envelope.remoteAddress)",
+                LoggingKeys.connectionDCID: "\(header.destinationConnectionID.description)",
+                LoggingKeys.channelOutboundBytes: "\(buffer.readableBytes)",
+            ]
+        )
+
+        self.writeDatagram(
+            AddressedEnvelope(remoteAddress: envelope.remoteAddress, data: buffer),
             promise: nil
         )
     }
@@ -758,10 +817,9 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
                 if let view = self.connectionRegistry[header.destinationConnectionID] {
                     self.deliverPacket(addressedEnvelope, to: view)
                 } else if self.quicConfiguration.role == .server {
-                    // Only INITIAL packets can create new connections. However, we do need to
-                    // pass packets with unknown versions to Swift QUIC to initiate version
-                    // negotation.
-                    if header.type == .initial || header.type == .versionNegotiation {
+                    switch header.type.base {
+                    case .initial:
+                        // Only INITIAL packets can create new connections.
                         switch self.connectionAdmissionController.acceptNewConnection() {
                         case .accept:
                             try self.acceptNewConnection(
@@ -782,7 +840,35 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
                                 ]
                             )
                         }
-                    } else {
+                    case .unsupportedVersion:
+                        self.trySendVersionNegotiation(for: header, triggeredBy: addressedEnvelope)
+                    case .short:
+                        self.logger.trace(
+                            "QUICHandler attempting to send stateless reset to packet without a connection",
+                            metadata: {
+                                [
+                                    LoggingKeys.addressRemote: "\(addressedEnvelope.remoteAddress)",
+                                    LoggingKeys.connectionSCID: "\(header.sourceConnectionID?.description ?? "none")",
+                                    LoggingKeys.connectionDCID:
+                                        "\(header.destinationConnectionID.description)",
+                                    LoggingKeys.packetType: "\(header.type)",
+                                ]
+                            }()
+                        )
+                        self.trySendStatelessReset(for: header, triggeredBy: addressedEnvelope)
+                    case .retry, .handshake, .zeroRTT, .versionNegotiation:
+                        // RFC 9000, § 10.3: "An endpoint MAY send a Stateless Reset in response to
+                        // a packet with a long header. Sending a Stateless Reset is not effective
+                        // prior to the stateless reset token being available to a peer. In this QUIC
+                        // version, packets with a long header are only used during connection
+                        // establishment. Because the stateless reset token is not available until
+                        // connection establishment is complete or near completion, ignoring an unknown
+                        // packet with a long header might be as effective as sending a Stateless Reset."
+                        //
+                        // RFC 9000, § 6.1: "An endpoint MUST NOT send a Version Negotiation packet
+                        // in response to receiving a Version Negotiation packet."
+                        //
+                        // Let's drop these.
                         self.logger.trace(
                             "QUICHandler dropping non-INITIAL packet without a connection",
                             metadata: {
@@ -795,7 +881,6 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
                                 ]
                             }()
                         )
-                        self.trySendStatelessReset(for: header, triggeredBy: addressedEnvelope)
                     }
                 } else {
                     self.logger.warning(
