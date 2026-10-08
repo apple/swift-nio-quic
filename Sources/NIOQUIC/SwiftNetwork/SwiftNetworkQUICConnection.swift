@@ -83,6 +83,73 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
     private let swiftNetworkParameters: SwiftNetwork.Parameters
     private let eventLoop: any EventLoop
 
+    /// Returns a copy of the connection's transport metrics.
+    ///
+    /// Must be called on the connection's event loop.
+    ///
+    /// - Returns: A snapshot while connected, or `nil` before establishment or once termination begins.
+    internal func currentMetrics() -> InternalQUICConnectionMetrics? {
+        self.eventLoop.preconditionInEventLoop()
+        guard self.connectionStateMachine.hasEstablishedConnection,
+            !self.connectionStateMachine.isTerminating
+        else {
+            return nil
+        }
+
+        // Enter through the protocol reference to preserve SwiftNetwork event bookkeeping.
+        guard
+            case .dataTransferSnapshot(let snapshot) = self.swiftNetworkQUICConnection.reference.getMetrics(
+                self.outputHandler.reference,
+                requestedNetworkMetric: .dataTransferSnapshot
+            )
+        else {
+            return nil
+        }
+        return InternalQUICConnectionMetrics(
+            currentRTT: .nanoseconds(snapshot.transportCurrentRTT.nanoseconds),
+            minimumRTT: .nanoseconds(snapshot.transportMinimumRTT.nanoseconds),
+            smoothedRTT: .nanoseconds(snapshot.transportSmoothedRTT.nanoseconds),
+            rttVariance: .nanoseconds(snapshot.transportRTTVariance.nanoseconds),
+            congestionWindowInBytes: snapshot.transportCongestionWindow,
+            receivedDatagrams: snapshot.receivedTransportDatagramCount,
+            sentPacketAttempts: snapshot.sentTransportPacketAttemptCount,
+            lostPackets: snapshot.lostTransportPacketCount,
+            ecnCapablePacketsSent: snapshot.sentTransportECNCapablePacketCount,
+            ecnCapablePacketsAcknowledged: snapshot.sentTransportECNCapableAckedPacketCount,
+            ecnMarkedPackets: snapshot.sentTransportECNCapableMarkedPacketCount,
+            ecnCapablePacketsLost: snapshot.sentTransportECNCapableLostPacketCount
+        )
+    }
+
+    /// Returns the timing values captured when the QUIC connection was established.
+    ///
+    /// Must be called on the connection's event loop.
+    ///
+    /// - Returns: Establishment metrics while connected, or `nil` if unavailable.
+    internal func establishmentMetrics() -> InternalQUICEstablishmentMetrics? {
+        self.eventLoop.preconditionInEventLoop()
+        guard self.connectionStateMachine.hasEstablishedConnection,
+            !self.connectionStateMachine.isTerminating
+        else {
+            return nil
+        }
+        guard
+            case .protocolEstablishmentReports(let reports) = self.swiftNetworkQUICConnection.reference.getMetrics(
+                self.outputHandler.reference,
+                requestedNetworkMetric: .protocolEstablishmentReports
+            ),
+            let report = reports.first(where: {
+                $0.protocolIdentifier == SwiftNetwork.QUICConnectionProtocol.identifier
+            })
+        else {
+            return nil
+        }
+        return InternalQUICEstablishmentMetrics(
+            handshakeDuration: .nanoseconds(report.handshakeMilliseconds.nanoseconds),
+            handshakeRTT: .nanoseconds(report.handshakeRTTMilliseconds.nanoseconds)
+        )
+    }
+
     // All active source connection IDs.
     private var activeSCIDs: [QUICConnectionID]
     // All retired connection IDs.
