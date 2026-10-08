@@ -817,7 +817,7 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
                 if let view = self.connectionRegistry[header.destinationConnectionID] {
                     self.deliverPacket(addressedEnvelope, to: view)
                 } else if self.quicConfiguration.role == .server {
-                    switch header.type {
+                    switch header.type.base {
                     case .initial:
                         // Only INITIAL packets can create new connections.
                         switch self.connectionAdmissionController.acceptNewConnection() {
@@ -867,25 +867,12 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
                         // complete or near completion, ignoring an unknown packet with a long header
                         // might be as effective as sending a Stateless Reset."
                         //
-                        // Similarly, a server does not need to respond to version negotiation. Let's
-                        // drop these.
+                        // RFC 9000, § 6.1: "An endpoint MUST NOT send a Version Negotiation packet
+                        // in response to receiving a Version Negotiation packet."
+                        //
+                        // Let's drop these.
                         self.logger.trace(
                             "QUICHandler dropping non-INITIAL packet without a connection",
-                            metadata: {
-                                [
-                                    LoggingKeys.addressRemote: "\(addressedEnvelope.remoteAddress)",
-                                    LoggingKeys.connectionSCID: "\(header.sourceConnectionID?.description ?? "none")",
-                                    LoggingKeys.connectionDCID:
-                                        "\(header.destinationConnectionID.description)",
-                                    LoggingKeys.packetType: "\(header.type)",
-                                ]
-                            }()
-                        )
-                    default:
-                        // The underlying enum is exhausively covered by the cases above.
-                        assertionFailure("Unexpected header type: \(header.type)")
-                        self.logger.warning(
-                            "QUICHandler dropping non-INITIAL packet of unexpected type",
                             metadata: {
                                 [
                                     LoggingKeys.addressRemote: "\(addressedEnvelope.remoteAddress)",
