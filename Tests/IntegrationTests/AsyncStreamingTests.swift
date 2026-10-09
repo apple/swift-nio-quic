@@ -13,6 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 import NIOCore
+import NIOQUICHelpers
 import XCTest
 
 @testable import NIOQUIC

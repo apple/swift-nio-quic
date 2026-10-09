@@ -14,6 +14,7 @@
 
 import Crypto
 import Foundation
+import SwiftASN1
 @_spi(SwiftTLSProtocol) import SwiftTLS
 import X509
 import XCTest

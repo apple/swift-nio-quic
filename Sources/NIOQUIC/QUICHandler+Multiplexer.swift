@@ -13,7 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 import Logging
-import NIOCore
+public import NIOCore
 
 /// Internal type to abstract away the `Output` type of the multiplexer. This means we are going through an existential
 /// in the `QUICHandler` when yielding a new `Channel`. However, this is okay for now otherwise
@@ -171,7 +171,7 @@ extension QUICHandler where Consumer: ~Copyable {
                 }
 
                 public mutating func next() async -> QUICConnection<Output>? {
-                    await self.iterator.next()
+                    await self.iterator.next(isolation: #isolation)
                 }
             }
         }

@@ -12,7 +12,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-import NIOQUICHelpers
+public import NIOQUICHelpers
 @_spi(Essentials) @_spi(ProtocolProvider) import SwiftNetwork
 
 /// The state of a stream recorded by the transport.

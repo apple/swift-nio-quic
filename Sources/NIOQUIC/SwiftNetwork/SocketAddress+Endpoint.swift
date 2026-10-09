@@ -15,6 +15,14 @@
 import NIOCore
 @_spi(Essentials) @_spi(ProtocolProvider) import SwiftNetwork
 
+#if canImport(Glibc)
+import Glibc
+#elseif canImport(Musl)
+import Musl
+#elseif canImport(Darwin)
+import Darwin
+#endif
+
 @available(anyAppleOS 26, *)
 extension SocketAddress {
     /// Returns an `Endpoint` created from this `SocketAddress`.
