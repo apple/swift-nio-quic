@@ -81,6 +81,9 @@ final class QUICConnectionChannel<Consumer: QUICStreamConsumer & ~Copyable>: @un
     /// Promise to complete when the channel becomes active (or closed if never active).
     private var _readyPromise: EventLoopPromise<Void>?
 
+    /// Promise to complete when the connection is established (or closed if never connected).
+    private var _handshakePromise: EventLoopPromise<Void>?
+
     /// Whether auto-read is enabled on this channel.
     private var _autoRead: Bool
 
@@ -541,17 +544,26 @@ where Consumer: ~Copyable {}
 extension QUICConnectionChannel.TransportView where Consumer: ~Copyable {
     /// Configure the pipeline, then complete `promise`.
     ///
-    /// For a **server** connection the promise is completed when the channel
-    /// is initialized, for a **client** connection the promise is completed when
+    /// For a **server** connection the `readyPromise` is completed when the channel
+    /// is initialized, for a **client** connection the `readyPromise` is completed when
     /// the channel is initialized and the handshake has completed.
+    ///
+    /// The `handshakePromise` is only completed when the handshake has completed.
+    /// on both sides.
     func initialize(
-        promise: EventLoopPromise<Void>?,
+        readyPromise: EventLoopPromise<Void>?,
+        handshakePromise: EventLoopPromise<Void>?,
         initializer: (QUICConnectionChannel) -> EventLoopFuture<Void>
     ) {
         guard self.channel._lifecycle.initialize() else {
-            promise?.fail(ChannelError.operationUnsupported)
+            readyPromise?.fail(ChannelError.operationUnsupported)
+            handshakePromise?.fail(ChannelError.operationUnsupported)
             return
         }
+
+        // Store the handshake promise before the initializer runs, so closing the channel fails it
+        // even if the initializer never completes.
+        self.channel._handshakePromise = handshakePromise
 
         // Inherit autoRead from the parent UDP channel; default if unreadable.
         let autoRead = (try? self.channel.parent?.syncOptions?.getOption(.autoRead)) ?? true
@@ -561,13 +573,13 @@ extension QUICConnectionChannel.TransportView where Consumer: ~Copyable {
             .hop(to: self.channel.eventLoop)
             .assumeIsolated()
             .whenComplete { result in
-                self._initializerCompleted(result: result, promise: promise)
+                self._initializerCompleted(result: result, readyPromise: readyPromise)
             }
     }
 
     private func _initializerCompleted(
         result: Result<Void, any Error>,
-        promise: EventLoopPromise<Void>?
+        readyPromise: EventLoopPromise<Void>?
     ) {
         switch result {
         case .success:
@@ -575,21 +587,23 @@ extension QUICConnectionChannel.TransportView where Consumer: ~Copyable {
             case .awaitingActivation:
                 if self.channel.isServer {
                     self.channel.drainAndReconcileLifecycle()
-                    promise?.succeed()
+                    readyPromise?.succeed()
                 } else {
-                    self.channel._readyPromise = promise
+                    self.channel._readyPromise = readyPromise
                     self.channel.drainAndReconcileLifecycle()
                 }
 
             case .closedDuringInit:
                 // Closed completed before init; fail the promise now.
                 self.channel.drainAndReconcileLifecycle()
-                promise?.fail(ChannelError.alreadyClosed)
+                readyPromise?.fail(ChannelError.alreadyClosed)
+                self.channel._handshakePromise.take()?.fail(ChannelError.alreadyClosed)
             }
 
         case .failure(let error):
             self.channel.failInitialization(error: error)
-            promise?.fail(error)
+            readyPromise?.fail(error)
+            self.channel._handshakePromise.take()?.fail(error)
         }
     }
 
@@ -783,6 +797,7 @@ extension QUICConnectionChannel where Consumer: ~Copyable {
                 self._isActive.store(true, ordering: .releasing)
                 self.pipeline.fireChannelActive()
                 self._readyPromise.take()?.succeed()
+                self._handshakePromise.take()?.succeed()
 
                 if self._autoRead {
                     self._transport.read()
@@ -846,6 +861,10 @@ extension QUICConnectionChannel where Consumer: ~Copyable {
 
         if let readyPromise = self._readyPromise.take() {
             readyPromise.fail(error ?? ChannelError.alreadyClosed)
+        }
+
+        if let connectedPromise = self._handshakePromise.take() {
+            connectedPromise.fail(error ?? ChannelError.alreadyClosed)
         }
 
         // Tear down on the next loop tick.
