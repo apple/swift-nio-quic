@@ -13,7 +13,6 @@
 //===----------------------------------------------------------------------===//
 
 import Logging
-import NIOConcurrencyHelpers
 import NIOCore
 import NIOQUICHelpers
 @_spi(Essentials) @_spi(ProtocolProvider) import SwiftNetwork
@@ -52,7 +51,6 @@ final class QUICChannelNewFlowHandler<Consumer: QUICStreamConsumer & ~Copyable>:
     let path: PathProperties
     let role: Role
     let logger: Logger
-    let remoteAddress: NIOLockedValueBox<SocketAddress>
     let localAddress: SocketAddress
     /// The connection channel which is the parent of inbound stream channels created by this handler.
     /// Set via ``setConnectionChannel(_:)`` once the connection channel has been created.
@@ -80,7 +78,6 @@ final class QUICChannelNewFlowHandler<Consumer: QUICStreamConsumer & ~Copyable>:
         parameters: Parameters,
         path: PathProperties,
         logger: Logger,
-        remoteAddress: NIOLockedValueBox<SocketAddress>,
         localAddress: SocketAddress,
         role: Role,
         streamListenerProtocol: StreamListenerLinkage,
@@ -93,7 +90,6 @@ final class QUICChannelNewFlowHandler<Consumer: QUICStreamConsumer & ~Copyable>:
         self.path = path
         self.role = role
         self.logger = logger
-        self.remoteAddress = remoteAddress
         self.context = parameters.context
         self.keepAliveInterval = keepAliveInterval
         self.logPrefix = "[\(self.role.description)][NewFlowHandler]"
@@ -237,7 +233,6 @@ final class QUICChannelNewFlowHandler<Consumer: QUICStreamConsumer & ~Copyable>:
                     parameters: self.parameters,
                     streamID: QUICStreamID(rawValue: inputHandlerStreamID),
                     logger: self.logger,
-                    remoteAddress: self.remoteAddress,
                     localAddress: self.localAddress,
                     connectionChannel: connectionChannel,
                     keepAliveInterval: keepAliveInterval

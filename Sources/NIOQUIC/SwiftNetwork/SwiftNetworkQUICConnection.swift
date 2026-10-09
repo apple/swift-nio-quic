@@ -15,7 +15,6 @@
 import Crypto
 import DequeModule
 import Logging
-import NIOConcurrencyHelpers
 @_spi(CustomByteBufferAllocator) import NIOCore
 import NIOQUICHelpers
 @_spi(Essentials) @_spi(ProtocolProvider) import SwiftNetwork
@@ -73,15 +72,15 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
     let localAddress: SocketAddress
     // The address of the active path. Safe to read from any thread.
     var remoteAddress: SocketAddress {
-        self.remoteAddressBox.withLockedValue { $0 }
+        self._remoteAddress.withLock { $0 }
     }
-    // The address of the active path, shared with this connection's channels so they can read it from any thread.
-    private let remoteAddressBox: NIOLockedValueBox<SocketAddress>
+    // Set whenever the active path changes. Stream channels read it through the connection channel.
+    private let _remoteAddress: Mutex<SocketAddress>
     // The newest validated path, the likeliest one SwiftNetwork sends on. Checked first for every packet.
     private var activePath: QUICConnectionPath<Consumer> {
         didSet {
             let remoteAddress = self.activePath.remoteAddress
-            self.remoteAddressBox.withLockedValue { $0 = remoteAddress }
+            self._remoteAddress.withLock { $0 = remoteAddress }
             self.logger[metadataKey: LoggingKeys.addressRemote] = "\(remoteAddress)"
             self.logger.debug(
                 "Active path changed",
@@ -326,7 +325,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
 
         self.logger = logger
         self.localAddress = localAddress
-        self.remoteAddressBox = NIOLockedValueBox(remoteAddress)
+        self._remoteAddress = Mutex(remoteAddress)
         self.statelessResetTokenGenerator = statelessResetTokenGenerator
 
         self.activeSCIDs = [sourceConnectionID]
@@ -415,7 +414,6 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
             parameters: swiftNetworkParameters,
             path: swiftNetworkPath,
             logger: logger,
-            remoteAddress: self.remoteAddressBox,
             localAddress: localAddress,
             role: self.role,
             streamListenerProtocol: streamListenerLinkage,
@@ -443,7 +441,6 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
                 path: swiftNetworkPath,
                 streamID: streamID,
                 logger: logger,
-                remoteAddress: self.remoteAddressBox,
                 localAddress: localAddress,
                 listenerProtocol: streamListenerLinkage,
                 connectionChannel: nil,
@@ -652,7 +649,6 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
                 path: swiftNetworkPath,
                 streamID: nil,
                 logger: logger,
-                remoteAddress: self.remoteAddressBox,
                 localAddress: localAddress,
                 listenerProtocol: listenerLinkage,
                 connectionChannel: connectionChannel,
@@ -781,7 +777,6 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
             parameters: self.swiftNetworkParameters,
             streamID: streamID,
             logger: self.logger,
-            remoteAddress: self.remoteAddressBox,
             localAddress: self.localAddress,
             connectionChannel: connectionChannel
         )
@@ -934,16 +929,17 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
     /// pending initial client stream and per-stream handlers each hold the channel back. That is
     /// a retain cycle that keeps both alive forever. The channel calls this once it has gone
     /// inactive so both can deinit.
+    ///
+    /// Stream handlers keep their channel since users can read a stream's `parent`, `allocator` and
+    /// `remoteAddress` from any thread. Dropping them from the connection breaks their part of the cycle.
     func dropChannelReferences() {
         self.channelView = nil
         self.connectionNewFlowHandler?.clearConnectionChannel()
 
-        self.pendingInitialClientStream?.connectionChannel = nil
+        // Not handed out yet, so no other thread reads its channel.
+        self.pendingInitialClientStream?.clearConnectionChannel()
         self.pendingInitialClientStream = nil
 
-        for (_, streamHandler) in self.streamInputHandlers {
-            streamHandler.connectionChannel = nil
-        }
         self.streamInputHandlers.removeAll()
     }
 
