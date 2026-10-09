@@ -47,10 +47,14 @@ extension NIOCore.ByteBuffer {
 private enum ConnectionConstants {
     /// The RFC gives a minimum number of connection IDs that implementations should support.
     /// Exception: Connections with zero-length connection IDs should not advertise additional ones.
-    static let minimumConnectionIDs: Int = 2
+    static var minimumConnectionIDs: Int { 2 }
 
     /// Even if our peer supports more connection IDs, we will only advertise up to this limit.
-    static let maximumAnnouncedConnectionIDs: Int = 8
+    static var maximumAnnouncedConnectionIDs: Int { 8 }
+
+    /// Retired connection IDs are remembered to catch reissuance, but only up to twice as many as we advertise.
+    /// Older ones are forgotten to avoid boundless state.
+    static var maximumRetiredConnectionIDs: Int { 2 * Self.maximumAnnouncedConnectionIDs }
 
     /// Track IDs for qlog files to ensure connections write individual logs.
     private static let clientConnectionQLogIDCounter = Atomic<Int>(1)
@@ -66,26 +70,42 @@ private enum ConnectionConstants {
 final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable> {
     private var swiftNetworkQUICConnection: SwiftNetwork.QUICConnection
     let localAddress: SocketAddress
-    // The address of the active path.
+    // The address of the active path. Safe to read from any thread.
     var remoteAddress: SocketAddress {
-        self.activePath.remoteAddress
+        self._remoteAddress.withLock { $0 }
     }
-    // The active path of this connection. For now there is only ever one path.
-    private var activePath: QUICConnectionPath<Consumer>
+    // Set whenever the active path changes. Stream channels read it through the connection channel.
+    private let _remoteAddress: Mutex<SocketAddress>
+    // The newest validated path, the likeliest one SwiftNetwork sends on. Checked first for every packet.
+    private var activePath: QUICConnectionPath<Consumer> {
+        didSet {
+            let remoteAddress = self.activePath.remoteAddress
+            self._remoteAddress.withLock { $0 = remoteAddress }
+            self.logger[metadataKey: LoggingKeys.addressRemote] = "\(remoteAddress)"
+            self.logger.debug(
+                "Active path changed",
+                metadata: [LoggingKeys.previousRemoteAddress: "\(oldValue.remoteAddress)"]
+            )
+        }
+    }
+    // The connection's other paths, oldest first. A demoted active path counts as the newest one.
+    private var otherPaths: [QUICConnectionPath<Consumer>]
     // The pool for frames shared across QUIC connection paths.
     private let framePool: FramePool
     // The GSO settings every path on this connection is built with.
-    private let activePathMaxSegments: Int
-    private let activePathBufferPoolCapacity: Int
+    private let pathMaxSegments: Int
+    private let pathBufferPoolCapacity: Int
+    // The SwiftNetwork path properties every path on this connection is attached with.
+    private let swiftNetworkPath: SwiftNetwork.PathProperties
 
-    private let logger: Logger
+    private var logger: Logger
     let role: Role
     private let swiftNetworkParameters: SwiftNetwork.Parameters
     private let eventLoop: any EventLoop
 
     // All active source connection IDs.
     private var activeSCIDs: [QUICConnectionID]
-    // All retired connection IDs.
+    // The most recently retired connection IDs, oldest first.
     private var retiredSCIDs = [QUICConnectionID]()
     // The order of adding and retiring new connection IDs might leave us with an empty list.
     // To prevent that we buffer removal of the last ID until we receive a new one.
@@ -305,6 +325,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
 
         self.logger = logger
         self.localAddress = localAddress
+        self._remoteAddress = Mutex(remoteAddress)
         self.statelessResetTokenGenerator = statelessResetTokenGenerator
 
         self.activeSCIDs = [sourceConnectionID]
@@ -366,12 +387,12 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
 
         #if os(Linux)
         self.framePool = FramePool.makePool(forGSO: true)
-        self.activePathMaxSegments = 64
+        self.pathMaxSegments = 64
         #else
         self.framePool = FramePool.makePool(forGSO: false)
-        self.activePathMaxSegments = 1
+        self.pathMaxSegments = 1
         #endif
-        self.activePathBufferPoolCapacity = 8
+        self.pathBufferPoolCapacity = 8
 
         self.connectionQLogID = ConnectionConstants.nextClientConnectionQLogID()
         let prefix = role == .server ? "L" : "C"
@@ -380,6 +401,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
 
         swiftNetworkParameters.defaultStack.prepend(applicationProtocol: quicOptions)
         let swiftNetworkPath = SwiftNetwork.PathProperties(parameters: swiftNetworkParameters)
+        self.swiftNetworkPath = swiftNetworkPath
 
         let localEndpoint = localAddress.toEndpoint()
         let remoteEndpoint = remoteAddress.toEndpoint()
@@ -392,7 +414,6 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
             parameters: swiftNetworkParameters,
             path: swiftNetworkPath,
             logger: logger,
-            remoteAddress: remoteAddress,
             localAddress: localAddress,
             role: self.role,
             streamListenerProtocol: streamListenerLinkage,
@@ -420,7 +441,6 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
                 path: swiftNetworkPath,
                 streamID: streamID,
                 logger: logger,
-                remoteAddress: remoteAddress,
                 localAddress: localAddress,
                 listenerProtocol: streamListenerLinkage,
                 connectionChannel: nil,
@@ -444,10 +464,11 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
             context: swiftNetworkParameters.context,
             framePool: self.framePool,
             isValidated: true,
-            maxSegments: self.activePathMaxSegments,
-            bufferPoolCapacity: self.activePathBufferPoolCapacity,
+            maxSegments: self.pathMaxSegments,
+            bufferPoolCapacity: self.pathBufferPoolCapacity,
             logger: logger
         )
+        self.otherPaths = []
 
         self.inReadLoop = false
         self.batchingEnabled = false
@@ -628,7 +649,6 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
                 path: swiftNetworkPath,
                 streamID: nil,
                 logger: logger,
-                remoteAddress: remoteAddress,
                 localAddress: localAddress,
                 listenerProtocol: listenerLinkage,
                 connectionChannel: connectionChannel,
@@ -757,7 +777,6 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
             parameters: self.swiftNetworkParameters,
             streamID: streamID,
             logger: self.logger,
-            remoteAddress: self.remoteAddress,
             localAddress: self.localAddress,
             connectionChannel: connectionChannel
         )
@@ -802,6 +821,9 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
     // We may need to propagate an error through here in the future
     private func tearDownConnectionState() {
         self.activePath.finalizeQueuedInboundFramesAsFailed()
+        for path in self.otherPaths {
+            path.finalizeQueuedInboundFramesAsFailed()
+        }
         for (_, streamHandler) in self.streamInputHandlers {
             streamHandler.stop(detachFromLowerProtocol: true)
         }
@@ -818,8 +840,12 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
         // Break cycle with the datagram transport, which holds this connection as its reader.
         self.datagramTransport?.close()
         self.datagramTransport = nil
-        // Detach the active path: breaks its cycle with this connection and makes it drop late packets.
+        // Detach all paths: breaks their cycles with this connection and with SwiftNetwork, and makes them drop late
+        // packets.
         self.activePath.detach()
+        for path in self.otherPaths {
+            path.detach()
+        }
         // Break cycle with the stream table's 'outOfBandDrain'.
         self.streamTable?.outOfBandDrain = nil
     }
@@ -903,16 +929,17 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
     /// pending initial client stream and per-stream handlers each hold the channel back. That is
     /// a retain cycle that keeps both alive forever. The channel calls this once it has gone
     /// inactive so both can deinit.
+    ///
+    /// Stream handlers keep their channel since users can read a stream's `parent`, `allocator` and
+    /// `remoteAddress` from any thread. Dropping them from the connection breaks their part of the cycle.
     func dropChannelReferences() {
         self.channelView = nil
         self.connectionNewFlowHandler?.clearConnectionChannel()
 
-        self.pendingInitialClientStream?.connectionChannel = nil
+        // Not handed out yet, so no other thread reads its channel.
+        self.pendingInitialClientStream?.clearConnectionChannel()
         self.pendingInitialClientStream = nil
 
-        for (_, streamHandler) in self.streamInputHandlers {
-            streamHandler.connectionChannel = nil
-        }
         self.streamInputHandlers.removeAll()
     }
 
@@ -941,8 +968,8 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
     /// On success the number of bytes processed from the input buffer is
     /// returned. On error the connection will be closed.
     ///
-    /// Coalesced packets will be processed as necessary. Packets from a remote
-    /// address that doesn't belong to the active path are dropped.
+    /// Coalesced packets will be processed as necessary. Packets from a new remote
+    /// address set up a new path on a connected server and are dropped otherwise.
     ///
     /// Note that the contents of `envelope.data` might be modified by
     /// this function due to, for example, in-place decryption.
@@ -953,12 +980,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
     @discardableResult
     @inlinable
     func receivePacket(_ envelope: AddressedEnvelope<ByteBuffer>) -> Int {
-        // TODO: Set up a new path for packets from an unknown remote address.
-        if envelope.remoteAddress != self.activePath.remoteAddress {
-            self.logger.warning(
-                "Dropping packet from a remote address that doesn't belong to the active path",
-                metadata: [LoggingKeys.packetRemoteAddress: "\(envelope.remoteAddress)"]
-            )
+        guard let path = self.path(for: envelope.remoteAddress) else {
             return 0
         }
 
@@ -968,21 +990,25 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
             self.streamTable?.inReadLoop = true
         }
         self.log(
-            "received packet on active path",
+            "received packet on path",
             metadata: [
                 LoggingKeys.packetBytes: Logger.MetadataValue("\(envelope.data.readableBytes)")
             ]
         )
-        self.activePath.enqueueInboundPacket(envelope.data)
+        path.enqueueInboundPacket(envelope.data)
         return envelope.data.readableBytes
     }
 
     /// Singals to the QUIC stack that the input queue is ready to be consumed
     func receivePacketsComplete() {
-        if !self.activePath.hasQueuedInboundPackets {
-            return
+        // Snapshot first: SwiftNetwork may promote one of the other paths while the active one is served.
+        let otherPaths = self.otherPaths
+        if self.activePath.hasQueuedInboundPackets {
+            self.activePath.invokeInputAvailable()
         }
-        self.activePath.invokeInputAvailable()
+        for path in otherPaths where path.hasQueuedInboundPackets {
+            path.invokeInputAvailable()
+        }
     }
 
     /// Writes every packet queued for sending to `transport`.
@@ -999,8 +1025,14 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
     ///
     @inlinable
     func drainPacketsToSend(to transport: some QUICTransport) {
-        // Visit each path once. For now the active path is the only one.
         self.activePath.drainPacketsToSend(to: transport)
+        for path in self.otherPaths {
+            path.drainPacketsToSend(to: transport)
+            if path.isDetachedBySwiftNetwork {
+                // SwiftNetwork let go of the path and it was only kept to flush the remaining packets.
+                self.removePath(path, notifySwiftNetwork: false)
+            }
+        }
     }
 
 }
@@ -1129,6 +1161,14 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
         }
     }
 
+    /// Cache recently a retired connection IDs to catch reissuance.
+    private func rememberRetiredSCID(_ connectionID: QUICConnectionID) {
+        self.retiredSCIDs.append(connectionID)
+        if self.retiredSCIDs.count > ConnectionConstants.maximumRetiredConnectionIDs {
+            self.retiredSCIDs.removeFirst()
+        }
+    }
+
     /// Handles removal of retired inbound connection IDs propagated by the peer.
     /// This method is called when a `RETIRE_CONNECTION_ID` frame is received from the peer.
     /// It forwards the removal request to the QUICHandler which owns the multiplexer.
@@ -1173,7 +1213,7 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
 
         if retired {
             // It's gone. Save it to check ID reuse. This might not be worth it, but we can save them for now.
-            self.retiredSCIDs.append(retiredConnectionID)
+            self.rememberRetiredSCID(retiredConnectionID)
             // Generate a replacement CID.
             self.announceNewConnectionID()
             return true
@@ -1429,7 +1469,12 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
     /// Injects a connection ID into the retired set. Useful for testing because it allows
     /// triggering the protocol violation path when the peer reissues this ID.
     func _forTesting_addRetiredSCID(_ connectionID: QUICConnectionID) {
-        self.retiredSCIDs.append(connectionID)
+        self.rememberRetiredSCID(connectionID)
+    }
+
+    /// Returns the retired source connection IDs that are checked against reissued ones, oldest first.
+    func _forTesting_getRetiredSCIDs() -> [QUICConnectionID] {
+        self.retiredSCIDs
     }
 
     /// Returns the current list of active source connection IDs.
@@ -1453,9 +1498,229 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
         }
 
         self.activeSCIDs.remove(at: index)
-        self.retiredSCIDs.append(connectionID)
+        self.rememberRetiredSCID(connectionID)
+    }
+
+    /// Moves the connection to the connected state, as if the handshake had completed.
+    func _forTesting_markConnected() {
+        _ = self.connectionStateMachine.receiveConnectedEvent()
+    }
+
+    /// The number of paths SwiftNetwork tracks for this connection.
+    func _forTesting_getSwiftNetworkPathCount() -> Int {
+        self.swiftNetworkQUICConnection.multiplexingPaths.count
+    }
+
+    /// The path considered active.
+    func _forTesting_getActivePath() -> QUICConnectionPath<Consumer> {
+        self.activePath
+    }
+
+    /// The connection's other paths, oldest first.
+    func _forTesting_getOtherPaths() -> [QUICConnectionPath<Consumer>] {
+        self.otherPaths
+    }
+
+    /// Simulate a path validation event for the path to `remote`.
+    func _forTesting_handlePathValidated(remote: AddressEndpoint) {
+        self.handlePathValidated(remote: remote)
+    }
+
+    /// Simulate a path unreachable event for the path to `remote`.
+    func _forTesting_handlePathUnreachable(remote: AddressEndpoint) {
+        self.handlePathUnreachable(remote: remote)
     }
     #endif
+}
+
+// MARK: - Paths
+
+// How a connection's paths come and go:
+//
+// * A server sets up a path when a packet arrives from a new address, before the packet is authenticated.
+//   SwiftNetwork then validates the path by probing it with PATH_CHALLENGEs.
+// * SwiftNetwork crashes when two paths probe at once: sending a PATH_CHALLENGE re-arms its migration timer, which
+//   starts sending on every other path with validation pending while the first send is still running. So a server
+//   tracks at most one unvalidated path, and drops it before it sets up the next one. SwiftNetwork probes the paths
+//   it tracks itself, so it has to be told about the drop (`removePath(_:notifySwiftNetwork:)`). The cost: a client
+//   that probes two new paths at once only gets the newer one validated.
+// * A path becomes the active path once SwiftNetwork validated it. SwiftNetwork doesn't report which path it sends
+//   on, so a peer that validates a path without migrating to it moves the active path too.
+// * When SwiftNetwork detaches from a path, the path stays until the packets queued on it are flushed.
+//
+// TODO: Revisit once we adopt SwiftNetwork 0.5.0. Its events should drive promotion.
+// * Paths can become active before validation. And validation does not mean that a path becomes the active path.
+
+@available(anyAppleOS 26, *)
+extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
+    /// Returns the path for packets from `remoteAddress`.
+    ///
+    /// A server will setup new paths for unknown addresses while a client will simply
+    /// drop packets.
+    ///
+    /// - Returns: The path, or `nil` if the packets have to be dropped.
+    private func path(for remoteAddress: SocketAddress) -> QUICConnectionPath<Consumer>? {
+        if self.activePath.remoteAddress == remoteAddress {
+            return self.activePath
+        }
+        // NIO's `SocketAddress` compares IPv6 flow information and scope IDs,
+        // SwiftNetwork's `AddressEndpoint` doesn't. If the active path doesn't
+        // match exactly, match paths using SwiftNetworks type.
+        if let path = self.trackedPath(remoteAddress.addressEndpointType) {
+            return path
+        }
+
+        switch self.role {
+        case .client:
+            // RFC 9000, Section 9: "If a client receives packets from an unknown server address, the
+            // client MUST discard these packets."
+            self.logger.trace(
+                "Dropping packet from an unknown server address",
+                metadata: [LoggingKeys.packetRemoteAddress: "\(remoteAddress)"]
+            )
+            return nil
+        case .server:
+            // Paths can't be validated before the handshake completes, and a terminating connection
+            // has no use for them.
+            guard self.connectionStateMachine.canProcessData else {
+                self.logger.trace(
+                    "Dropping packet from a new remote address, the connection is not connected",
+                    metadata: [LoggingKeys.packetRemoteAddress: "\(remoteAddress)"]
+                )
+                return nil
+            }
+            // One unvalidated path at a time, dropped before the next one is attached: SwiftNetwork
+            // crashes when probing two paths simultaneously.
+            if let unvalidatedPath = self.otherPaths.first(where: { !$0.isValidated }) {
+                self.removePath(unvalidatedPath, notifySwiftNetwork: true)
+            }
+            return self.setUpPath(to: remoteAddress)
+        }
+    }
+
+    /// Sets up a path to `remoteAddress` and attaches it to SwiftNetwork.
+    ///
+    /// - Returns: The new path, or `nil` if SwiftNetwork refused it.
+    private func setUpPath(to remoteAddress: SocketAddress) -> QUICConnectionPath<Consumer>? {
+        let path = QUICConnectionPath<Consumer>(
+            role: self.role,
+            remoteAddress: remoteAddress,
+            context: self.swiftNetworkParameters.context,
+            framePool: self.framePool,
+            isValidated: false,
+            maxSegments: self.pathMaxSegments,
+            bufferPoolCapacity: self.pathBufferPoolCapacity,
+            logger: self.logger
+        )
+
+        // Track the path before attaching it: SwiftNetwork may queue a PATH_CHALLENGE
+        // on it before the attach returns.
+        path.attach(PathView(self))
+        self.otherPaths.append(path)
+
+        do {
+            try self.swiftNetworkQUICConnection.reference.attachLowerDatagramProtocolForNewPath(
+                path.reference,
+                remote: remoteAddress.toEndpoint(),
+                local: self.localAddress.toEndpoint(),
+                parameters: self.swiftNetworkParameters,
+                path: self.swiftNetworkPath
+            )
+        } catch {
+            self.logger.error(
+                "Failed to attach a new path",
+                metadata: [LoggingKeys.pathRemoteEndpoint: "\(remoteAddress)", "error": "\(error)"]
+            )
+            self.removePath(path, notifySwiftNetwork: false)
+            return nil
+        }
+
+        self.log(
+            "Set up a path",
+            metadata: [LoggingKeys.pathRemoteEndpoint: "\(remoteAddress)"]
+        )
+        return path
+    }
+
+    /// Stops tracking `path`. Removing the active path promotes the newest validated path. Without one, the
+    /// active path is kept: the connection never moves to an address the peer didn't prove it receives on.
+    ///
+    /// The SwiftNetwork version we're on never asks to remove the active path: it only reports paths it probes as
+    /// unreachable, a validated path is never probed again, and the first path reports no events. Handling the
+    /// active path is a safeguard.
+    ///
+    /// - Parameter notifySwiftNetwork: Whether SwiftNetwork still uses the path and has to be told to drop it.
+    // TODO: The validation requirement will not hold once active path events are available.
+    private func removePath(_ path: QUICConnectionPath<Consumer>, notifySwiftNetwork: Bool) {
+        if path === self.activePath {
+            guard let index = self.otherPaths.lastIndex(where: { $0.isValidated }) else {
+                // The logger's metadata already carries the active path's address.
+                self.log("Keeping the active path, no validated path can replace it")
+                return
+            }
+            self.activePath = self.otherPaths.remove(at: index)
+        } else {
+            self.otherPaths.removeAll { $0 === path }
+        }
+
+        if notifySwiftNetwork {
+            path.invokeDisconnected()
+        }
+        path.finalizeQueuedInboundFramesAsFailed()
+        path.finalizeQueuedOutboundFramesAsFailed()
+        // Last: detaching drops the path's link to SwiftNetwork, which the notification goes through.
+        path.detach()
+    }
+
+    /// The tracked path to `remote`, if any, identified by the address and port.
+    private func trackedPath(_ remote: AddressEndpoint.AddressEndpointType) -> QUICConnectionPath<Consumer>? {
+        if self.activePath.addressEndpointType == remote {
+            return self.activePath
+        }
+        return self.otherPaths.first { $0.addressEndpointType == remote }
+    }
+
+    /// SwiftNetwork validated the path to `remote`: the peer proved that it receives packets there. Promotes
+    /// the path to the active path.
+    private func handlePathValidated(remote: AddressEndpoint) {
+        guard let path = self.trackedPath(remote.type) else {
+            self.log(
+                "Ignoring validation of untracked path",
+                metadata: [LoggingKeys.pathRemoteEndpoint: "\(remote)"]
+            )
+            return
+        }
+        path.isValidated = true
+        // TODO: Promote the path SwiftNetwork reports once the events are available.
+        // A peer can validate a path and without migrating to it (RFC 9000, Section 9.1).
+        if let index = self.otherPaths.firstIndex(where: { $0 === path }) {
+            self.otherPaths.append(self.activePath)
+            self.activePath = self.otherPaths.remove(at: index)
+        }
+    }
+
+    /// SwiftNetwork gave up on the path to `remote`.
+    private func handlePathUnreachable(remote: AddressEndpoint) {
+        guard let path = self.trackedPath(remote.type) else {
+            self.log(
+                "Ignoring untracked unreachable path",
+                metadata: [LoggingKeys.pathRemoteEndpoint: "\(remote)"]
+            )
+            return
+        }
+        // SwiftNetwork keeps unreachable paths around until it is told to drop them.
+        self.removePath(path, notifySwiftNetwork: true)
+    }
+
+    /// SwiftNetwork detached from `path`, e.g. after migrating away from it.
+    private func handleUpperProtocolDetached(from path: QUICConnectionPath<Consumer>) {
+        // The packets SwiftNetwork queued on the path still have to get out, e.g. a CONNECTION_CLOSE. The active
+        // path stays, and another path is removed by the drain that flushes it.
+        if path === self.activePath || path.hasQueuedOutboundData {
+            return
+        }
+        self.removePath(path, notifySwiftNetwork: false)
+    }
 }
 
 // Callbacks coming from QUICConnectionPath
@@ -1560,6 +1825,14 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
         func retireConnectionID(_ cid: QUICConnectionID) {
             self.connection.handleRetireConnectionID(cid)
         }
+
+        func pathValidated(remote: AddressEndpoint) {
+            self.connection.handlePathValidated(remote: remote)
+        }
+
+        func pathUnreachable(remote: AddressEndpoint) {
+            self.connection.handlePathUnreachable(remote: remote)
+        }
     }
 
     /// A view over the connection for the `QUICConnectionPath`.
@@ -1572,6 +1845,10 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
 
         func outboundDatagramsQueued(on path: QUICConnectionPath<Consumer>, count: Int) {
             self.connection.handleOutboundDatagramsQueued(on: path, count: count)
+        }
+
+        func upperProtocolDetached(from path: QUICConnectionPath<Consumer>) {
+            self.connection.handleUpperProtocolDetached(from: path)
         }
     }
 

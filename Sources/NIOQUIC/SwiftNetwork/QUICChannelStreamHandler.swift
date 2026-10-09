@@ -46,8 +46,11 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
     // MARK: Channel and ChannelCore conformanace
 
     /// The channel of the QUIC Connection.
+    ///
+    /// Only written before the stream is handed out, since `parent`, `allocator` and `remoteAddress`
+    /// read it from any thread.
     @usableFromInline
-    var connectionChannel: (any Channel)?
+    private(set) var connectionChannel: (any Channel)?
     /// The event loop of the connection channel.
     @usableFromInline
     let eventLoop: any EventLoop
@@ -70,9 +73,6 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
     /// The local ``SocketAddress``.
     @usableFromInline
     let _localAddress: SocketAddress?
-    /// The remote peer’s ``SocketAddress``.
-    @usableFromInline
-    let _remoteAddress: SocketAddress?
     let _closePromise: EventLoopPromise<Void>
 
     // MARK: Private Constant state
@@ -130,7 +130,6 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
         parameters: Parameters,
         streamID: QUICStreamID?,
         logger: Logger,
-        remoteAddress: SocketAddress,
         localAddress: SocketAddress?,
         connectionChannel: any Channel,
         keepAliveInterval: Duration? = nil
@@ -138,7 +137,6 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
         self.role = role
         self.streamID = streamID
         self.logger = logger
-        self._remoteAddress = remoteAddress
         self._localAddress = localAddress
         self.context = parameters.context
         if let keepAlive = keepAliveInterval {
@@ -170,7 +168,6 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
         path: PathProperties,
         streamID: QUICStreamID?,
         logger: Logger,
-        remoteAddress: SocketAddress,
         localAddress: SocketAddress?,
         listenerProtocol: StreamListenerLinkage,
         connectionChannel: (any Channel)?,
@@ -180,7 +177,6 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
         self.role = role
         self.streamID = streamID
         self.logger = logger
-        self._remoteAddress = remoteAddress
         self._localAddress = localAddress
         self.context = parameters.context
         if let keepAlive = keepAliveInterval {
@@ -238,6 +234,11 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
 
     func setConnectionChannel(_ channel: any Channel) {
         self.connectionChannel = channel
+    }
+
+    /// Only for a stream that was never handed out.
+    func clearConnectionChannel() {
+        self.connectionChannel = nil
     }
 
     /// Sets a callback invoked when the stream transitions to the connected state and its stream ID is known.
@@ -1305,7 +1306,8 @@ extension QUICChannelStreamHandler: Channel, ChannelCore {
 
     @usableFromInline
     var remoteAddress: SocketAddress? {
-        self._remoteAddress
+        // The connection channel follows the connection's active path.
+        self.connectionChannel?.remoteAddress
     }
 
     @inlinable

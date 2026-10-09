@@ -38,10 +38,12 @@ final class QUICConnectionPath<Consumer: QUICStreamConsumer & ~Copyable>:
 
     /// The endpoint information (IP, port) for this path.
     let remoteAddress: SocketAddress
-    /// Representation used by SwiftNetwork events.
-    let addressEndpoint: SwiftNetwork.AddressEndpoint
+    /// The address and port the way SwiftNetwork tells paths apart and names them in its events.
+    let addressEndpointType: AddressEndpoint.AddressEndpointType
     /// QUIC path validation status.
     var isValidated: Bool
+    /// After detaching the path SwiftNetwork, swift-nio-quic should keep the path until draining its outgoing packets.
+    private(set) var isDetachedBySwiftNetwork = false
 
     private let logger: Logger
     private var logPrefix: String
@@ -79,7 +81,7 @@ final class QUICConnectionPath<Consumer: QUICStreamConsumer & ~Copyable>:
         logger: Logger
     ) {
         self.remoteAddress = remoteAddress
-        self.addressEndpoint = remoteAddress.toAddressEndpoint()
+        self.addressEndpointType = remoteAddress.addressEndpointType
         self.isValidated = isValidated
         self.logPrefix = "[\(role.description)][Path]"
         self.logger = logger
@@ -125,6 +127,14 @@ final class QUICConnectionPath<Consumer: QUICStreamConsumer & ~Copyable>:
         let reference = self.reference
         reference.fromExternal {
             self.upperProtocol.deliverInboundDataAvailableEvent(reference)
+        }
+    }
+
+    /// Notify SwiftNetwork that the path is gone.
+    func invokeDisconnected() {
+        let reference = self.reference
+        reference.fromExternal {
+            self.upperProtocol.deliverDisconnectedEvent(reference, error: nil)
         }
     }
 
@@ -186,10 +196,12 @@ final class QUICConnectionPath<Consumer: QUICStreamConsumer & ~Copyable>:
 
     // MARK: - Teardown
 
-    /// Detaches the path from its connection, breaking the cycle with it. A detached path drops inbound
-    /// packets and outbound datagrams.
+    /// Detaches the path from its connection and from SwiftNetwork, breaking the cycles with both. A detached path
+    /// drops inbound packets and outbound datagrams.
     func detach() {
         self.state = .detached
+        // SwiftNetwork's path holds this path as its lower protocol, so drop the reference back to it.
+        self.upperProtocol = UpperProtocol(reference: .init())
     }
 }
 
@@ -236,10 +248,16 @@ extension QUICConnectionPath: LowerProtocolHandler where Consumer: ~Copyable {
 
     func detach(_ from: SwiftNetwork.ProtocolInstanceReference) throws(SwiftNetwork.NetworkError) {
         log("received detach")
-        // Do not reset the upper linkage here so the last packets can get out the door.
-        // For example, when the outputhandler is being removed all of the packets need to be flushed first so that
-        // frames such as APPLICATION_CLOSE or CONNECTION_CLOSE make it to the peer.  Resetting the linkage here stop
-        // prevents that from happening.
+        // Do not reset the upper linkage here so the last packets can get out the door, e.g.,
+        // APPLICATION_CLOSE or CONNECTION_CLOSE frames.
+        self.isDetachedBySwiftNetwork = true
+        switch self.state {
+        case .attached(let connectionView):
+            // The connection decides whether the path is still needed.
+            connectionView.upperProtocolDetached(from: self)
+        case .idle, .detached:
+            break
+        }
     }
 
     func attachUpperDatagramProtocol(

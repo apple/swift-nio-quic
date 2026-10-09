@@ -462,6 +462,34 @@ struct QUICChannelStreamHandlerTests {
             _ = linkage
         }
     }
+
+    @available(anyAppleOS 26, *)
+    @Test("an existing stream reports the remote address of the connection's active path")
+    func remoteAddressFollowsActivePath() throws {
+        try Self.withServerConnectionAndStream { connection, streamChannel in
+            let newAddress = try SocketAddress(ipAddress: "127.0.0.1", port: 9001)
+            connection._forTesting_markConnected()
+            connection.receivePacket(
+                AddressedEnvelope(remoteAddress: newAddress, data: ByteBuffer(repeating: 0xAA, count: 50))
+            )
+            #expect(streamChannel.remoteAddress == (try SocketAddress(ipAddress: "127.0.0.1", port: 1234)))
+
+            connection._forTesting_handlePathValidated(remote: newAddress.toAddressEndpoint())
+            #expect(streamChannel.remoteAddress == newAddress)
+        }
+    }
+
+    @available(anyAppleOS 26, *)
+    @Test("a stream keeps its parent and remote address after the connection drops its channel references")
+    func parentAndRemoteAddressSurviveDroppedChannelReferences() throws {
+        try Self.withServerConnectionAndStream { connection, streamChannel in
+            let remoteAddress = try SocketAddress(ipAddress: "127.0.0.1", port: 1234)
+            // Users can hold the stream and read its address from any thread, so teardown must not clear its channel.
+            connection.dropChannelReferences()
+            #expect(streamChannel.parent != nil)
+            #expect(streamChannel.remoteAddress == remoteAddress)
+        }
+    }
 }
 
 @available(anyAppleOS 26, *)

@@ -20,7 +20,7 @@ import NIOQUICHelpers
 protocol QUICConnectionProtocol {
     /// The local address of the connection.
     var localAddress: SocketAddress { get }
-    /// The remote address of the peer.
+    /// The remote address of the peer on the connection's active path. Must be safe to read from any thread.
     var remoteAddress: SocketAddress { get }
 
     /// Hands a datagram to the connection's inbound queue.
