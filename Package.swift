@@ -33,14 +33,12 @@ let swiftSettings: [SwiftSetting] =
     [
         .enableExperimentalFeature("AnyAppleOSAvailability"),
         .enableExperimentalFeature("Lifetimes"),
-        .enableExperimentalFeature("SuppressedAssociatedTypesWithDefaults"),
+        .enableExperimentalFeature("LifetimeDependence"),
         .enableUpcomingFeature("ExistentialAny"),
         .enableUpcomingFeature("InferIsolatedConformances"),
         .enableUpcomingFeature("InternalImportsByDefault"),
-        .enableUpcomingFeature("LifetimeDependence"),
         .enableUpcomingFeature("MemberImportVisibility"),
         .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
-        .enableUpcomingFeature("StrictConcurrency"),
     ]
 
 let package = Package(
