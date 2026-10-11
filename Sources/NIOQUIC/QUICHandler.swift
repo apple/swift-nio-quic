@@ -32,6 +32,9 @@ private enum MultiplexerContinuation<Consumer: QUICStreamConsumer & ~Copyable> {
 /// A handler for QUIC connections.
 /// Add this to a UDP channel.
 /// It can multiplex multiple QUIC connections.
+///
+/// NOTE: The handler sets the don't fragment bit on the channel's socket (RFC 9000, § 14),
+/// overriding the socket's previous setting. The bit stays set after the handler is removed.
 @available(anyAppleOS 26, *)
 public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
     private enum State {
@@ -674,6 +677,15 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
     public func handlerAdded(context: ChannelHandlerContext) {
         self.logger.trace("QUICHandler added to channel pipeline")
         self.context = context
+        // An inactive channel may not be bound yet, `channelActive` covers it then.
+        if context.channel.isActive {
+            self.setDontFragment(on: context.channel)
+        }
+    }
+
+    public func channelActive(context: ChannelHandlerContext) {
+        self.setDontFragment(on: context.channel)
+        context.fireChannelActive()
     }
 
     public func handlerRemoved(context: ChannelHandlerContext) {
@@ -1217,6 +1229,18 @@ extension QUICHandler where Consumer: ~Copyable {
         }
 
         return channel
+    }
+}
+
+@available(anyAppleOS 26, *)
+extension QUICHandler where Consumer: ~Copyable {
+    /// Sets the don't fragment bit on the UDP socket (RFC 9000, Section 14).
+    private func setDontFragment(on channel: any Channel) {
+        do {
+            try DontFragment.set(on: channel)
+        } catch {
+            self.logger.warning("QUICHandler failed to set the don't fragment bit", metadata: ["error": "\(error)"])
+        }
     }
 }
 
