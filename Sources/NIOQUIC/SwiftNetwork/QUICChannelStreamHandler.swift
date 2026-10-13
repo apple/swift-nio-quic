@@ -941,6 +941,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
                 }
 
                 if totalBytes == 0 {
+                    assert(frameArray.isEmpty, "If there's no bytes to stream we expect the frame array to be empty")
                     return true
                 }
             }
