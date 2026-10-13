@@ -27,7 +27,6 @@ import Glibc
 import Musl
 #endif
 
-/// `QUICHandler` sets the don't fragment bit on its UDP socket (RFC 9000, Section 14).
 @Suite
 struct DontFragmentTests {
     /// When the handler is added to the UDP channel.
@@ -66,19 +65,17 @@ struct DontFragmentTests {
         return channel != nil
     }
 
-    @available(anyAppleOS 26, *)
-    @Test(arguments: Installation.allCases)
-    func setsDontFragmentOnIPv4Socket(installation: Installation) async throws {
-        let channel = try await Self.makeChannel(host: "127.0.0.1", installation: installation)
+    @Test
+    func setsDontFragmentOnIPv4Socket() async throws {
+        let channel = try await Self.bindWithDontFragment(host: "127.0.0.1")
         let value = try await channel.getOption(Self.ipv4.option).get()
         #expect(value == Self.ipv4.dontFragment)
         try await channel.close()
     }
 
-    @available(anyAppleOS 26, *)
-    @Test(.enabled { await Self.isIPv6LoopbackAvailable() }, arguments: Installation.allCases)
-    func setsDontFragmentOnIPv6Socket(installation: Installation) async throws {
-        let channel = try await Self.makeChannel(host: "::1", installation: installation)
+    @Test(.enabled { await Self.isIPv6LoopbackAvailable() })
+    func setsDontFragmentOnIPv6Socket() async throws {
+        let channel = try await Self.bindWithDontFragment(host: "::1")
         let value = try await channel.getOption(Self.ipv6.option).get()
         #expect(value == Self.ipv6.dontFragment)
         #if os(Linux)
@@ -89,15 +86,43 @@ struct DontFragmentTests {
         try await channel.close()
     }
 
-    /// Without a local address the handler can't set the bit, but keeps the channel usable.
-    @available(anyAppleOS 26, *)
+    /// Without a local address there is no address family to set the bit for.
     @Test
-    func keepsChannelWithoutLocalAddressUsable() throws {
+    func throwsOnUnboundChannel() {
         let channel = EmbeddedChannel()
-        try channel.pipeline.syncOperations.addHandler(Self.makeHandler(channel: channel))
-        try channel.connect(to: SocketAddress(ipAddress: "127.0.0.1", port: 443), promise: nil)
-        #expect(channel.isActive)
-        try channel.throwIfErrorCaught()
+        #expect(throws: QUICError.noLocalAddress) {
+            try QUICDontFragment.set(on: channel)
+        }
+    }
+
+    /// Unix domain sockets have no IP layer to set the bit on.
+    @Test
+    func throwsOnUnixDomainSocket() throws {
+        let channel = EmbeddedChannel()
+        try channel.bind(to: SocketAddress(unixDomainSocketPath: "/tmp/quic.sock"), promise: nil)
+        #expect(throws: ChannelError.operationUnsupported) {
+            try QUICDontFragment.set(on: channel)
+        }
+    }
+
+    /// The handler leaves the bit to the user.
+    @available(anyAppleOS 26, *)
+    @Test(arguments: Installation.allCases)
+    func handlerDoesNotSetDontFragment(installation: Installation) async throws {
+        let channel = try await Self.makeChannel(host: "127.0.0.1", installation: installation)
+        let value = try await channel.getOption(Self.ipv4.option).get()
+        #expect(value != Self.ipv4.dontFragment)
+        try await channel.close()
+    }
+
+    private static func bindWithDontFragment(host: String) async throws -> any Channel {
+        let channel = try await DatagramBootstrap(group: MultiThreadedEventLoopGroup.singleton)
+            .bind(host: host, port: 0)
+            .get()
+        try await channel.eventLoop.submit {
+            try QUICDontFragment.set(on: channel)
+        }.get()
+        return channel
     }
 
     @available(anyAppleOS 26, *)

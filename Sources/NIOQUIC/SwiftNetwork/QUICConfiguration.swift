@@ -71,9 +71,9 @@ public enum KeyExchangeGroup: UInt16, Sendable {
 
 /// Configure the size of the Initial packet.
 ///
-/// NOTE: QUIC sends datagrams with the don't fragment bit set (RFC 9000, § 14). The network drops
-/// datagrams larger than the path MTU instead of fragmenting them, so a size the path can't carry
-/// stalls the handshake until the idle timeout.
+/// NOTE: With the don't fragment bit set (RFC 9000, § 14, see ``QUICDontFragment``), the network
+/// drops datagrams larger than the path MTU instead of fragmenting them, so a size the path can't
+/// carry stalls the handshake until the idle timeout.
 public struct InitialPacketSize: Sendable, Hashable {
     enum Kind: Sendable, Hashable {
         case fixed(Int)

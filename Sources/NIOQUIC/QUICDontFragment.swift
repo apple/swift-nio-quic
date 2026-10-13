@@ -22,7 +22,13 @@ import Musl
 
 /// Sets the don't fragment bit on UDP sockets: QUIC must not let the IP layer fragment its
 /// datagrams (RFC 9000, Section 14).
-enum DontFragment {
+///
+/// NIOQUIC doesn't set the bit itself. Set it on the channel a ``QUICHandler`` is added to if that
+/// channel is a UDP socket bound to an IPv4 or IPv6 address, e.g. a channel from
+/// `DatagramBootstrap`. Don't set it on channels without an IP layer, such as Unix domain sockets.
+///
+/// NOTE: Only Darwin and Linux support setting the bit, ``set(on:)`` traps on other platforms.
+public enum QUICDontFragment {
     #if canImport(Darwin)
     private static let ipv4 = (
         option: ChannelOptions.Types.SocketOption(level: .ip, name: .ip_dontfrag),
@@ -43,12 +49,21 @@ enum DontFragment {
         option: ChannelOptions.Types.SocketOption(level: .ipv6, name: .ipv6_mtu_discover),
         value: SocketOptionValue(IPV6_PMTUDISC_PROBE)
     )
-    #else
-    #error("Setting the don't fragment bit is not implemented for this platform.")
     #endif
 
-    /// Sets the bit on the socket of a bound channel, for the family of its local address.
-    static func set(on channel: any Channel) throws {
+    /// Sets the bit on the socket of a bound channel, for the family of its local address. This
+    /// overrides the socket's previous setting.
+    ///
+    /// Call it on the channel's event loop once the channel is bound, before it carries QUIC
+    /// traffic: datagrams sent before the call may be fragmented.
+    ///
+    /// - Parameter channel: A UDP channel bound to an IPv4 or IPv6 address.
+    /// - Throws: ``QUICError/noLocalAddress`` if the channel isn't bound,
+    ///   `ChannelError.operationUnsupported` if it's bound to a Unix domain socket or doesn't
+    ///   support synchronous options.
+    /// - Precondition: The platform is Darwin or Linux.
+    public static func set(on channel: any Channel) throws {
+        #if canImport(Darwin) || os(Linux)
         guard let options = channel.syncOptions else {
             throw ChannelError.operationUnsupported
         }
@@ -66,8 +81,11 @@ enum DontFragment {
             try options.setOption(Self.ipv4.option, value: Self.ipv4.value)
             #endif
         case .unixDomainSocket:
-            // No IP layer, so nothing can be fragmented.
-            ()
+            // No IP layer to set the bit on.
+            throw ChannelError.operationUnsupported
         }
+        #else
+        preconditionFailure("Setting the don't fragment bit is not supported on this platform.")
+        #endif
     }
 }
