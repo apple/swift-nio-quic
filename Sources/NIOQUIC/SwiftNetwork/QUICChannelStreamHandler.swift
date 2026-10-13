@@ -937,7 +937,9 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
             } else {
                 for buffer in buffers {
                     totalBytes += buffer.readableBytes
-                    frameArray.add(frame: Frame(copyBuffer: buffer.readableBytesUInt8Span))
+                    if buffer.readableBytes > 0 {
+                        frameArray.add(frame: Frame(copyBuffer: buffer.readableBytesUInt8Span))
+                    }
                 }
 
                 if totalBytes == 0 {
