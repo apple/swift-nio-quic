@@ -935,11 +935,9 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
                 }
                 let _ = try self.streamStateMachine.sendFin()
             } else {
-                for buffer in buffers {
+                for buffer in buffers where buffer.readableBytes > 0 {
                     totalBytes += buffer.readableBytes
-                    if buffer.readableBytes > 0 {
-                        frameArray.add(frame: Frame(copyBuffer: buffer.readableBytesUInt8Span))
-                    }
+                    frameArray.add(frame: Frame(copyBuffer: buffer.readableBytesUInt8Span))
                 }
 
                 if totalBytes == 0 {
