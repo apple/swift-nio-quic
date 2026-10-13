@@ -23,11 +23,9 @@ import Musl
 /// Sets the don't fragment bit on UDP sockets: QUIC must not let the IP layer fragment its
 /// datagrams (RFC 9000, Section 14).
 ///
-/// NIOQUIC doesn't set the bit itself. Set it on the channel a ``QUICHandler`` is added to if that
-/// channel is a UDP socket bound to an IPv4 or IPv6 address, e.g. a channel from
-/// `DatagramBootstrap`. Don't set it on channels without an IP layer, such as Unix domain sockets.
-///
-/// NOTE: Only Darwin and Linux support setting the bit, ``set(on:)`` traps on other platforms.
+/// NIOQUIC doesn't set the channel option. Please make sure to set it on the channel a ``QUICHandler``
+/// is added to if that channel is a UDP socket bound to an IPv4 or IPv6 address, e.g. a channel from
+/// `DatagramBootstrap`. Do not set it on channels without an IP layer, such as Unix domain sockets.
 public enum QUICDontFragment {
     #if canImport(Darwin)
     private static let ipv4 = (
@@ -51,11 +49,15 @@ public enum QUICDontFragment {
     )
     #endif
 
-    /// Sets the bit on the socket of a bound channel, for the family of its local address. This
-    /// overrides the socket's previous setting.
+    /// Sets socket opitons to avoid fragemention on the socket of a bound channel,
+    /// for the family of its local address.
     ///
     /// Call it on the channel's event loop once the channel is bound, before it carries QUIC
     /// traffic: datagrams sent before the call may be fragmented.
+    ///
+    /// The related socket options are `IP_DONTFRAG` / `IPV6_DONTFRAG` on Darwin and
+    /// `IP_MTU_DISCOVER` / `IPV6_MTU_DISCOVER` with the value `IPV6_PMTUDISC_PROBE`
+    /// on Linux.
     ///
     /// - Parameter channel: A UDP channel bound to an IPv4 or IPv6 address.
     /// - Throws: ``QUICError/noLocalAddress`` if the channel isn't bound,
