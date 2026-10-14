@@ -72,7 +72,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
     let _localAddress: SocketAddress?
     /// The address of the remote peer, which follows the connection's active path.
     @usableFromInline
-    let _remoteAddress: SharedAddress
+    let _remoteAddress: SendableAddress
     let _closePromise: EventLoopPromise<Void>
 
     // MARK: Private Constant state
@@ -130,7 +130,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
         parameters: Parameters,
         streamID: QUICStreamID?,
         logger: Logger,
-        remoteAddress: SharedAddress,
+        remoteAddress: SendableAddress,
         localAddress: SocketAddress?,
         connectionChannel: any Channel,
         keepAliveInterval: Duration? = nil
@@ -170,7 +170,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
         path: PathProperties,
         streamID: QUICStreamID?,
         logger: Logger,
-        remoteAddress: SharedAddress,
+        remoteAddress: SendableAddress,
         localAddress: SocketAddress?,
         listenerProtocol: StreamListenerLinkage,
         connectionChannel: (any Channel)?,

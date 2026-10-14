@@ -66,7 +66,7 @@ private enum ConnectionConstants {
 
 /// An address the connection sets on its event loop and its channels read from any thread.
 @available(anyAppleOS 26, *)
-final class SharedAddress: Sendable {
+final class SendableAddress: Sendable {
     private let address: Mutex<SocketAddress>
 
     init(_ address: SocketAddress) {
@@ -89,18 +89,14 @@ final class SharedAddress: Sendable {
 final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable> {
     private var swiftNetworkQUICConnection: SwiftNetwork.QUICConnection
     let localAddress: SocketAddress
-    // The address of the active path.
-    var remoteAddress: SocketAddress {
-        self.activePath.remoteAddress
-    }
     // The address of the active path, shared with this connection's channels.
-    let sharedRemoteAddress: SharedAddress
+    let remoteAddress: SendableAddress
     // The newest validated path, the likeliest one SwiftNetwork sends on. Checked first for every packet.
     private var activePath: QUICConnectionPath<Consumer> {
         didSet {
-            let remoteAddress = self.activePath.remoteAddress
-            self.sharedRemoteAddress.value = remoteAddress
-            self.logger[metadataKey: LoggingKeys.addressRemote] = "\(remoteAddress)"
+            let newRemoteAddress = self.activePath.remoteAddress
+            self.remoteAddress.value = newRemoteAddress
+            self.logger[metadataKey: LoggingKeys.addressRemote] = "\(newRemoteAddress)"
             self.logger.debug(
                 "Active path changed",
                 metadata: [LoggingKeys.previousRemoteAddress: "\(oldValue.remoteAddress)"]
@@ -344,7 +340,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
 
         self.logger = logger
         self.localAddress = localAddress
-        self.sharedRemoteAddress = SharedAddress(remoteAddress)
+        self.remoteAddress = SendableAddress(remoteAddress)
         self.statelessResetTokenGenerator = statelessResetTokenGenerator
 
         self.activeSCIDs = [sourceConnectionID]
@@ -433,7 +429,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
             parameters: swiftNetworkParameters,
             path: swiftNetworkPath,
             logger: logger,
-            remoteAddress: self.sharedRemoteAddress,
+            remoteAddress: self.remoteAddress,
             localAddress: localAddress,
             role: self.role,
             streamListenerProtocol: streamListenerLinkage,
@@ -461,7 +457,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
                 path: swiftNetworkPath,
                 streamID: streamID,
                 logger: logger,
-                remoteAddress: self.sharedRemoteAddress,
+                remoteAddress: self.remoteAddress,
                 localAddress: localAddress,
                 listenerProtocol: streamListenerLinkage,
                 connectionChannel: nil,
@@ -657,8 +653,8 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
 
         swiftNetworkParameters.defaultStack.prepend(applicationProtocol: quicOptions)
 
-        let localEndpoint = localAddress.toEndpoint()
-        let remoteEndpoint = remoteAddress.toEndpoint()
+        let localEndpoint = self.localAddress.toEndpoint()
+        let remoteEndpoint = self.activePath.remoteAddress.toEndpoint()
         let listenerLinkage = StreamListenerLinkage(reference: self.swiftNetworkQUICConnection.reference)
 
         guard
@@ -670,7 +666,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
                 path: swiftNetworkPath,
                 streamID: nil,
                 logger: logger,
-                remoteAddress: self.sharedRemoteAddress,
+                remoteAddress: self.remoteAddress,
                 localAddress: localAddress,
                 listenerProtocol: listenerLinkage,
                 connectionChannel: connectionChannel,
@@ -799,7 +795,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
             parameters: self.swiftNetworkParameters,
             streamID: streamID,
             logger: self.logger,
-            remoteAddress: self.sharedRemoteAddress,
+            remoteAddress: self.remoteAddress,
             localAddress: self.localAddress,
             connectionChannel: connectionChannel
         )

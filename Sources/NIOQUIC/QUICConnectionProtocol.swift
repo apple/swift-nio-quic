@@ -21,7 +21,7 @@ protocol QUICConnectionProtocol {
     /// The local address of the connection.
     var localAddress: SocketAddress { get }
     /// The remote address of the peer, which follows the connection's active path.
-    var sharedRemoteAddress: SharedAddress { get }
+    var remoteAddress: SendableAddress { get }
 
     /// Hands a datagram to the connection's inbound queue.
     ///
@@ -125,12 +125,12 @@ extension QUICConnectionChannel.Connection: QUICConnectionProtocol where Consume
         }
     }
 
-    var sharedRemoteAddress: SharedAddress {
+    var remoteAddress: SendableAddress {
         switch self {
         case .live(let connection):
-            connection.sharedRemoteAddress
+            connection.remoteAddress
         case .test(let connection):
-            connection.sharedRemoteAddress
+            connection.remoteAddress
         }
     }
 

@@ -51,7 +51,7 @@ final class QUICChannelNewFlowHandler<Consumer: QUICStreamConsumer & ~Copyable>:
     let path: PathProperties
     let role: Role
     let logger: Logger
-    let remoteAddress: SharedAddress
+    let remoteAddress: SendableAddress
     let localAddress: SocketAddress
     /// The connection channel which is the parent of inbound stream channels created by this handler.
     /// Set via ``setConnectionChannel(_:)`` once the connection channel has been created.
@@ -79,7 +79,7 @@ final class QUICChannelNewFlowHandler<Consumer: QUICStreamConsumer & ~Copyable>:
         parameters: Parameters,
         path: PathProperties,
         logger: Logger,
-        remoteAddress: SharedAddress,
+        remoteAddress: SendableAddress,
         localAddress: SocketAddress,
         role: Role,
         streamListenerProtocol: StreamListenerLinkage,

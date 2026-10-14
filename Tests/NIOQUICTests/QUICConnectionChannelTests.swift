@@ -524,12 +524,12 @@ struct QUICConnectionChannelTests {
             }
 
             let view = channel.transportView
-            let hello = AddressedEnvelope(remoteAddress: connection.remoteAddress, data: ByteBuffer(string: "Hello,"))
+            let hello = AddressedEnvelope(remoteAddress: connection.remoteAddress.value, data: ByteBuffer(string: "Hello,"))
             #expect(view.parentChannelRead(hello))
             #expect(connection.events.popFirst() == .receivedPacket(ByteBuffer(string: "Hello,")))
             #expect(transport.events.isEmpty)
 
-            let quic = AddressedEnvelope(remoteAddress: connection.remoteAddress, data: ByteBuffer(string: "QUIC!"))
+            let quic = AddressedEnvelope(remoteAddress: connection.remoteAddress.value, data: ByteBuffer(string: "QUIC!"))
             #expect(!view.parentChannelRead(quic))
             #expect(connection.events.popFirst() == .receivedPacket(ByteBuffer(string: "QUIC!")))
             #expect(transport.events.isEmpty)
@@ -841,8 +841,7 @@ final class RecordingRegistrar: QUICConnectionIDRegistrar {
 @available(anyAppleOS 26, *)
 final class RecordingConnection: QUICConnectionProtocol {
     let localAddress: SocketAddress
-    let remoteAddress: SocketAddress
-    let sharedRemoteAddress: SharedAddress
+    let remoteAddress: SendableAddress
 
     var outboundPackets: Deque<ByteBuffer>
     var events: Deque<Event>
@@ -869,8 +868,7 @@ final class RecordingConnection: QUICConnectionProtocol {
         remoteAddress: SocketAddress = .ipv4Loopback8081
     ) {
         self.localAddress = localAddress
-        self.remoteAddress = remoteAddress
-        self.sharedRemoteAddress = SharedAddress(remoteAddress)
+        self.remoteAddress = SendableAddress(remoteAddress)
         self.outboundPackets = []
         self.events = []
         self.streamCloseFutures = []
@@ -890,7 +888,7 @@ final class RecordingConnection: QUICConnectionProtocol {
 
     func drainPacketsToSend(to transport: some QUICTransport) {
         while let buffer = self.outboundPackets.popFirst() {
-            transport.writeDatagram(AddressedEnvelope(remoteAddress: self.remoteAddress, data: buffer), promise: nil)
+            transport.writeDatagram(AddressedEnvelope(remoteAddress: self.remoteAddress.value, data: buffer), promise: nil)
         }
     }
 
@@ -921,14 +919,14 @@ final class RecordingConnection: QUICConnectionProtocol {
 @available(anyAppleOS 26, *)
 struct NoOpConnection: QUICConnectionProtocol {
     let localAddress: SocketAddress
-    let sharedRemoteAddress: SharedAddress
+    let remoteAddress: SendableAddress
 
     init(
         localAddress: SocketAddress = .ipv4Loopback8080,
         remoteAddress: SocketAddress = .ipv4Loopback8081,
     ) {
         self.localAddress = localAddress
-        self.sharedRemoteAddress = SharedAddress(remoteAddress)
+        self.remoteAddress = SendableAddress(remoteAddress)
     }
 
     func receivePacket(_ envelope: AddressedEnvelope<ByteBuffer>) -> Int {
