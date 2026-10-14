@@ -18,8 +18,6 @@ import NIOQUICHelpers
 @_spi(Essentials) @_spi(ProtocolProvider) import SwiftNetwork
 import Synchronization
 
-import struct NIOConcurrencyHelpers.NIOLockedValueBox
-
 #if canImport(Darwin)
 import Darwin
 #elseif canImport(Glibc)
@@ -38,6 +36,13 @@ private enum LogLevel {
     case trace
     case warning
     case error
+}
+
+/// A stream channel's view of its connection.
+@available(anyAppleOS 26, *)
+protocol QUICConnectionStreamView {
+    /// The remote address of the connection's active path. Must be safe to read from any thread.
+    var remoteAddress: SocketAddress { get }
 }
 
 /// `QUICChannelStreamHandler` is the bridge between SwiftNetwork and our code on the application-side;
@@ -72,10 +77,9 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
     /// The local ``SocketAddress``.
     @usableFromInline
     let _localAddress: SocketAddress?
-    /// The remote peer’s ``SocketAddress``, shared with the connection, which keeps it in line with its
-    /// active path.
+    /// The stream's view of its connection.
     @usableFromInline
-    let _remoteAddress: NIOLockedValueBox<SocketAddress>
+    let connectionView: any QUICConnectionStreamView
     let _closePromise: EventLoopPromise<Void>
 
     // MARK: Private Constant state
@@ -133,7 +137,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
         parameters: Parameters,
         streamID: QUICStreamID?,
         logger: Logger,
-        remoteAddress: NIOLockedValueBox<SocketAddress>,
+        connectionView: any QUICConnectionStreamView,
         localAddress: SocketAddress?,
         connectionChannel: any Channel,
         keepAliveInterval: Duration? = nil
@@ -141,7 +145,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
         self.role = role
         self.streamID = streamID
         self.logger = logger
-        self._remoteAddress = remoteAddress
+        self.connectionView = connectionView
         self._localAddress = localAddress
         self.context = parameters.context
         if let keepAlive = keepAliveInterval {
@@ -173,7 +177,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
         path: PathProperties,
         streamID: QUICStreamID?,
         logger: Logger,
-        remoteAddress: NIOLockedValueBox<SocketAddress>,
+        connectionView: any QUICConnectionStreamView,
         localAddress: SocketAddress?,
         listenerProtocol: StreamListenerLinkage,
         connectionChannel: (any Channel)?,
@@ -183,7 +187,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
         self.role = role
         self.streamID = streamID
         self.logger = logger
-        self._remoteAddress = remoteAddress
+        self.connectionView = connectionView
         self._localAddress = localAddress
         self.context = parameters.context
         if let keepAlive = keepAliveInterval {
@@ -1308,7 +1312,7 @@ extension QUICChannelStreamHandler: Channel, ChannelCore {
 
     @usableFromInline
     var remoteAddress: SocketAddress? {
-        self._remoteAddress.withLockedValue { $0 }
+        self.connectionView.remoteAddress
     }
 
     @inlinable

@@ -33,6 +33,8 @@ struct ConnectionMigrationTests {
             // Only succeeds if the server moves the connection over to the client's new address.
             #expect(try await Self.request(on: peers.streamCreator) == ByteBuffer(string: "<b>Success</b>"))
             #expect(peers.serverConnectionChannel.remoteAddress == newSocket.localAddress)
+            // The server set up the request's stream before switching to the new path.
+            #expect(peers.latestServerStreamChannel.withLockedValue { $0 }?.remoteAddress == newSocket.localAddress)
         }
     }
 
@@ -129,6 +131,7 @@ struct ConnectionMigrationTests {
         var serverChannel: any Channel
         var serverAddress: SocketAddress
         var serverConnectionChannel: any Channel
+        var latestServerStreamChannel: NIOLockedValueBox<(any Channel)?>
         var clientChannel: any Channel
         var clientConnectionChannel: any Channel
         var streamCreator: QUICStreamCreator
@@ -147,6 +150,7 @@ struct ConnectionMigrationTests {
 
         private static func connect(on eventLoopGroup: MultiThreadedEventLoopGroup) async throws -> ConnectedPeers {
             let serverConnectionChannel = NIOLockedValueBox<(any Channel)?>(nil)
+            let latestServerStreamChannel = NIOLockedValueBox<(any Channel)?>(nil)
 
             let serverChannel = try await createServerChannel(
                 eventLoopGroup: eventLoopGroup,
@@ -158,7 +162,8 @@ struct ConnectionMigrationTests {
                     return connectionChannel.eventLoop.makeSucceededVoidFuture()
                 },
                 inboundStreamInitializer: { streamChannel in
-                    streamChannel.eventLoop.makeCompletedFuture {
+                    latestServerStreamChannel.withLockedValue { $0 = streamChannel }
+                    return streamChannel.eventLoop.makeCompletedFuture {
                         try streamChannel.pipeline.syncOperations.addHandler(TestServerHandler())
                     }
                 },
@@ -199,6 +204,7 @@ struct ConnectionMigrationTests {
                 serverChannel: serverChannel,
                 serverAddress: serverAddress,
                 serverConnectionChannel: try #require(serverConnectionChannel.withLockedValue { $0 }),
+                latestServerStreamChannel: latestServerStreamChannel,
                 clientChannel: clientChannel,
                 clientConnectionChannel: clientConnectionChannel,
                 streamCreator: streamCreator
