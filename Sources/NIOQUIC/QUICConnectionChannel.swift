@@ -44,6 +44,9 @@ final class QUICConnectionChannel<Consumer: QUICStreamConsumer & ~Copyable>: @un
     /// The address of the local peer.
     private let _localAddress: SocketAddress
 
+    /// The address of the remote peer, which follows the connection's active path.
+    private let _remoteAddress: SharedAddress
+
     /// Whether the `Channel` is currently writable.
     private let _isWritable: Atomic<Bool>
 
@@ -143,6 +146,7 @@ final class QUICConnectionChannel<Consumer: QUICStreamConsumer & ~Copyable>: @un
         self.closePromise = udpChannel.eventLoop.makePromise()
 
         self._localAddress = connection.localAddress
+        self._remoteAddress = connection.sharedRemoteAddress
         self._isWritable = Atomic(true)
         self._isActive = Atomic(false)
         self.isServer = isServer
@@ -198,8 +202,7 @@ extension QUICConnectionChannel: Channel where Consumer: ~Copyable {
     }
 
     var remoteAddress: SocketAddress? {
-        // Follows the connection's active path. This access is thread-safe.
-        self._connection.remoteAddress
+        self._remoteAddress.value
     }
 
     var isWritable: Bool {
@@ -290,7 +293,7 @@ extension QUICConnectionChannel: ChannelCore where Consumer: ~Copyable {
 
     func remoteAddress0() throws -> SocketAddress {
         self.eventLoop.assertInEventLoop()
-        return self._connection.remoteAddress
+        return self._remoteAddress.value
     }
 
     func register0(promise: EventLoopPromise<Void>?) {

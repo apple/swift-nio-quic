@@ -20,8 +20,8 @@ import NIOQUICHelpers
 protocol QUICConnectionProtocol {
     /// The local address of the connection.
     var localAddress: SocketAddress { get }
-    /// The remote address of the peer on the connection's active path. Must be safe to read from any thread.
-    var remoteAddress: SocketAddress { get }
+    /// The remote address of the peer, which follows the connection's active path.
+    var sharedRemoteAddress: SharedAddress { get }
 
     /// Hands a datagram to the connection's inbound queue.
     ///
@@ -125,12 +125,12 @@ extension QUICConnectionChannel.Connection: QUICConnectionProtocol where Consume
         }
     }
 
-    var remoteAddress: SocketAddress {
+    var sharedRemoteAddress: SharedAddress {
         switch self {
         case .live(let connection):
-            connection.remoteAddress
+            connection.sharedRemoteAddress
         case .test(let connection):
-            connection.remoteAddress
+            connection.sharedRemoteAddress
         }
     }
 

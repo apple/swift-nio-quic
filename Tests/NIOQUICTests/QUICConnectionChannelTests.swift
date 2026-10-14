@@ -842,6 +842,7 @@ final class RecordingRegistrar: QUICConnectionIDRegistrar {
 final class RecordingConnection: QUICConnectionProtocol {
     let localAddress: SocketAddress
     let remoteAddress: SocketAddress
+    let sharedRemoteAddress: SharedAddress
 
     var outboundPackets: Deque<ByteBuffer>
     var events: Deque<Event>
@@ -869,6 +870,7 @@ final class RecordingConnection: QUICConnectionProtocol {
     ) {
         self.localAddress = localAddress
         self.remoteAddress = remoteAddress
+        self.sharedRemoteAddress = SharedAddress(remoteAddress)
         self.outboundPackets = []
         self.events = []
         self.streamCloseFutures = []
@@ -919,14 +921,14 @@ final class RecordingConnection: QUICConnectionProtocol {
 @available(anyAppleOS 26, *)
 struct NoOpConnection: QUICConnectionProtocol {
     let localAddress: SocketAddress
-    let remoteAddress: SocketAddress
+    let sharedRemoteAddress: SharedAddress
 
     init(
         localAddress: SocketAddress = .ipv4Loopback8080,
         remoteAddress: SocketAddress = .ipv4Loopback8081,
     ) {
         self.localAddress = localAddress
-        self.remoteAddress = remoteAddress
+        self.sharedRemoteAddress = SharedAddress(remoteAddress)
     }
 
     func receivePacket(_ envelope: AddressedEnvelope<ByteBuffer>) -> Int {

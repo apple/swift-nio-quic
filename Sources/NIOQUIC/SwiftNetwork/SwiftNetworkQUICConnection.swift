@@ -64,23 +64,42 @@ private enum ConnectionConstants {
     }
 }
 
+/// An address the connection sets on its event loop and its channels read from any thread.
+@available(anyAppleOS 26, *)
+final class SharedAddress: Sendable {
+    private let address: Mutex<SocketAddress>
+
+    init(_ address: SocketAddress) {
+        self.address = Mutex(address)
+    }
+
+    fileprivate(set) var value: SocketAddress {
+        get {
+            self.address.withLock { $0 }
+        }
+        set {
+            self.address.withLock { $0 = newValue }
+        }
+    }
+}
+
 /// A wrapper around the objects and state we need to keep track of and access a QUIC connection in SwiftNetwork.
 /// Holds the references required to access QUIC connections and streams
 @available(anyAppleOS 26, *)
 final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable> {
     private var swiftNetworkQUICConnection: SwiftNetwork.QUICConnection
     let localAddress: SocketAddress
-    // The address of the active path. Safe to read from any thread.
+    // The address of the active path.
     var remoteAddress: SocketAddress {
-        self._remoteAddress.withLock { $0 }
+        self.activePath.remoteAddress
     }
-    // The address of the active path. Stream channels read it through their `StreamView`.
-    private let _remoteAddress: Mutex<SocketAddress>
+    // The address of the active path, shared with this connection's channels.
+    let sharedRemoteAddress: SharedAddress
     // The newest validated path, the likeliest one SwiftNetwork sends on. Checked first for every packet.
     private var activePath: QUICConnectionPath<Consumer> {
         didSet {
             let remoteAddress = self.activePath.remoteAddress
-            self._remoteAddress.withLock { $0 = remoteAddress }
+            self.sharedRemoteAddress.value = remoteAddress
             self.logger[metadataKey: LoggingKeys.addressRemote] = "\(remoteAddress)"
             self.logger.debug(
                 "Active path changed",
@@ -325,7 +344,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
 
         self.logger = logger
         self.localAddress = localAddress
-        self._remoteAddress = Mutex(remoteAddress)
+        self.sharedRemoteAddress = SharedAddress(remoteAddress)
         self.statelessResetTokenGenerator = statelessResetTokenGenerator
 
         self.activeSCIDs = [sourceConnectionID]
@@ -414,6 +433,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
             parameters: swiftNetworkParameters,
             path: swiftNetworkPath,
             logger: logger,
+            remoteAddress: self.sharedRemoteAddress,
             localAddress: localAddress,
             role: self.role,
             streamListenerProtocol: streamListenerLinkage,
@@ -426,21 +446,6 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
                 : nil
         )
         self.connectionNewFlowHandler = newFlowHandler
-
-        self.activePath = QUICConnectionPath(
-            role: self.role,
-            remoteAddress: remoteAddress,
-            context: swiftNetworkParameters.context,
-            framePool: self.framePool,
-            isValidated: true,
-            maxSegments: self.pathMaxSegments,
-            bufferPoolCapacity: self.pathBufferPoolCapacity,
-            logger: logger
-        )
-        self.otherPaths = []
-
-        self.inReadLoop = false
-        self.batchingEnabled = false
 
         // Clients set up an initial bidirectional stream (stream ID 0) so that the first
         // 'createBidirectionalStream' can reuse it.
@@ -456,7 +461,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
                 path: swiftNetworkPath,
                 streamID: streamID,
                 logger: logger,
-                connectionView: StreamView(self),
+                remoteAddress: self.sharedRemoteAddress,
                 localAddress: localAddress,
                 listenerProtocol: streamListenerLinkage,
                 connectionChannel: nil,
@@ -473,6 +478,21 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
         case .client, .server:
             ()
         }
+
+        self.activePath = QUICConnectionPath(
+            role: self.role,
+            remoteAddress: remoteAddress,
+            context: swiftNetworkParameters.context,
+            framePool: self.framePool,
+            isValidated: true,
+            maxSegments: self.pathMaxSegments,
+            bufferPoolCapacity: self.pathBufferPoolCapacity,
+            logger: logger
+        )
+        self.otherPaths = []
+
+        self.inReadLoop = false
+        self.batchingEnabled = false
 
         if usesStreamTable {
             let table = QUICStreamTable<Consumer>(
@@ -650,7 +670,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
                 path: swiftNetworkPath,
                 streamID: nil,
                 logger: logger,
-                connectionView: StreamView(self),
+                remoteAddress: self.sharedRemoteAddress,
                 localAddress: localAddress,
                 listenerProtocol: listenerLinkage,
                 connectionChannel: connectionChannel,
@@ -779,7 +799,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
             parameters: self.swiftNetworkParameters,
             streamID: streamID,
             logger: self.logger,
-            connectionView: StreamView(self),
+            remoteAddress: self.sharedRemoteAddress,
             localAddress: self.localAddress,
             connectionChannel: connectionChannel
         )
@@ -1834,24 +1854,6 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
 
         func pathUnreachable(remote: AddressEndpoint) {
             self.connection.handlePathUnreachable(remote: remote)
-        }
-
-        /// The view for the inbound streams the new flow handler creates.
-        var streamView: StreamView {
-            StreamView(self.connection)
-        }
-    }
-
-    /// A view over the connection for its stream channels.
-    struct StreamView: QUICConnectionStreamView {
-        private let connection: SwiftNetworkQUICConnection
-
-        fileprivate init(_ connection: SwiftNetworkQUICConnection) {
-            self.connection = connection
-        }
-
-        var remoteAddress: SocketAddress {
-            self.connection.remoteAddress
         }
     }
 

@@ -38,13 +38,6 @@ private enum LogLevel {
     case error
 }
 
-/// A stream channel's view of its connection.
-@available(anyAppleOS 26, *)
-protocol QUICConnectionStreamView {
-    /// The remote address of the connection's active path. Must be safe to read from any thread.
-    var remoteAddress: SocketAddress { get }
-}
-
 /// `QUICChannelStreamHandler` is the bridge between SwiftNetwork and our code on the application-side;
 /// one `QUICChannelStreamHandler` exists for each QUIC stream.
 @available(anyAppleOS 26, *)
@@ -77,9 +70,9 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
     /// The local ``SocketAddress``.
     @usableFromInline
     let _localAddress: SocketAddress?
-    /// The stream's view of its connection.
+    /// The address of the remote peer, which follows the connection's active path.
     @usableFromInline
-    let connectionView: any QUICConnectionStreamView
+    let _remoteAddress: SharedAddress
     let _closePromise: EventLoopPromise<Void>
 
     // MARK: Private Constant state
@@ -137,7 +130,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
         parameters: Parameters,
         streamID: QUICStreamID?,
         logger: Logger,
-        connectionView: any QUICConnectionStreamView,
+        remoteAddress: SharedAddress,
         localAddress: SocketAddress?,
         connectionChannel: any Channel,
         keepAliveInterval: Duration? = nil
@@ -145,7 +138,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
         self.role = role
         self.streamID = streamID
         self.logger = logger
-        self.connectionView = connectionView
+        self._remoteAddress = remoteAddress
         self._localAddress = localAddress
         self.context = parameters.context
         if let keepAlive = keepAliveInterval {
@@ -177,7 +170,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
         path: PathProperties,
         streamID: QUICStreamID?,
         logger: Logger,
-        connectionView: any QUICConnectionStreamView,
+        remoteAddress: SharedAddress,
         localAddress: SocketAddress?,
         listenerProtocol: StreamListenerLinkage,
         connectionChannel: (any Channel)?,
@@ -187,7 +180,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
         self.role = role
         self.streamID = streamID
         self.logger = logger
-        self.connectionView = connectionView
+        self._remoteAddress = remoteAddress
         self._localAddress = localAddress
         self.context = parameters.context
         if let keepAlive = keepAliveInterval {
@@ -1312,7 +1305,7 @@ extension QUICChannelStreamHandler: Channel, ChannelCore {
 
     @usableFromInline
     var remoteAddress: SocketAddress? {
-        self.connectionView.remoteAddress
+        self._remoteAddress.value
     }
 
     @inlinable
