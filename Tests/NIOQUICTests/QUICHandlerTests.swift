@@ -60,7 +60,7 @@ final class QUICHandlerTests: XCTestCase {
     ) throws -> QUICHandler<QUICStreamChannels> {
         let (handler, _) = try QUICHandler<QUICStreamChannels>.makeHandlerAndConnectionMultiplexer(
             channel: channel,
-            quicConfiguration: .server(
+            quicConfiguration: .forServer(
                 serverName: "quic-test.local",
                 authenticationConfiguration: .rawPublicKeys(
                     publicKeyFilePath: publicKeyPath,
@@ -468,7 +468,7 @@ final class QUICHandlerTests: XCTestCase {
         // No `connectionLimits`, so the handler uses `QUICConnectionLimits.default`.
         let (handler, _) = try QUICHandler<QUICStreamChannels>.makeHandlerAndConnectionMultiplexer(
             channel: channel,
-            quicConfiguration: .server(
+            quicConfiguration: .forServer(
                 serverName: "quic-test.local",
                 authenticationConfiguration: .rawPublicKeys(
                     publicKeyFilePath: Self.testPublicKeyPath,
@@ -587,7 +587,7 @@ final class QUICHandlerTests: XCTestCase {
     ) -> QUICHandler<QUICStreamChannels> {
         QUICHandler(
             channel: channel,
-            quicConfiguration: .server(
+            quicConfiguration: .forServer(
                 serverName: "quic-test.local",
                 authenticationConfiguration: .rawPublicKeys(
                     publicKeyFilePath: Self.testPublicKeyPath,
@@ -737,7 +737,7 @@ final class QUICHandlerTests: XCTestCase {
         let acceptedChannels = NIOLockedValueBox<[any Channel]>([])
         let handler = QUICHandler<IdleConsumer>(
             channel: channel,
-            quicConfiguration: .server(
+            quicConfiguration: .forServer(
                 serverName: "quic-test.local",
                 authenticationConfiguration: .rawPublicKeys(
                     publicKeyFilePath: Self.testPublicKeyPath,

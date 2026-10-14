@@ -40,17 +40,18 @@ final class QUICProtocolStackTests: XCTestCase {
             .channelOption(ChannelOptions.maxMessagesPerRead, value: 32)
             .bind(host: host, port: bindPort) { channel in
                 channel.eventLoop.makeCompletedFuture {
+                    var quicConfiguration = QUICConfiguration.forClient(
+                        verificationConfiguration: VerificationConfiguration.rawPublicKeys(
+                            publicKeyFilePath: Self.testPublicKeyPath
+                        ),
+                        applicationProtocols: ["swift_nio_quic"]
+                    )
+                    quicConfiguration.maxIdleTimeout = maxIdleTimeout
+                    quicConfiguration.forceVersionNegotiation = forceVersionNegotiation
                     let (quicHandler, connectionMultiplexer) = try QUICHandler<QUICStreamChannels>
                         .makeHandlerAndConnectionMultiplexer(
                             channel: channel,
-                            quicConfiguration: .client(
-                                verificationConfiguration: VerificationConfiguration.rawPublicKeys(
-                                    publicKeyFilePath: Self.testPublicKeyPath
-                                ),
-                                applicationProtocols: ["swift_nio_quic"],
-                                maxIdleTimeout: maxIdleTimeout,
-                                forceVersionNegotiation: forceVersionNegotiation
-                            ),
+                            quicConfiguration: quicConfiguration,
                             logger: logger,
                             inboundStreamChannelInitializer: { streamChannel in
                                 channel.eventLoop.makeCompletedFuture { fatalError() }
@@ -80,22 +81,23 @@ final class QUICProtocolStackTests: XCTestCase {
             .channelOption(ChannelOptions.maxMessagesPerRead, value: 32)
             .bind(host: host, port: 0) { channel in
                 channel.eventLoop.makeCompletedFuture {
+                    var quicConfiguration = QUICConfiguration.forServer(
+                        serverName: host,
+                        authenticationConfiguration: AuthenticationConfiguration.rawPublicKeys(
+                            publicKeyFilePath: Self.testPublicKeyPath,
+                            privateKeyFilePath: Self.testPrivateKeyPath,
+                        ),
+                        applicationProtocols: ["swift_nio_quic"]
+                    )
+                    quicConfiguration.maxIdleTimeout = maxIdleTimeout
+                    quicConfiguration.initialMaxStreamsBidi = initialMaxBidirectionalStreams
+                    quicConfiguration.initialMaxStreamsUni = initialMaxUnidirectionalStreams
+                    quicConfiguration.sendRetry = sendRetry
+                    quicConfiguration.qLogConfiguration = qlogConfiguration
                     let (quicHandler, connectionMultiplexer) = try QUICHandler<QUICStreamChannels>
                         .makeHandlerAndConnectionMultiplexer(
                             channel: channel,
-                            quicConfiguration: .server(
-                                serverName: host,
-                                authenticationConfiguration: AuthenticationConfiguration.rawPublicKeys(
-                                    publicKeyFilePath: Self.testPublicKeyPath,
-                                    privateKeyFilePath: Self.testPrivateKeyPath,
-                                ),
-                                applicationProtocols: ["swift_nio_quic"],
-                                maxIdleTimeout: maxIdleTimeout,
-                                initialMaxStreamsBidi: initialMaxBidirectionalStreams,
-                                initialMaxStreamsUni: initialMaxUnidirectionalStreams,
-                                sendRetry: sendRetry,
-                                qLogConfiguration: qlogConfiguration
-                            ),
+                            quicConfiguration: quicConfiguration,
                             logger: logger,
                             inboundStreamChannelInitializer: { streamChannel in
                                 streamChannel.eventLoop.makeCompletedFuture {
@@ -1067,11 +1069,9 @@ final class QUICProtocolStackTests: XCTestCase {
         let tag = UUID().uuidString
         let title = "ServerTestQlog_\(tag)"
         let clientConnectionCount = 2
-        let qlogConfiguration = QUICConfiguration.QLogConfiguration(
-            path: "\(path.path)/",
-            topic: title,
-            description: "TestLogDescription"
-        )
+        var qlogConfiguration = QUICConfiguration.QLogConfiguration(path: "\(path.path)/")
+        qlogConfiguration.topic = title
+        qlogConfiguration.description = "TestLogDescription"
         let loggers = getChannelLoggers()
         let (serverChannel, serverMultiplexer) = try await buildServerChannel(
             logger: loggers.serverLogger,

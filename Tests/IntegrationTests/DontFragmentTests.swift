@@ -149,7 +149,7 @@ struct DontFragmentTests {
     private static func makeHandler(channel: any Channel) -> QUICHandler<QUICStreamChannels> {
         QUICHandler(
             channel: channel,
-            quicConfiguration: .client(
+            quicConfiguration: .forClient(
                 verificationConfiguration: .rawPublicKeys(
                     publicKeyFilePath: Bundle.module.url(forResource: "publicKey", withExtension: "der")!.path
                 ),

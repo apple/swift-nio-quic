@@ -120,16 +120,14 @@ public struct QUICConfiguration: Sendable {
         /// The directory to where the qlog files are written to.
         public var path: String
 
-        /// The title to use when logging.
-        public var topic: String
+        /// The title to use when logging. Empty means no title, the default.
+        public var topic: String = ""
 
-        /// The description to use when logging.
-        public var description: String
+        /// The description to use when logging. Empty means no description, the default.
+        public var description: String = ""
 
-        public init(path: String, topic: String, description: String) {
+        public init(path: String) {
             self.path = path
-            self.topic = topic
-            self.description = description
         }
     }
     public var role: Role
@@ -137,188 +135,97 @@ public struct QUICConfiguration: Sendable {
     public var serverName: String?
     public var authenticationConfiguration: AuthenticationConfiguration?
     public var verificationConfiguration: VerificationConfiguration?
-    public var keyExchangeGroup: KeyExchangeGroup
+    /// The key exchange group used for TLS. Defaults to ``KeyExchangeGroup/x25519``.
+    public var keyExchangeGroup: KeyExchangeGroup = .x25519
     public var applicationProtocols: [String]
-    public var maxIdleTimeout: Duration
-    public var initialMaxData: Int
-    public var initialMaxStreamDataBidiLocal: Int
-    public var initialMaxStreamDataBidiRemote: Int
-    public var initialMaxStreamDataUni: Int
-    public var initialMaxStreamsBidi: Int
-    public var initialMaxStreamsUni: Int
-    // Set a keep-alive interval in seconds
-    var keepAliveInterval: Duration?
-    // Client flag mainly for testing to ensure that forcing version negotiation completes successfully
-    public var forceVersionNegotiation: Bool
-    /// Direct the QUIC server to send retry packets before accepting connections.
-    public var sendRetry: Bool
+    /// The max idle timeout for the connection. Defaults to 30 seconds.
+    public var maxIdleTimeout: Duration = .milliseconds(30000)
+    /// How many bytes the peer may initially send on the connection. Defaults to 16 MiB.
+    public var initialMaxData: Int = 16_777_216
+    /// How many bytes the peer may initially send on each bidirectional stream opened locally. Defaults to 2 MiB.
+    public var initialMaxStreamDataBidiLocal: Int = 2_097_152
+    /// How many bytes the peer may initially send on each bidirectional stream it opens. Defaults to 2 MiB.
+    public var initialMaxStreamDataBidiRemote: Int = 2_097_152
+    /// How many bytes the peer may initially send on each unidirectional stream. Defaults to 2 MiB.
+    public var initialMaxStreamDataUni: Int = 2_097_152
+    /// How many bidirectional streams the peer may open concurrently. Defaults to 8.
+    public var initialMaxStreamsBidi: Int = 8
+    /// How many unidirectional streams the peer may open concurrently. Defaults to 8.
+    public var initialMaxStreamsUni: Int = 8
+    /// The interval at which to send keep-alives. Defaults to `nil`, no keep-alives.
+    public var keepAliveInterval: Duration?
+    /// Force version negotiation, mainly to test that it completes successfully. Only supported by the client.
+    /// Defaults to `false`.
+    public var forceVersionNegotiation: Bool = false
+    /// Direct the QUIC server to send retry packets before accepting connections. Only supported by the server.
+    /// Defaults to `false`.
+    public var sendRetry: Bool = false
+    /// The path to the file where the key log should be written to. Defaults to `nil`, no key log.
     public var keyLogPath: String?
+    /// Configuration for qlog. Defaults to `nil`, no qlog.
     public var qLogConfiguration: QLogConfiguration?
     /// Configure verification of the peer's certificate. Only supported by the client.
-    public var peerCertificateVerification: CertificateVerification
+    /// Defaults to ``CertificateVerification/fullVerification``.
+    public var peerCertificateVerification: CertificateVerification = .fullVerification
     /// Maximum datagram frame size in bytes. Set to 0 to disable datagrams.
     /// Defaults to 65535 (the max value allowed) as recommended in RFC 9221.
-    public var maxDatagramFrameSize: Int
+    public var maxDatagramFrameSize: Int = 65535
     /// The maximum UDP payload size the connection sends from its first packet on. Defaults to
     /// 1200 bytes, the minimum every QUIC path must support (RFC 9000, Section 14). Initial packets are
     /// padded to this size, and the connection never lowers its maximum packet size below it.
     ///
     /// NOTE: Only raise it if the whole path and the peer support it. Values of 1200 or less have no effect.
-    public var initialPacketSize: InitialPacketSize
+    public var initialPacketSize: InitialPacketSize = .fixed(1200)
 
     private init(
         role: Role,
         serverName: String?,
         authenticationConfiguration: AuthenticationConfiguration?,
         verificationConfiguration: VerificationConfiguration?,
-        keyExchangeGroup: KeyExchangeGroup,
-        applicationProtocols: [String],
-        maxIdleTimeout: Duration,
-        initialMaxData: Int,
-        initialMaxStreamDataBidiLocal: Int,
-        initialMaxStreamDataBidiRemote: Int,
-        initialMaxStreamDataUni: Int,
-        initialMaxStreamsBidi: Int,
-        initialMaxStreamsUni: Int,
-        keepAliveInterval: Duration?,
-        forceVersionNegotiation: Bool,
-        sendRetry: Bool,
-        keyLogPath: String?,
-        qLogConfiguration: QLogConfiguration?,
-        peerCertificateVerification: CertificateVerification,
-        maxDatagramFrameSize: Int,
-        initialPacketSize: InitialPacketSize
+        applicationProtocols: [String]
     ) {
         self.role = role
         self.serverName = serverName
         self.authenticationConfiguration = authenticationConfiguration
         self.verificationConfiguration = verificationConfiguration
-        self.keyExchangeGroup = keyExchangeGroup
         self.applicationProtocols = applicationProtocols
-        self.maxIdleTimeout = maxIdleTimeout
-        self.initialMaxData = initialMaxData
-        self.initialMaxStreamDataBidiLocal = initialMaxStreamDataBidiLocal
-        self.initialMaxStreamDataBidiRemote = initialMaxStreamDataBidiRemote
-        self.initialMaxStreamDataUni = initialMaxStreamDataUni
-        self.initialMaxStreamsBidi = initialMaxStreamsBidi
-        self.initialMaxStreamsUni = initialMaxStreamsUni
-        self.keepAliveInterval = keepAliveInterval
-        self.forceVersionNegotiation = forceVersionNegotiation
-        self.sendRetry = sendRetry
-        self.keyLogPath = keyLogPath
-        self.qLogConfiguration = qLogConfiguration
-        self.peerCertificateVerification = peerCertificateVerification
-        self.maxDatagramFrameSize = maxDatagramFrameSize
-        self.initialPacketSize = initialPacketSize
     }
 
-    /// Factory method to initialise a `QUICConfiguration` for servers.
+    /// Factory method to initialise a `QUICConfiguration` for servers. Set further options through the members.
     ///
     /// - Parameters:
     ///     - serverName: The name of the server.
     ///     - authenticationConfiguration: The paths for certificates and keys required for authentication.
-    ///     - keyExchangeGroup: The key exchange group used for TLS.
     ///     - applicationProtocols: The list of supported application protocols.
-    ///     - maxIdleTimeout: The max idle timeout for the connection.
-    ///     - keyLogPath: The path to the file where the key log should be written to.
-    ///     - qLogConfiguration: Configuration for qlog.
-    ///     - initialPacketSize: The maximum UDP payload size to send from the first packet on, see ``InitialPacketSize``.
-    public static func server(
+    public static func forServer(
         serverName: String,
         authenticationConfiguration: AuthenticationConfiguration,
-        keyExchangeGroup: KeyExchangeGroup = .x25519,
-        applicationProtocols: [String],
-        maxIdleTimeout: Duration = .milliseconds(30000),
-        initialMaxData: Int = 16_777_216,
-        initialMaxStreamDataBidiLocal: Int = 2_097_152,
-        initialMaxStreamDataBidiRemote: Int = 2_097_152,
-        initialMaxStreamDataUni: Int = 2_097_152,
-        initialMaxStreamsBidi: Int = 8,
-        initialMaxStreamsUni: Int = 8,
-        keepAliveInterval: Duration? = nil,
-        sendRetry: Bool = false,
-        keyLogPath: String? = nil,
-        qLogConfiguration: QLogConfiguration? = nil,
-        maxDatagramFrameSize: Int = 65535,
-        initialPacketSize: InitialPacketSize = .fixed(1200)
+        applicationProtocols: [String]
     ) -> Self {
         self.init(
             role: .server,
             serverName: serverName,
             authenticationConfiguration: authenticationConfiguration,
             verificationConfiguration: nil,
-            keyExchangeGroup: keyExchangeGroup,
-            applicationProtocols: applicationProtocols,
-            maxIdleTimeout: maxIdleTimeout,
-            initialMaxData: initialMaxData,
-            initialMaxStreamDataBidiLocal: initialMaxStreamDataBidiLocal,
-            initialMaxStreamDataBidiRemote: initialMaxStreamDataBidiRemote,
-            initialMaxStreamDataUni: initialMaxStreamDataUni,
-            initialMaxStreamsBidi: initialMaxStreamsBidi,
-            initialMaxStreamsUni: initialMaxStreamsUni,
-            keepAliveInterval: keepAliveInterval,
-            forceVersionNegotiation: false,
-            sendRetry: sendRetry,
-            keyLogPath: keyLogPath,
-            qLogConfiguration: qLogConfiguration,
-            peerCertificateVerification: .noVerification,
-            maxDatagramFrameSize: maxDatagramFrameSize,
-            initialPacketSize: initialPacketSize
+            applicationProtocols: applicationProtocols
         )
     }
 
-    /// Factory method to initialise a `QUICConfiguration` for servers.
+    /// Factory method to initialise a `QUICConfiguration` for clients. Set further options through the members.
     ///
     /// - Parameters:
     ///     - verificationConfiguration: Information required to verify the server identity.
-    ///     - keyExchangeGroup: The key exchange group used for TLS.
     ///     - applicationProtocols: The list of supported application protocols.
-    ///     - maxIdleTimeout: The max idle timeout for the connection.
-    ///     - keyLogPath: The path to the file where the key log should be written to.
-    ///     - qLogConfiguration: Configuration for qlog.
-    ///     - peerCertificateVerification: Customize verification of the peer certificate.
-    ///     - initialPacketSize: The maximum UDP payload size to send from the first packet on, see ``initialPacketSize``.
-    public static func client(
+    public static func forClient(
         verificationConfiguration: VerificationConfiguration,
-        keyExchangeGroup: KeyExchangeGroup = .x25519,
-        applicationProtocols: [String],
-        maxIdleTimeout: Duration = .milliseconds(30000),
-        initialMaxData: Int = 16_777_216,
-        initialMaxStreamDataBidiLocal: Int = 2_097_152,
-        initialMaxStreamDataBidiRemote: Int = 2_097_152,
-        initialMaxStreamDataUni: Int = 2_097_152,
-        initialMaxStreamsBidi: Int = 8,
-        initialMaxStreamsUni: Int = 8,
-        keepAliveInterval: Duration? = nil,
-        forceVersionNegotiation: Bool = false,
-        keyLogPath: String? = nil,
-        qLogConfiguration: QLogConfiguration? = nil,
-        peerCertificateVerification: CertificateVerification = .fullVerification,
-        maxDatagramFrameSize: Int = 65535,
-        initialPacketSize: Int = 1200
+        applicationProtocols: [String]
     ) -> Self {
         self.init(
             role: .client,
             serverName: nil,
             authenticationConfiguration: nil,
             verificationConfiguration: verificationConfiguration,
-            keyExchangeGroup: keyExchangeGroup,
-            applicationProtocols: applicationProtocols,
-            maxIdleTimeout: maxIdleTimeout,
-            initialMaxData: initialMaxData,
-            initialMaxStreamDataBidiLocal: initialMaxStreamDataBidiLocal,
-            initialMaxStreamDataBidiRemote: initialMaxStreamDataBidiRemote,
-            initialMaxStreamDataUni: initialMaxStreamDataUni,
-            initialMaxStreamsBidi: initialMaxStreamsBidi,
-            initialMaxStreamsUni: initialMaxStreamsUni,
-            keepAliveInterval: keepAliveInterval,
-            forceVersionNegotiation: forceVersionNegotiation,
-            sendRetry: false,
-            keyLogPath: keyLogPath,
-            qLogConfiguration: qLogConfiguration,
-            peerCertificateVerification: peerCertificateVerification,
-            maxDatagramFrameSize: maxDatagramFrameSize,
-            initialPacketSize: .fixed(initialPacketSize)
+            applicationProtocols: applicationProtocols
         )
     }
 }
