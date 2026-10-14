@@ -38,17 +38,12 @@ private enum LogLevel {
     case error
 }
 
-/// A stream channel's view of its connection.
-@available(anyAppleOS 26, *)
-protocol QUICConnectionStreamView {
-    /// The remote address of the connection's active path. Must be safe to read from any thread.
-    var remoteAddress: SocketAddress { get }
-}
-
 /// `QUICChannelStreamHandler` is the bridge between SwiftNetwork and our code on the application-side;
 /// one `QUICChannelStreamHandler` exists for each QUIC stream.
 @available(anyAppleOS 26, *)
-final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHandler, @unchecked Sendable {
+final class QUICChannelStreamHandler<Consumer: QUICStreamConsumer & ~Copyable>:
+    ProtocolInstanceContainer, InboundStreamHandler, @unchecked Sendable
+{
 
     // MARK: Channel and ChannelCore conformanace
 
@@ -79,7 +74,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
     let _localAddress: SocketAddress?
     /// The stream's view of its connection.
     @usableFromInline
-    let connectionView: any QUICConnectionStreamView
+    let connectionView: SwiftNetworkQUICConnection<Consumer>.StreamView
     let _closePromise: EventLoopPromise<Void>
 
     // MARK: Private Constant state
@@ -137,7 +132,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
         parameters: Parameters,
         streamID: QUICStreamID?,
         logger: Logger,
-        connectionView: any QUICConnectionStreamView,
+        connectionView: SwiftNetworkQUICConnection<Consumer>.StreamView,
         localAddress: SocketAddress?,
         connectionChannel: any Channel,
         keepAliveInterval: Duration? = nil
@@ -177,7 +172,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
         path: PathProperties,
         streamID: QUICStreamID?,
         logger: Logger,
-        connectionView: any QUICConnectionStreamView,
+        connectionView: SwiftNetworkQUICConnection<Consumer>.StreamView,
         localAddress: SocketAddress?,
         listenerProtocol: StreamListenerLinkage,
         connectionChannel: (any Channel)?,
@@ -1160,7 +1155,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
 }
 
 @available(anyAppleOS 26, *)
-extension QUICChannelStreamHandler: UpperProtocolHandler {
+extension QUICChannelStreamHandler: UpperProtocolHandler where Consumer: ~Copyable {
     internal func handleNetworkProtocolEvent(
         _ from: SwiftNetwork.ProtocolInstanceReference,
         event: SwiftNetwork.NetworkProtocolEvent
@@ -1192,7 +1187,7 @@ extension QUICChannelStreamHandler: UpperProtocolHandler {
 }
 
 @available(anyAppleOS 26, *)
-extension QUICChannelStreamHandler {
+extension QUICChannelStreamHandler where Consumer: ~Copyable {
     func attachLowerStreamProtocolToExistingFlow(
         listener: StreamListenerLinkage,
         flowReference: ProtocolInstanceReference
@@ -1204,7 +1199,7 @@ extension QUICChannelStreamHandler {
 // MARK: - `Channel` and `ChannelCore` conformance
 
 @available(anyAppleOS 26, *)
-extension QUICChannelStreamHandler: Channel, ChannelCore {
+extension QUICChannelStreamHandler: Channel, ChannelCore where Consumer: ~Copyable {
     var parent: (any Channel)? {
         self.connectionChannel
     }
@@ -1558,7 +1553,7 @@ extension QUICChannelStreamHandler: Channel, ChannelCore {
 }
 
 @available(anyAppleOS 26, *)
-extension QUICChannelStreamHandler {
+extension QUICChannelStreamHandler where Consumer: ~Copyable {
     /// Appends bytes directly into the NIO read buffer.
     ///
     /// - Note: This method is intended to only be used in tests to simulate a live peer sending data over the network.

@@ -486,7 +486,7 @@ extension QUICChannelStreamHandlerTests {
         streamID: UInt64 = 0,
         direction: QUICStreamDirection = .bidirectional,
         autoRead: Bool = true,
-        body: (QUICChannelStreamHandler) throws -> Void
+        body: (QUICChannelStreamHandler<QUICStreamChannels>) throws -> Void
     ) throws {
         try Self.withServerConnectionAndStream(
             streamID: streamID,
@@ -501,7 +501,9 @@ extension QUICChannelStreamHandlerTests {
         streamID: UInt64 = 0,
         direction: QUICStreamDirection = .bidirectional,
         autoRead: Bool = true,
-        body: (SwiftNetworkQUICConnection<QUICStreamChannels>, QUICChannelStreamHandler) throws -> Void
+        body: (
+            SwiftNetworkQUICConnection<QUICStreamChannels>, QUICChannelStreamHandler<QUICStreamChannels>
+        ) throws -> Void
     ) throws {
         let testPrivateKeyPath = Bundle.module.url(forResource: "privateKey", withExtension: "der")!.path
         let testPublicKeyPath = Bundle.module.url(forResource: "publicKey", withExtension: "der")!.path

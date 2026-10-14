@@ -36,7 +36,7 @@ final class QUICChannelNewFlowHandler<Consumer: QUICStreamConsumer & ~Copyable>:
 {
 
     internal typealias LowerProtocol = StreamListenerLinkage
-    typealias UpperStreamHandlerType = QUICChannelStreamHandler
+    typealias UpperStreamHandlerType = QUICChannelStreamHandler<Consumer>
 
     // Internal mutable state
     internal var eventManager = ProtocolEventManager()

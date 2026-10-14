@@ -95,7 +95,7 @@ final class QUICConnectionChannel<Consumer: QUICStreamConsumer & ~Copyable>: @un
 
     /// A queue of streams pushed to the channel by the underlying connection. These are dequeued
     /// at the end of the parent channel's read loop (in `_parentChannelReadComplete`).
-    private var _pendingStreams: Deque<(QUICStreamID, QUICChannelStreamHandler)>
+    private var _pendingStreams: Deque<(QUICStreamID, QUICChannelStreamHandler<Consumer>)>
 
     /// This flag tracks if QUIC datagrams were forwarded inbound on the connection channel during
     /// this tick. Part of the responsibility of the `QUICConnectionChannel` is accepting datagrams
@@ -508,7 +508,7 @@ extension QUICConnectionChannel.ConnectionView where Consumer: ~Copyable {
     /// - Parameters:
     ///   - id: The stream's ID.
     ///   - channel: The stream's handler.
-    func newInboundStream(id: QUICStreamID, channel: QUICChannelStreamHandler) {
+    func newInboundStream(id: QUICStreamID, channel: QUICChannelStreamHandler<Consumer>) {
         self._channel._newInboundStream(streamID: id, channel: channel)
     }
 }
@@ -1096,7 +1096,7 @@ extension QUICConnectionChannel where Consumer: ~Copyable {
         self._streamInitializer = initializer
     }
 
-    private func _newInboundStream(streamID: QUICStreamID, channel: QUICChannelStreamHandler) {
+    private func _newInboundStream(streamID: QUICStreamID, channel: QUICChannelStreamHandler<Consumer>) {
         self.eventLoop.assertInEventLoop()
         self._pendingStreams.append((streamID, channel))
     }
@@ -1115,7 +1115,7 @@ extension QUICConnectionChannel where Consumer: ~Copyable {
 
     private func runInboundStreamInitializer(
         streamID: QUICStreamID,
-        stream: QUICChannelStreamHandler
+        stream: QUICChannelStreamHandler<Consumer>
     ) {
         self.eventLoop.assertInEventLoop()
 

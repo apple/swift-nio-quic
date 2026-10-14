@@ -116,8 +116,8 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
     /// The connection's stream table, or nil if its streams are serviced as child
     /// channels.
     private(set) var streamTable: QUICStreamTable<Consumer>?
-    private var streamInputHandlers = QUICStreamIDDictionary<QUICChannelStreamHandler>()
-    private var pendingInitialClientStream: QUICChannelStreamHandler?
+    private var streamInputHandlers = QUICStreamIDDictionary<QUICChannelStreamHandler<Consumer>>()
+    private var pendingInitialClientStream: QUICChannelStreamHandler<Consumer>?
 
     /// The connection's datagram (RFC 9221) flow, attached once the handshake completes.
     private var datagramTransport: DatagramTransport?
@@ -193,8 +193,9 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
     /// Outbound stream creation is sometimes blocked on stream allowances. While waiting for Swift QUIC to create
     /// the stream the completion must be stored so it can be invoked once the stream ID is assigned.
     private struct PendingStreamData {
-        let streamHandler: QUICChannelStreamHandler
-        let onStreamReady: (Result<(streamID: QUICStreamID, handler: QUICChannelStreamHandler), any Error>) -> Void
+        let streamHandler: QUICChannelStreamHandler<Consumer>
+        let onStreamReady:
+            (Result<(streamID: QUICStreamID, handler: QUICChannelStreamHandler<Consumer>), any Error>) -> Void
     }
 
     /// Maps a temporary ID to the data required for its initialization.
@@ -569,7 +570,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
         streamType: QUICStreamType,
         connectionChannel: any Channel,
         onStreamReady:
-            @escaping (Result<(streamID: QUICStreamID, handler: QUICChannelStreamHandler), any Error>) -> Void
+            @escaping (Result<(streamID: QUICStreamID, handler: QUICChannelStreamHandler<Consumer>), any Error>) -> Void
     ) throws {
         // Generate a new temporary ID for the stream.
         let temporaryID = self.temporaryIDGenerator.generate()
@@ -739,8 +740,9 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
     private func finishOutboundStreamSetup(
         temporaryID: OpaqueIDGenerator<UInt64>.ID,
         streamID: QUICStreamID,
-        streamHandler: QUICChannelStreamHandler,
-        onStreamReady: (Result<(streamID: QUICStreamID, handler: QUICChannelStreamHandler), any Error>) -> Void
+        streamHandler: QUICChannelStreamHandler<Consumer>,
+        onStreamReady:
+            (Result<(streamID: QUICStreamID, handler: QUICChannelStreamHandler<Consumer>), any Error>) -> Void
     ) {
         // This should be true. Either we arrive here throught he connected callback,
         // which schedules this on the event loop or through the fast path, which
@@ -949,7 +951,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
         self.streamInputHandlers.removeValue(forID: streamID) != nil
     }
 
-    func streamInputHandler(streamID: QUICStreamID) -> QUICChannelStreamHandler? {
+    func streamInputHandler(streamID: QUICStreamID) -> QUICChannelStreamHandler<Consumer>? {
         self.streamInputHandlers[streamID]
     }
 
@@ -1422,7 +1424,7 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
     ///  * The connection channel harvests newlyConnectedStreamIDs() and creates a new server stream channel
     ///  * When the new server stream channel is created markServerStreamInputReady is called and marks the stream as readable.
     ///
-    private func newFlowHandlerAddNewStream(streamHandler: QUICChannelStreamHandler) {
+    private func newFlowHandlerAddNewStream(streamHandler: QUICChannelStreamHandler<Consumer>) {
         // Set stream-specific disconnected event handler (similar to client-side in addNewStreamInputHandler)
         if let streamID = streamHandler.streamID {
             streamHandler.setDisconnectedEventHandler { _ in
@@ -1816,7 +1818,7 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
             self.connection.handleConnectionDisconnected(error: error)
         }
 
-        func newInboundStream(_ handler: QUICChannelStreamHandler) {
+        func newInboundStream(_ handler: QUICChannelStreamHandler<Consumer>) {
             self.connection.newFlowHandlerAddNewStream(streamHandler: handler)
         }
 
@@ -1843,7 +1845,7 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
     }
 
     /// A view over the connection for its stream channels.
-    struct StreamView: QUICConnectionStreamView {
+    struct StreamView {
         private let connection: SwiftNetworkQUICConnection
 
         fileprivate init(_ connection: SwiftNetworkQUICConnection) {
