@@ -325,6 +325,21 @@ struct QUICChannelStreamHandlerTests {
         }
     }
 
+    /// A flush with only empty buffers must not build frames it never sends; dropping an unfinalized
+    /// `Frame` traps in its deinit.
+    @available(anyAppleOS 26, *)
+    @Test("Flushing an empty buffer does not trap")
+    func flushingEmptyBufferDoesNotTrap() throws {
+        try Self.withServerStream { streamChannel in
+            let writeCompleted = Mutex(false)
+            streamChannel.writeAndFlush(ByteBuffer()).whenSuccess {
+                writeCompleted.withLock { $0 = true }
+            }
+
+            #expect(writeCompleted.withLock { $0 })
+        }
+    }
+
     /// `handleDisconnectedEvent` can fire on an already-detached stream (e.g. connection-level close);
     /// we shouldn't leak the close promise.
     @available(anyAppleOS 26, *)
