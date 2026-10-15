@@ -70,7 +70,7 @@ final class QUICProtocolStackTests: XCTestCase {
         maxIdleTimeout: Duration = .milliseconds(30000),
         initialMaxBidirectionalStreams: Int = 8,
         initialMaxUnidirectionalStreams: Int = 8,
-        qlogConfiguration: QUICConfiguration.QLogConfiguration? = nil,
+        qlogConfiguration: QLogConfiguration? = nil,
         sendRetry: Bool = false,
         eventLoopGroup: any EventLoopGroup = MultiThreadedEventLoopGroup.singleton,
         onConnectionChannel: (@Sendable (any Channel) -> Void)? = nil
@@ -1069,7 +1069,7 @@ final class QUICProtocolStackTests: XCTestCase {
         let tag = UUID().uuidString
         let title = "ServerTestQlog_\(tag)"
         let clientConnectionCount = 2
-        var qlogConfiguration = QUICConfiguration.QLogConfiguration(path: "\(path.path)/")
+        var qlogConfiguration = QLogConfiguration(path: "\(path.path)/")
         qlogConfiguration.topic = title
         qlogConfiguration.description = "TestLogDescription"
         let loggers = getChannelLoggers()
