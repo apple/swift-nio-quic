@@ -12,7 +12,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-import Logging
 import NIOCore
 @_spi(SwiftTLSOptions) import SwiftTLS
 
@@ -131,18 +130,14 @@ public struct QUICConfiguration: Sendable {
             self.path = path
         }
     }
-    /// Whether this configures a client or a server. Defaults to ``Role/server``.
-    public var role: Role = .server
-    /// The host name of the QUIC server created with this configuration. Required for servers.
+    public var role: Role
+    // The host name of the QUIC server created with this configuration.
     public var serverName: String?
-    /// The paths for certificates and keys the server authenticates with. Required for servers.
     public var authenticationConfiguration: AuthenticationConfiguration?
-    /// Information required to verify the server identity. Required for clients.
     public var verificationConfiguration: VerificationConfiguration?
     /// The key exchange group used for TLS. Defaults to ``KeyExchangeGroup/x25519``.
     public var keyExchangeGroup: KeyExchangeGroup = .x25519
-    /// The list of supported application protocols, negotiated with ALPN. Required.
-    public var applicationProtocols: [String] = []
+    public var applicationProtocols: [String]
     /// The max idle timeout for the connection. Defaults to 30 seconds.
     public var maxIdleTimeout: Duration = .milliseconds(30000)
     /// How many bytes the peer may initially send on the connection. Defaults to 16 MiB.
@@ -182,14 +177,19 @@ public struct QUICConfiguration: Sendable {
     /// NOTE: Only raise it if the whole path and the peer support it. Values of 1200 or less have no effect.
     public var initialPacketSize: InitialPacketSize = .fixed(1200)
 
-    /// Creates a configuration with the default value for every member.
-    ///
-    /// The defaults are incomplete, a ``QUICHandler`` rejects them with ``QUICError/invalidConfiguration``.
-    /// A server needs ``applicationProtocols``, ``serverName`` and ``authenticationConfiguration``. A client sets
-    /// ``role`` to ``Role/client`` and needs ``applicationProtocols`` and ``verificationConfiguration``.
-    /// ``forServer(serverName:authenticationConfiguration:applicationProtocols:)`` and
-    /// ``forClient(verificationConfiguration:applicationProtocols:)`` set all of them at once.
-    public init() {}
+    private init(
+        role: Role,
+        serverName: String?,
+        authenticationConfiguration: AuthenticationConfiguration?,
+        verificationConfiguration: VerificationConfiguration?,
+        applicationProtocols: [String]
+    ) {
+        self.role = role
+        self.serverName = serverName
+        self.authenticationConfiguration = authenticationConfiguration
+        self.verificationConfiguration = verificationConfiguration
+        self.applicationProtocols = applicationProtocols
+    }
 
     /// Factory method to initialise a `QUICConfiguration` for servers. Set further options through the members.
     ///
@@ -202,11 +202,13 @@ public struct QUICConfiguration: Sendable {
         authenticationConfiguration: AuthenticationConfiguration,
         applicationProtocols: [String]
     ) -> Self {
-        var configuration = Self()
-        configuration.serverName = serverName
-        configuration.authenticationConfiguration = authenticationConfiguration
-        configuration.applicationProtocols = applicationProtocols
-        return configuration
+        self.init(
+            role: .server,
+            serverName: serverName,
+            authenticationConfiguration: authenticationConfiguration,
+            verificationConfiguration: nil,
+            applicationProtocols: applicationProtocols
+        )
     }
 
     /// Factory method to initialise a `QUICConfiguration` for clients. Set further options through the members.
@@ -218,38 +220,12 @@ public struct QUICConfiguration: Sendable {
         verificationConfiguration: VerificationConfiguration,
         applicationProtocols: [String]
     ) -> Self {
-        var configuration = Self()
-        configuration.role = .client
-        configuration.verificationConfiguration = verificationConfiguration
-        configuration.applicationProtocols = applicationProtocols
-        return configuration
-    }
-
-    /// Throws ``QUICError/invalidConfiguration`` if a required member is missing, after logging each one.
-    func validate(logger: Logger) throws {
-        var validConfiguration = true
-        if self.applicationProtocols.isEmpty {
-            logger.error("Missing configuration: 'applicationProtocols'")
-            validConfiguration = false
-        }
-        switch self.role {
-        case .client:
-            if self.verificationConfiguration == nil {
-                logger.error("Missing configuration for client: 'verificationConfiguration'")
-                validConfiguration = false
-            }
-        case .server:
-            if self.serverName == nil {
-                logger.error("Missing configuration for server: 'serverName'")
-                validConfiguration = false
-            }
-            if self.authenticationConfiguration == nil {
-                logger.error("Missing configuration for server: 'authenticationConfiguration'")
-                validConfiguration = false
-            }
-        }
-        guard validConfiguration else {
-            throw QUICError.invalidConfiguration
-        }
+        self.init(
+            role: .client,
+            serverName: nil,
+            authenticationConfiguration: nil,
+            verificationConfiguration: verificationConfiguration,
+            applicationProtocols: applicationProtocols
+        )
     }
 }

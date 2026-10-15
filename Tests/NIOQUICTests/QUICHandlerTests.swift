@@ -66,7 +66,7 @@ final class QUICHandlerTests: XCTestCase {
                     publicKeyFilePath: publicKeyPath,
                     privateKeyFilePath: privateKeyPath
                 ),
-                applicationProtocols: ["swift_nio_quic"]
+                applicationProtocols: []
             ),
             connectionLimits: connectionLimits,
             logger: Logger(label: "Test"),
@@ -474,7 +474,7 @@ final class QUICHandlerTests: XCTestCase {
                     publicKeyFilePath: Self.testPublicKeyPath,
                     privateKeyFilePath: Self.testPrivateKeyPath
                 ),
-                applicationProtocols: ["swift_nio_quic"]
+                applicationProtocols: []
             ),
             logger: Logger(label: "Test"),
             inboundStreamChannelInitializer: { channel in channel.eventLoop.makeSucceededVoidFuture() }
@@ -584,8 +584,8 @@ final class QUICHandlerTests: XCTestCase {
         connectionIDLength: Int,
         connectionLimits: QUICConnectionLimits,
         onConnectionAccepted: @escaping @Sendable (any Channel) -> Void
-    ) throws -> QUICHandler<QUICStreamChannels> {
-        try QUICHandler(
+    ) -> QUICHandler<QUICStreamChannels> {
+        QUICHandler(
             channel: channel,
             quicConfiguration: .forServer(
                 serverName: "quic-test.local",
@@ -593,7 +593,7 @@ final class QUICHandlerTests: XCTestCase {
                     publicKeyFilePath: Self.testPublicKeyPath,
                     privateKeyFilePath: Self.testPrivateKeyPath
                 ),
-                applicationProtocols: ["swift_nio_quic"]
+                applicationProtocols: []
             ),
             connectionLimits: connectionLimits,
             asyncVerifier: nil,
@@ -625,7 +625,7 @@ final class QUICHandlerTests: XCTestCase {
         channel.localAddress = try SocketAddress(ipAddress: "127.0.0.0", port: 1234)
 
         let acceptedChannels = NIOLockedValueBox<[any Channel]>([])
-        let handler = try Self.makeHandlerWithConnectionAccess(
+        let handler = Self.makeHandlerWithConnectionAccess(
             channel: channel,
             channelHandler: NIOLoopBound(MockChannelHandler(), eventLoop: eventLoop),
             connectionIDLength: Int(QUICConnectionID.randomIDLength),
@@ -661,7 +661,7 @@ final class QUICHandlerTests: XCTestCase {
         channel.localAddress = try SocketAddress(ipAddress: "127.0.0.0", port: 1234)
 
         let acceptedChannels = NIOLockedValueBox<[any Channel]>([])
-        let handler = try Self.makeHandlerWithConnectionAccess(
+        let handler = Self.makeHandlerWithConnectionAccess(
             channel: channel,
             channelHandler: NIOLoopBound(MockChannelHandler(), eventLoop: eventLoop),
             connectionIDLength: Int(QUICConnectionID.randomIDLength),
@@ -735,7 +735,7 @@ final class QUICHandlerTests: XCTestCase {
         channel.localAddress = try SocketAddress(ipAddress: "127.0.0.0", port: 1234)
 
         let acceptedChannels = NIOLockedValueBox<[any Channel]>([])
-        let handler = try QUICHandler<IdleConsumer>(
+        let handler = QUICHandler<IdleConsumer>(
             channel: channel,
             quicConfiguration: .forServer(
                 serverName: "quic-test.local",
@@ -743,7 +743,7 @@ final class QUICHandlerTests: XCTestCase {
                     publicKeyFilePath: Self.testPublicKeyPath,
                     privateKeyFilePath: Self.testPrivateKeyPath
                 ),
-                applicationProtocols: ["swift_nio_quic"]
+                applicationProtocols: []
             ),
             connectionLimits: .perHandler(activeLimit: 1),
             asyncVerifier: nil,
