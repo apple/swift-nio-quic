@@ -22,6 +22,8 @@ import Synchronization
 import Darwin
 #elseif canImport(Glibc)
 import Glibc
+#elseif canImport(Android)
+import Android
 #elseif canImport(Musl)
 import Musl
 #endif
@@ -935,12 +937,13 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
                 }
                 let _ = try self.streamStateMachine.sendFin()
             } else {
-                for buffer in buffers {
+                for buffer in buffers where buffer.readableBytes > 0 {
                     totalBytes += buffer.readableBytes
                     frameArray.add(frame: Frame(copyBuffer: buffer.readableBytesUInt8Span))
                 }
 
                 if totalBytes == 0 {
+                    assert(frameArray.isEmpty, "If there's no bytes to stream we expect the frame array to be empty")
                     return true
                 }
             }
