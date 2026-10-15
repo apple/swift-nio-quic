@@ -30,8 +30,47 @@ private enum MultiplexerContinuation<Consumer: QUICStreamConsumer & ~Copyable> {
 }
 
 /// A handler for QUIC connections.
-/// Add this to a UDP channel.
-/// It can multiplex multiple QUIC connections.
+///
+/// Add this to a UDP channel to multiplex multiple QUIC connections.
+///
+/// QUIC must not let the IP layer fragment its datagrams (RFC 9000, § 14). You can use
+/// ``QUICDontFragment/set(on:)`` to set the related socket options on the channel:
+///
+/// ```swift
+/// let bootstrap = DatagramBootstrap(group: MultiThreadedEventLoopGroup.singleton)
+/// let channel = try await bootstrap.bind(host: "127.0.0.1", port: 8443).get()
+/// let keyPath = "/path/to/key"
+/// let certPath = "/path/to/cert"
+/// try await channel.eventLoop.submit {
+///     let quicHandler = QUICHandler(
+///         channel: channel,
+///         quicConfiguration: .server(
+///             serverName: "example.com",
+///             authenticationConfiguration: .x509Certificates(
+///                 certificateChainFilePath: certPath,
+///                 privateKeyFilePath: keyPath
+///             ),
+///             applicationProtocols: ["http/0.9"]
+///         ),
+///         asyncVerifier: nil, // only used by clients: mTLS is currently not supported
+///         authenticator: try .init(certificateFilePath: certPath, privateKeyFilePath: keyPath),
+///         logger: Logger(label: "MyQUICServer"),
+///         inboundConnectionInitializer: { channel, _ in
+///             // Initialize the connection channel.
+///             channel.eventLoop.makeSucceededVoidFuture()
+///         },
+///         inboundStreamInitializer: { channel in
+///             // Initialize the stream channels.
+///             channel.eventLoop.makeSucceededVoidFuture()
+///         },
+///         noMoreConnections: {}
+///     )
+///     // Set don't fragement before installing the QUIC handler.
+///     try QUICDontFragment.set(on: channel)
+///     try channel.pipeline.syncOperations.addHandler(quicHandler)
+/// }.get()
+/// ```
+///
 @available(anyAppleOS 26, *)
 public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
     private enum State {
