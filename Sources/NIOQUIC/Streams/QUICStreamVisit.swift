@@ -12,7 +12,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-import NIOQUICHelpers
+public import NIOQUICHelpers
 
 /// A visit to a single QUIC stream returned from a ``QUICStreamIterator``.
 ///

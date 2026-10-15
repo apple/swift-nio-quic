@@ -12,7 +12,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-import NIOCore
+public import NIOCore
 
 /// A pool of `ByteBuffer`s.
 struct BufferPool: Sendable {

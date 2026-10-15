@@ -12,10 +12,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-import NIOCore
+public import NIOCore
 import SwiftASN1
 @_spi(SwiftTLSProtocol) import SwiftTLS
-import X509
+public import X509
 
 // On Apple platforms we use Security.framework to access the default trust store.
 #if canImport(Darwin)

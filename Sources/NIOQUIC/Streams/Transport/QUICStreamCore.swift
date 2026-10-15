@@ -12,8 +12,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-import NIOCore
-import NIOQUICHelpers
+public import NIOCore
+public import NIOQUICHelpers
 @_spi(Essentials) @_spi(ProtocolProvider) import SwiftNetwork
 
 /// The transport state for a stream.
