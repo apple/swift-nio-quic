@@ -114,32 +114,34 @@ public struct InitialPacketSize: Sendable, Hashable {
     }
 }
 
+public struct QLogConfiguration: Sendable {
+    /// The directory to where the qlog files are written to.
+    public var path: String
+
+    /// The title to use when logging. Empty means no title, the default.
+    public var topic: String = ""
+
+    /// The description to use when logging. Empty means no description, the default.
+    public var description: String = ""
+
+    public init(path: String) {
+        self.path = path
+    }
+}
+
 @available(anyAppleOS 26, *)
 public struct QUICConfiguration: Sendable {
-    public struct QLogConfiguration: Sendable {
-        /// The directory to where the qlog files are written to.
-        public var path: String
 
-        /// The title to use when logging. Empty means no title, the default.
-        public var topic: String = ""
+    // MARK: - Shared options
 
-        /// The description to use when logging. Empty means no description, the default.
-        public var description: String = ""
-
-        public init(path: String) {
-            self.path = path
-        }
-    }
+    /// The configuration must either be for a client or a server.
     public var role: Role
-    // The host name of the QUIC server created with this configuration.
-    public var serverName: String?
-    public var authenticationConfiguration: AuthenticationConfiguration?
-    public var verificationConfiguration: VerificationConfiguration?
+
     /// The key exchange group used for TLS. Defaults to ``KeyExchangeGroup/x25519``.
     public var keyExchangeGroup: KeyExchangeGroup = .x25519
+    /// The strings for application-layer protocol negotiation (ALPN).
     public var applicationProtocols: [String]
-    /// The max idle timeout for the connection. Defaults to 30 seconds.
-    public var maxIdleTimeout: Duration = .milliseconds(30000)
+
     /// How many bytes the peer may initially send on the connection. Defaults to 16 MiB.
     public var initialMaxData: Int = 16_777_216
     /// How many bytes the peer may initially send on each bidirectional stream opened locally. Defaults to 2 MiB.
@@ -152,21 +154,12 @@ public struct QUICConfiguration: Sendable {
     public var initialMaxStreamsBidi: Int = 8
     /// How many unidirectional streams the peer may open concurrently. Defaults to 8.
     public var initialMaxStreamsUni: Int = 8
+
+    /// The max idle timeout for the connection. Defaults to 30 seconds.
+    public var maxIdleTimeout: Duration = .milliseconds(30000)
     /// The interval at which to send keep-alives. Defaults to `nil`, no keep-alives.
     public var keepAliveInterval: Duration?
-    /// Force version negotiation, mainly to test that it completes successfully. Only supported by the client.
-    /// Defaults to `false`.
-    public var forceVersionNegotiation: Bool = false
-    /// Direct the QUIC server to send retry packets before accepting connections. Only supported by the server.
-    /// Defaults to `false`.
-    public var sendRetry: Bool = false
-    /// The path to the file where the key log should be written to. Defaults to `nil`, no key log.
-    public var keyLogPath: String?
-    /// Configuration for qlog. Defaults to `nil`, no qlog.
-    public var qLogConfiguration: QLogConfiguration?
-    /// Configure verification of the peer's certificate. Only supported by the client.
-    /// Defaults to ``CertificateVerification/fullVerification``.
-    public var peerCertificateVerification: CertificateVerification = .fullVerification
+
     /// Maximum datagram frame size in bytes. Set to 0 to disable datagrams.
     /// Defaults to 65535 (the max value allowed) as recommended in RFC 9221.
     public var maxDatagramFrameSize: Int = 65535
@@ -176,6 +169,38 @@ public struct QUICConfiguration: Sendable {
     ///
     /// NOTE: Only raise it if the whole path and the peer support it. Values of 1200 or less have no effect.
     public var initialPacketSize: InitialPacketSize = .fixed(1200)
+
+    /// The path to the file where the key log should be written to. Defaults to `nil`, no key log.
+    public var keyLogPath: String?
+    /// Configuration for qlog. Defaults to `nil`, no qlog.
+    public var qLogConfiguration: QLogConfiguration?
+
+    // MARK: - Server only
+
+    /// The host name of the QUIC server created with this configuration.
+    public var serverName: String?
+    /// Direct the QUIC server to send retry packets before accepting connections. Only supported by the server.
+    /// Defaults to `false`.
+    public var sendRetry: Bool = false
+    /// Authentication configuration use by servers to authenticate themselves. X509
+    /// certificate-based configuration requires configuring the `authenticator` on a QUICHandler.
+    /// A raw public key-based configuration only needs to be configured here.
+    public var authenticationConfiguration: AuthenticationConfiguration?
+
+    // MARK: - Client only
+
+    /// Force version negotiation, mainly to test that it completes successfully. Only supported by the client.
+    /// Defaults to `false`.
+    public var forceVersionNegotiation: Bool = false
+    /// Configure verification of the peer's certificate. Only supported by the client.
+    /// Defaults to ``CertificateVerification/fullVerification``.
+    public var peerCertificateVerification: CertificateVerification = .fullVerification
+    /// Verification configuration use by clients to verify the servers. X509 certificate-based
+    /// configuration requires configuring the `asyncVerifier` on a QUICHandler. A raw
+    /// public key-based configuration only needs this configuration.
+    public var verificationConfiguration: VerificationConfiguration?
+
+    // MARK: - Factories
 
     private init(
         role: Role,
@@ -191,7 +216,7 @@ public struct QUICConfiguration: Sendable {
         self.applicationProtocols = applicationProtocols
     }
 
-    /// Factory method to initialise a `QUICConfiguration` for servers. Set further options through the members.
+    /// Create a `QUICConfiguration` for servers.
     ///
     /// - Parameters:
     ///     - serverName: The name of the server.
@@ -211,7 +236,7 @@ public struct QUICConfiguration: Sendable {
         )
     }
 
-    /// Factory method to initialise a `QUICConfiguration` for clients. Set further options through the members.
+    /// Create a `QUICConfiguration` for clients.
     ///
     /// - Parameters:
     ///     - verificationConfiguration: Information required to verify the server identity.
