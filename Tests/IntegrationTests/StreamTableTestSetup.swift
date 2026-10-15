@@ -180,7 +180,7 @@ func makeConsumerPair<Client: QUICStreamConsumer, Server: QUICStreamConsumer>(
         .channelOption(ChannelOptions.maxMessagesPerRead, value: 32)
         .bind(host: host, port: 0)
         .flatMapThrowing { channel in
-            let handler = QUICHandler<Server>(
+            let handler = try QUICHandler<Server>(
                 channel: channel,
                 quicConfiguration: serverConfiguration,
                 asyncVerifier: nil,
@@ -202,7 +202,7 @@ func makeConsumerPair<Client: QUICStreamConsumer, Server: QUICStreamConsumer>(
             .channelOption(ChannelOptions.maxMessagesPerRead, value: 32)
             .bind(host: host, port: 0)
             .flatMapThrowing { channel -> (any Channel) in
-                let handler = QUICHandler<Client>(
+                let handler = try QUICHandler<Client>(
                     channel: channel,
                     quicConfiguration: clientConfiguration,
                     asyncVerifier: nil,

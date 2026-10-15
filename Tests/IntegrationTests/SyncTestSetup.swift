@@ -127,7 +127,7 @@ private func createQUICChannel(
         .bind(host: host, port: port)
         .flatMapThrowing { channel in
             try udpChannelInitializer(channel)
-            let quicHandler = QUICHandler(
+            let quicHandler = try QUICHandler(
                 channel: channel,
                 quicConfiguration: quicConfiguration,
                 asyncVerifier: nil,
