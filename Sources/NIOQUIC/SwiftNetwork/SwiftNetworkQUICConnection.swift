@@ -24,6 +24,8 @@ import X509
 
 #if canImport(Glibc)
 import Glibc
+#elseif canImport(Android)
+import Android
 #elseif canImport(Musl)
 import Musl
 #elseif canImport(Darwin)
@@ -400,7 +402,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
         self.swiftNetworkParameters = swiftNetworkParameters
         self.swiftNetworkQUICConnection = swiftNetworkQUICConnection
 
-        #if os(Linux)
+        #if os(Linux) || os(Android)
         self.framePool = FramePool.makePool(forGSO: true)
         self.pathMaxSegments = 64
         #else
