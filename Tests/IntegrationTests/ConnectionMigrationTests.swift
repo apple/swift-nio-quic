@@ -53,6 +53,24 @@ struct ConnectionMigrationTests {
     }
 
     @available(anyAppleOS 26, *)
+    @Test(.enabled { await Self.isDualStackAvailable() })
+    func dualStackServerFollowsClientToTwoNewAddresses() async throws {
+        try await Self.withConnectedPeers(serverHost: "::") { peers in
+            for _ in 0..<2 {
+                let newSocket = try await peers.makeClientSocket()
+                try await peers.rebindClient(to: newSocket)
+
+                #expect(try await Self.request(on: peers.streamCreator) == ByteBuffer(string: "<b>Success</b>"))
+                let mappedAddress = try SocketAddress(
+                    ipAddress: "::ffff:\(Self.host)",
+                    port: newSocket.localAddress!.port!
+                )
+                #expect(peers.serverConnectionChannel.remoteAddress == mappedAddress)
+            }
+        }
+    }
+
+    @available(anyAppleOS 26, *)
     @Test
     func clientMigratesBackToItsFirstAddress() async throws {
         try await Self.withConnectedPeers { peers in
@@ -110,11 +128,22 @@ struct ConnectionMigrationTests {
 
     private static let host = "127.0.0.1"
 
-    /// Connects a client to a server, runs `body`, and tears both down, also when `body` throws. That includes
-    /// the sockets `body` opens on the peers' event loop group.
+    /// Whether a socket can bind `::`, which NIO makes dual-stack.
+    static func isDualStackAvailable() async -> Bool {
+        let channel = try? await DatagramBootstrap(group: MultiThreadedEventLoopGroup.singleton)
+            .bind(host: "::", port: 0)
+            .get()
+        try? await channel?.close()
+        return channel != nil
+    }
+
+    /// Connects a client to a server bound to `serverHost`, runs `body`, and tears both down.
     @available(anyAppleOS 26, *)
-    private static func withConnectedPeers(_ body: (ConnectedPeers) async throws -> Void) async throws {
-        let peers = try await ConnectedPeers.connect()
+    private static func withConnectedPeers(
+        serverHost: String = ConnectionMigrationTests.host,
+        _ body: (ConnectedPeers) async throws -> Void
+    ) async throws {
+        let peers = try await ConnectedPeers.connect(serverHost: serverHost)
         do {
             try await body(peers)
         } catch {
@@ -136,11 +165,11 @@ struct ConnectionMigrationTests {
         var clientConnectionChannel: any Channel
         var streamCreator: QUICStreamCreator
 
-        static func connect() async throws -> ConnectedPeers {
+        static func connect(serverHost: String) async throws -> ConnectedPeers {
             // One thread: the relay hands datagrams from one channel's pipeline to the other's synchronously.
             let eventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: 1)
             do {
-                return try await Self.connect(on: eventLoopGroup)
+                return try await Self.connect(on: eventLoopGroup, serverHost: serverHost)
             } catch {
                 // Shutting down the event loop group also closes the channels set up so far.
                 try? await eventLoopGroup.shutdownGracefully()
@@ -148,13 +177,16 @@ struct ConnectionMigrationTests {
             }
         }
 
-        private static func connect(on eventLoopGroup: MultiThreadedEventLoopGroup) async throws -> ConnectedPeers {
+        private static func connect(
+            on eventLoopGroup: MultiThreadedEventLoopGroup,
+            serverHost: String
+        ) async throws -> ConnectedPeers {
             let serverConnectionChannel = NIOLockedValueBox<(any Channel)?>(nil)
             let latestServerStreamChannel = NIOLockedValueBox<(any Channel)?>(nil)
 
             let serverChannel = try await createServerChannel(
                 eventLoopGroup: eventLoopGroup,
-                host: ConnectionMigrationTests.host,
+                host: serverHost,
                 port: 0,
                 logger: Logger(label: "Server"),
                 inboundConnectionInitializer: { connectionChannel, _ in
