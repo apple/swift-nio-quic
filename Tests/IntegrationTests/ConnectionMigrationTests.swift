@@ -137,8 +137,7 @@ struct ConnectionMigrationTests {
         return channel != nil
     }
 
-    /// Connects a client to a server bound to `serverHost`, runs `body`, and tears both down, also when `body`
-    /// throws. That includes the sockets `body` opens on the peers' event loop group.
+    /// Connects a client to a server bound to `serverHost`, runs `body`, and tears both down.
     @available(anyAppleOS 26, *)
     private static func withConnectedPeers(
         serverHost: String = ConnectionMigrationTests.host,
