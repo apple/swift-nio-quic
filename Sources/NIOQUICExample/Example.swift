@@ -85,7 +85,7 @@ struct Example {
             .channelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
             .bind(host: host, port: 0) { channel in
                 channel.eventLoop.makeCompletedFuture {
-                    let quicConfiguration = QUICConfiguration.server(
+                    let quicConfiguration = QUICConfiguration.forServer(
                         serverName: "quic-test.local",
                         authenticationConfiguration: .x509Certificates(
                             certificateChainFilePath: certificateChainPath,
@@ -153,7 +153,7 @@ struct Example {
             port: 0
         ) { channel -> EventLoopFuture<(any Channel, QUICHandler<QUICStreamChannels>.ConnectionMultiplexer<Never>)> in
             channel.eventLoop.makeCompletedFuture {
-                let quicConfiguration = QUICConfiguration.client(
+                let quicConfiguration = QUICConfiguration.forClient(
                     verificationConfiguration: .x509Certificates(trustRootsFilePath: trustStorePath),
                     applicationProtocols: ["echo-example"]
                 )

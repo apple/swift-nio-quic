@@ -329,7 +329,7 @@ extension QUICConnectionChannelDatagramTests {
         let udpChannel = EmbeddedChannel(loop: eventLoop)
 
         let connection = try SwiftNetworkQUICConnection<QUICStreamChannels>.server(
-            configuration: .server(
+            configuration: .forServer(
                 serverName: "quic-test.local",
                 authenticationConfiguration: .rawPublicKeys(
                     publicKeyFilePath: publicKeyPath,
