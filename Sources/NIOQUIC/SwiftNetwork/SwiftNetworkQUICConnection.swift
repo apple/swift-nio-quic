@@ -99,7 +99,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
         // Enter through the protocol reference to preserve SwiftNetwork event bookkeeping.
         guard
             case .dataTransferSnapshot(let snapshot) = self.swiftNetworkQUICConnection.reference.getMetrics(
-                self.outputHandler.reference,
+                self.activePath.reference,
                 requestedNetworkMetric: .dataTransferSnapshot
             )
         else {
@@ -135,7 +135,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
         }
         guard
             case .protocolEstablishmentReports(let reports) = self.swiftNetworkQUICConnection.reference.getMetrics(
-                self.outputHandler.reference,
+                self.activePath.reference,
                 requestedNetworkMetric: .protocolEstablishmentReports
             ),
             let report = reports.first(where: {
