@@ -217,6 +217,50 @@ extension QUICConnectionChannel: Channel where Consumer: ~Copyable {
         self
     }
 
+    /// Retrieves an internal transport snapshot on this channel's event loop.
+    ///
+    /// - Returns: A future containing the snapshot, or `nil` before establishment, during
+    ///   termination, or when using a test connection without a metrics source.
+    internal func currentMetrics() -> EventLoopFuture<InternalQUICConnectionMetrics?> {
+        if self.eventLoop.inEventLoop {
+            return self.eventLoop.makeCompletedFuture { self.currentMetricsOnEventLoop() }
+        } else {
+            return self.eventLoop.submit { self.currentMetricsOnEventLoop() }
+        }
+    }
+
+    private func currentMetricsOnEventLoop() -> InternalQUICConnectionMetrics? {
+        self.eventLoop.preconditionInEventLoop()
+        switch self._connection {
+        case .live(let connection):
+            return connection.currentMetrics()
+        case .test:
+            return nil
+        }
+    }
+
+    /// Retrieves the connection's establishment timing on this channel's event loop.
+    ///
+    /// - Returns: A future containing the timing values, or `nil` before establishment,
+    ///   during termination, or when using a test connection without a metrics source.
+    internal func establishmentMetrics() -> EventLoopFuture<InternalQUICEstablishmentMetrics?> {
+        if self.eventLoop.inEventLoop {
+            return self.eventLoop.makeCompletedFuture { self.establishmentMetricsOnEventLoop() }
+        } else {
+            return self.eventLoop.submit { self.establishmentMetricsOnEventLoop() }
+        }
+    }
+
+    private func establishmentMetricsOnEventLoop() -> InternalQUICEstablishmentMetrics? {
+        self.eventLoop.preconditionInEventLoop()
+        switch self._connection {
+        case .live(let connection):
+            return connection.establishmentMetrics()
+        case .test:
+            return nil
+        }
+    }
+
     func setOption<Option: ChannelOption>(
         _ option: Option,
         value: Option.Value

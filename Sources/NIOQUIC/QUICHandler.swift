@@ -89,6 +89,8 @@ public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
     private var connectionRegistry: ConnectionRegistry<QUICConnectionChannel<Consumer>.TransportView>
     /// Decides whether new connections may be admitted.
     private var connectionAdmissionController: ConnectionAdmissionController
+    /// Establishment outcomes for this handler's connection instances.
+    private var metrics = HandlerMetricsState()
 
     /// How new connections are surfaced to the user: either a multiplexer continuation or a pair
     /// of initializer closures.
@@ -248,21 +250,27 @@ public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
                 logger[metadataKey: LoggingKeys.addressRemote] = "\(remoteAddress)"
                 return logger
             }()
-            // The context is set when the channel becomes active so force unwrapping is okay here
-            let quicConnection = try SwiftNetworkQUICConnection<Consumer>.client(
-                configuration: self.quicConfiguration,
-                sourceConnectionID: sourceConnectionID,
-                statelessResetTokenGenerator: self.statelessResetTokenGenerator,
-                serverName: serverName,
-                asyncVerifier: asyncVerifierRunner?.asyncVerifier,
-                localAddress: localAddress,
-                remoteAddress: remoteAddress,
-                eventLoop: self.context!.eventLoop,
-                logger: connectionLogger,
-                usesStreamTable: self.makeConsumer != nil
-            )
-
             let handle = self.nextConnectionHandle()
+            self.metrics.started(handle)
+            let quicConnection: SwiftNetworkQUICConnection<Consumer>
+            do {
+                // The context is set when the channel becomes active so force unwrapping is okay here
+                quicConnection = try SwiftNetworkQUICConnection<Consumer>.client(
+                    configuration: self.quicConfiguration,
+                    sourceConnectionID: sourceConnectionID,
+                    statelessResetTokenGenerator: self.statelessResetTokenGenerator,
+                    serverName: serverName,
+                    asyncVerifier: asyncVerifierRunner?.asyncVerifier,
+                    localAddress: localAddress,
+                    remoteAddress: remoteAddress,
+                    eventLoop: self.context!.eventLoop,
+                    logger: connectionLogger,
+                    usesStreamTable: self.makeConsumer != nil
+                )
+            } catch {
+                self.metrics.closed(handle)
+                throw error
+            }
             let channel = self.makeQUICConnectionChannel(
                 quicConnection: quicConnection,
                 handle: handle
@@ -272,9 +280,14 @@ public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
 
             let streamCreator = channel.makeStreamCreator(role: self.quicConfiguration.role)
             let activePromise = self.eventLoop.makePromise(of: Void.self)
+            let handshakePromise = self.eventLoop.makePromise(of: Void.self)
 
-            view.initialize(readyPromise: activePromise, handshakePromise: nil) { channel in
+            view.initialize(readyPromise: activePromise, handshakePromise: handshakePromise) { channel in
                 connectionInitializer(channel, streamCreator)
+            }
+
+            handshakePromise.futureResult.assumeIsolated().whenComplete { result in
+                self.metrics.finished(handle, result: result)
             }
 
             activePromise.futureResult
@@ -343,7 +356,13 @@ public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
 
     private func connectionDidClose(_ handle: ConnectionHandle) {
         self.eventLoop.assertInEventLoop()
+        self.metrics.closed(handle)
         self.connectionRegistry.remove(handle)
+    }
+
+    fileprivate func currentMetricsOnEventLoop() -> InternalQUICHandlerMetrics {
+        self.eventLoop.preconditionInEventLoop()
+        return self.metrics.snapshot
     }
 
     /// Answers a packet which routes to no connection with a stateless reset (RFC 9000 § 10.3),
@@ -811,6 +830,7 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
                                 localAddress: context.localAddress!
                             )
                         case .drop(let reason):
+                            self.metrics.rejected(reason)
                             self.logger.trace(
                                 "QUICHandler dropping new connection",
                                 metadata: [
@@ -928,6 +948,8 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
         destinationConnectionID: QUICConnectionID,
         localAddress: SocketAddress
     ) throws {
+        let handle = self.nextConnectionHandle()
+        self.metrics.started(handle)
         // The original DCID was generated by the client. We'll generate a new one to use as our SCID.
         let newSourceConnectionID: QUICConnectionID
         if let sourceConnectionID {
@@ -976,10 +998,10 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
             // registered once it exists. Give the slots back here.
             self.connectionAdmissionController.finishedHandshake()
             self.connectionAdmissionController.closingConnection()
+            self.metrics.closed(handle)
             throw error
         }
 
-        let handle = self.nextConnectionHandle()
         let handshakePromise = self.eventLoop.makePromise(of: Void.self)
         let channel: QUICConnectionChannel<Consumer>
 
@@ -1092,7 +1114,8 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
             }
         }
 
-        handshakePromise.futureResult.assumeIsolated().whenComplete { _ in
+        handshakePromise.futureResult.assumeIsolated().whenComplete { result in
+            self.metrics.finished(handle, result: result)
             // Make sure we release the slot for new connections.
             self.connectionAdmissionController.finishedHandshake()
         }
@@ -1107,6 +1130,7 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
 @available(anyAppleOS 26, *)
 public struct QUICHandlerHandle: Sendable {
     private let _shutdownGracefully: NIOLoopBound<(NIODeadline) -> EventLoopFuture<Void>>
+    private let _currentMetrics: NIOLoopBound<() -> EventLoopFuture<InternalQUICHandlerMetrics>>
 
     internal init<Consumer: QUICStreamConsumer & ~Copyable>(
         wrapping handler: QUICHandler<Consumer>,
@@ -1118,6 +1142,17 @@ public struct QUICHandlerHandle: Sendable {
         }
 
         self._shutdownGracefully = NIOLoopBound(fn, eventLoop: eventLoop)
+        self._currentMetrics = NIOLoopBound(
+            { eventLoop.makeSucceededFuture(handler.currentMetricsOnEventLoop()) },
+            eventLoop: eventLoop
+        )
+    }
+
+    /// Retrieves this handler's internal metrics on its event loop.
+    ///
+    /// Historical counters remain available after connection cleanup while the event loop runs.
+    internal func currentMetrics() -> EventLoopFuture<InternalQUICHandlerMetrics> {
+        self._currentMetrics.flatSubmit { $0() }
     }
 
     /// Shuts the server down gracefully.
@@ -1279,6 +1314,77 @@ struct ConnectionHandle: Hashable, Sendable {
         var next = self
         next.formNext()
         return next
+    }
+}
+
+/// Establishment bookkeeping confined to the owning handler's event loop.
+@available(anyAppleOS 26, *)
+private struct HandlerMetricsState {
+    private enum Outcome {
+        case pending
+        case succeeded
+        case failed
+    }
+
+    private var outcomes: [ConnectionHandle: Outcome] = [:]
+    private var establishmentAttempts: UInt64 = 0
+    private var establishmentSuccesses: UInt64 = 0
+    private var establishmentFailures: UInt64 = 0
+    private var handshakesInProgress = 0
+    private var rejectedByActiveLimit: UInt64 = 0
+    private var rejectedByHandshakeLimit: UInt64 = 0
+    private var rejectedByRateLimit: UInt64 = 0
+
+    var snapshot: InternalQUICHandlerMetrics {
+        InternalQUICHandlerMetrics(
+            establishmentAttempts: self.establishmentAttempts,
+            establishmentSuccesses: self.establishmentSuccesses,
+            establishmentFailures: self.establishmentFailures,
+            activeConnections: self.outcomes.count,
+            handshakesInProgress: self.handshakesInProgress,
+            rejectedByActiveLimit: self.rejectedByActiveLimit,
+            rejectedByHandshakeLimit: self.rejectedByHandshakeLimit,
+            rejectedByRateLimit: self.rejectedByRateLimit
+        )
+    }
+
+    mutating func started(_ handle: ConnectionHandle) {
+        assert(self.outcomes[handle] == nil)
+        self.outcomes[handle] = .pending
+        self.establishmentAttempts += 1
+        self.handshakesInProgress += 1
+    }
+
+    mutating func finished(_ handle: ConnectionHandle, result: Result<Void, any Error>) {
+        guard self.outcomes[handle] == .pending else { return }
+        self.handshakesInProgress -= 1
+        switch result {
+        case .success:
+            self.outcomes[handle] = .succeeded
+            self.establishmentSuccesses += 1
+        case .failure:
+            self.outcomes[handle] = .failed
+            self.establishmentFailures += 1
+        }
+    }
+
+    mutating func closed(_ handle: ConnectionHandle) {
+        // Close can precede the handshake result when initialization is still pending.
+        if self.outcomes.removeValue(forKey: handle) == .pending {
+            self.handshakesInProgress -= 1
+            self.establishmentFailures += 1
+        }
+    }
+
+    mutating func rejected(_ reason: ConnectionAdmissionController.DropReason) {
+        switch reason {
+        case .activeLimitReached:
+            self.rejectedByActiveLimit += 1
+        case .handshakeLimitReached:
+            self.rejectedByHandshakeLimit += 1
+        case .rateLimited:
+            self.rejectedByRateLimit += 1
+        }
     }
 }
 

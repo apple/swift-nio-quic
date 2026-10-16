@@ -63,6 +63,14 @@ private func makeChannel(
 struct QUICConnectionChannelTests {
     @available(anyAppleOS 26, *)
     @Test
+    func metricsUnavailableForTestConnection() throws {
+        let channel = try makeChannel()
+        #expect(try channel.currentMetrics().wait() == nil)
+        #expect(try channel.establishmentMetrics().wait() == nil)
+    }
+
+    @available(anyAppleOS 26, *)
+    @Test
     func getAutoRead() throws {
         let channel = try makeChannel()
 
