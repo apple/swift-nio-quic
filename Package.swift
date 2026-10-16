@@ -43,7 +43,7 @@ let package = Package(
         .library(name: "NIOQUIC", targets: ["NIOQUIC"])
     ],
     dependencies: [
-        .package(url: "https://github.com/apple/swift-nio", from: "2.92.0"),
+        .package(url: "https://github.com/apple/swift-nio", from: "2.104.0"),
         .package(url: "https://github.com/apple/swift-log", from: "1.12.1"),
         .package(url: "https://github.com/apple/swift-certificates.git", from: "1.21.0"),
         .package(url: "https://github.com/apple/swift-collections.git", from: "1.6.0"),
@@ -70,6 +70,7 @@ let package = Package(
         .target(
             name: "NIOQUIC",
             dependencies: [
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
                 .product(name: "NIOCore", package: "swift-nio"),
                 .product(name: "NIOQUICHelpers", package: "swift-nio-quic-helpers"),
                 .product(name: "Logging", package: "swift-log"),

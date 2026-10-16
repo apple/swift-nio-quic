@@ -22,6 +22,8 @@ import Synchronization
 import Darwin
 #elseif canImport(Glibc)
 import Glibc
+#elseif canImport(Android)
+import Android
 #elseif canImport(Musl)
 import Musl
 #endif
@@ -70,9 +72,9 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
     /// The local ``SocketAddress``.
     @usableFromInline
     let _localAddress: SocketAddress?
-    /// The remote peer’s ``SocketAddress``.
+    /// The address of the remote peer, which follows the connection's active path.
     @usableFromInline
-    let _remoteAddress: SocketAddress?
+    let _remoteAddress: SendableAddress
     let _closePromise: EventLoopPromise<Void>
 
     // MARK: Private Constant state
@@ -130,7 +132,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
         parameters: Parameters,
         streamID: QUICStreamID?,
         logger: Logger,
-        remoteAddress: SocketAddress,
+        remoteAddress: SendableAddress,
         localAddress: SocketAddress?,
         connectionChannel: any Channel,
         keepAliveInterval: Duration? = nil
@@ -170,7 +172,7 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
         path: PathProperties,
         streamID: QUICStreamID?,
         logger: Logger,
-        remoteAddress: SocketAddress,
+        remoteAddress: SendableAddress,
         localAddress: SocketAddress?,
         listenerProtocol: StreamListenerLinkage,
         connectionChannel: (any Channel)?,
@@ -935,12 +937,13 @@ final class QUICChannelStreamHandler: ProtocolInstanceContainer, InboundStreamHa
                 }
                 let _ = try self.streamStateMachine.sendFin()
             } else {
-                for buffer in buffers {
+                for buffer in buffers where buffer.readableBytes > 0 {
                     totalBytes += buffer.readableBytes
                     frameArray.add(frame: Frame(copyBuffer: buffer.readableBytesUInt8Span))
                 }
 
                 if totalBytes == 0 {
+                    assert(frameArray.isEmpty, "If there's no bytes to stream we expect the frame array to be empty")
                     return true
                 }
             }
@@ -1305,7 +1308,7 @@ extension QUICChannelStreamHandler: Channel, ChannelCore {
 
     @usableFromInline
     var remoteAddress: SocketAddress? {
-        self._remoteAddress
+        self._remoteAddress.value
     }
 
     @inlinable

@@ -21,6 +21,8 @@ import NIOQUICHelpers
 import Darwin
 #elseif canImport(Glibc)
 import Glibc
+#elseif canImport(Android)
+import Android
 #elseif canImport(Musl)
 import Musl
 #endif
@@ -51,7 +53,7 @@ final class QUICChannelNewFlowHandler<Consumer: QUICStreamConsumer & ~Copyable>:
     let path: PathProperties
     let role: Role
     let logger: Logger
-    let remoteAddress: SocketAddress
+    let remoteAddress: SendableAddress
     let localAddress: SocketAddress
     /// The connection channel which is the parent of inbound stream channels created by this handler.
     /// Set via ``setConnectionChannel(_:)`` once the connection channel has been created.
@@ -79,7 +81,7 @@ final class QUICChannelNewFlowHandler<Consumer: QUICStreamConsumer & ~Copyable>:
         parameters: Parameters,
         path: PathProperties,
         logger: Logger,
-        remoteAddress: SocketAddress,
+        remoteAddress: SendableAddress,
         localAddress: SocketAddress,
         role: Role,
         streamListenerProtocol: StreamListenerLinkage,
@@ -331,11 +333,12 @@ extension QUICChannelNewFlowHandler: UpperProtocolHandler where Consumer: ~Copya
             case .remoteUnidirectionalStreamsBlocked:
                 break
             case .pathChanged:
+                // SwiftNetwork announces a path as soon as it is attached. Not much to do at that point.
                 break
-            case .pathValidated:
-                break
-            case .pathUnreachable:
-                break
+            case .pathValidated(let info):
+                self.connectionView.pathValidated(remote: info.remote)
+            case .pathUnreachable(let info):
+                self.connectionView.pathUnreachable(remote: info.remote)
             }
         } else {
             // There might be more that we are interested in.

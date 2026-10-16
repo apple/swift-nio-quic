@@ -325,6 +325,21 @@ struct QUICChannelStreamHandlerTests {
         }
     }
 
+    /// A flush with only empty buffers must not build frames it never sends; dropping an unfinalized
+    /// `Frame` traps in its deinit.
+    @available(anyAppleOS 26, *)
+    @Test("Flushing an empty buffer does not trap")
+    func flushingEmptyBufferDoesNotTrap() throws {
+        try Self.withServerStream { streamChannel in
+            let writeCompleted = Mutex(false)
+            streamChannel.writeAndFlush(ByteBuffer()).whenSuccess {
+                writeCompleted.withLock { $0 = true }
+            }
+
+            #expect(writeCompleted.withLock { $0 })
+        }
+    }
+
     /// `handleDisconnectedEvent` can fire on an already-detached stream (e.g. connection-level close);
     /// we shouldn't leak the close promise.
     @available(anyAppleOS 26, *)
@@ -460,6 +475,22 @@ struct QUICChannelStreamHandlerTests {
             // `linkage` is still usable independently of the handle — it's
             // a value-type copy, not a borrow.
             _ = linkage
+        }
+    }
+
+    @available(anyAppleOS 26, *)
+    @Test("an existing stream reports the remote address of the connection's active path")
+    func remoteAddressFollowsActivePath() throws {
+        try Self.withServerConnectionAndStream { connection, streamChannel in
+            let newAddress = try SocketAddress(ipAddress: "127.0.0.1", port: 9001)
+            connection._forTesting_markConnected()
+            connection.receivePacket(
+                AddressedEnvelope(remoteAddress: newAddress, data: ByteBuffer(repeating: 0xAA, count: 50))
+            )
+            #expect(streamChannel.remoteAddress == (try SocketAddress(ipAddress: "127.0.0.1", port: 1234)))
+
+            connection._forTesting_handlePathValidated(remote: newAddress.toAddressEndpoint())
+            #expect(streamChannel.remoteAddress == newAddress)
         }
     }
 }
