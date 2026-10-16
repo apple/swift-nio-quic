@@ -65,6 +65,10 @@ extension SocketAddress {
             let tuple = withUnsafeBytes(of: addr.address.sin6_addr) {
                 $0.loadUnaligned(as: (UInt32, UInt32, UInt32, UInt32).self)
             }
+            // Match SwiftNetwork's `AddressEndpoint`: Represent IPv4-mapped address via an IPv4 address.
+            if tuple.0 == 0, tuple.1 == 0, tuple.2 == UInt32(0x0000_ffff).bigEndian {
+                return .v4(SwiftNetwork.IPv4Address(tuple.3), UInt16(self.port!))
+            }
             return .v6(SwiftNetwork.IPv6Address(tuple), UInt16(self.port!))
         case .unixDomainSocket(_):
             fatalError("Unix domain sockets are not supported.")
