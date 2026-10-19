@@ -456,7 +456,7 @@ struct QUICConnectionPathTests {
         switch role {
         case .client:
             connection = try .client(
-                configuration: .client(
+                configuration: .forClient(
                     verificationConfiguration: .rawPublicKeys(publicKeyFilePath: publicKeyPath),
                     applicationProtocols: []
                 ),
@@ -471,7 +471,7 @@ struct QUICConnectionPathTests {
             )
         case .server:
             connection = try .server(
-                configuration: .server(
+                configuration: .forServer(
                     serverName: "quic-test.local",
                     authenticationConfiguration: .rawPublicKeys(
                         publicKeyFilePath: publicKeyPath,
