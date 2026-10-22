@@ -44,6 +44,10 @@ import NIOQUICHelpers
 final class QUICCallouts {
     private var queue: Deque<QUICCallout>
 
+    /// Whether `queue` holds calls. Nearly every entry queues none, and checking this instead of the
+    /// queue spares a load of its storage, which is usually cold.
+    private var hasQueued: Bool
+
     #if DEBUG
     /// How many of ``enter(as:_:)``, ``callFramework(_:)`` and scheduler tasks are running.
     private var stackDepth: Int
@@ -51,6 +55,7 @@ final class QUICCallouts {
 
     init() {
         self.queue = []
+        self.hasQueued = false
         #if DEBUG
         self.stackDepth = 0
         #endif
@@ -76,6 +81,7 @@ final class QUICCallouts {
         )
         #endif
         self.queue.append(callout)
+        self.hasQueued = true
     }
 
     /// Runs `body` with the connection's event context, entering the stack as `instance`, then runs
@@ -126,19 +132,26 @@ final class QUICCallouts {
         #if DEBUG
         assert(!self.isInsideStack, "Queued callouts run only once the event context is released")
         #endif
-        while !self.queue.isEmpty {
+        if self.hasQueued {
+            self.runQueued()
+        }
+    }
+
+    private func runQueued() {
+        repeat {
             // Take the batch, so that a call whose code enters the stack again runs only that
             // entry's calls before it returns.
             var batch = Deque<QUICCallout>()
             swap(&batch, &self.queue)
+            self.hasQueued = false
             while let callout = batch.popFirst() {
                 callout.run(through: self)
             }
             // Keep the storage for the next batch, unless calls were queued meanwhile.
-            if self.queue.isEmpty {
+            if !self.hasQueued {
                 swap(&batch, &self.queue)
             }
-        }
+        } while self.hasQueued
     }
 
     private func willEnterStack() {
