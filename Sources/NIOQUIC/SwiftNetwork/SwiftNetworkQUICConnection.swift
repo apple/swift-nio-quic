@@ -175,21 +175,35 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
         // Emit first as it triggers frames to be written; the writes check whether we're in a read
         // loop and if we're not they'll do an out-of-band write. The connection channel is about
         // to do an explicit drain anyway so no need for an out-of-band write.
-        self.setOutboundBatching(false)
+        self.stopOutboundBatching()
         self.inReadLoop = false
     }
 
-    internal func setOutboundBatching(_ enabled: Bool) {
-        if self.batchingEnabled == enabled { return }
+    /// Starts batching outbound writes for the read loop, unless it already has.
+    ///
+    /// Called from the entry that delivers the read loop's input rather than from an entry of its
+    /// own, before that input is delivered: QUIC holds back the acknowledgements for it, as well as
+    /// the application's writes, until the batch ends.
+    private func startOutboundBatching(in eventContext: inout NetworkContext.EventContext) {
+        assert(self.inReadLoop)
+        if self.batchingEnabled { return }
         guard let newFlowHandler = self.connectionNewFlowHandler else { return }
 
-        self.batchingEnabled = enabled
+        self.batchingEnabled = true
         // Enabling batching stops the underlying connection from producing (most) datagrams until
         // batching is disabled again, at which point any queued outbound writes will be emitted.
         // This allows outbound writes to be better packed into datagrams. Any outbound writes are
         // emitted into `handleOutboundDatagramsQueued(on:count:)` soon after batching is disabled.
+        newFlowHandler.outboundBatching(true, in: &eventContext)
+    }
+
+    private func stopOutboundBatching() {
+        guard self.batchingEnabled else { return }
+        guard let newFlowHandler = self.connectionNewFlowHandler else { return }
+
+        self.batchingEnabled = false
         self.callouts.enter(as: newFlowHandler) { eventContext in
-            newFlowHandler.outboundBatching(enabled, in: &eventContext)
+            newFlowHandler.outboundBatching(false, in: &eventContext)
         }
     }
 
@@ -1126,7 +1140,6 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
 
         if !self.inReadLoop {
             self.inReadLoop = true
-            self.setOutboundBatching(true)
             self.streamTable?.inReadLoop = true
         }
         self.log(
@@ -1159,8 +1172,10 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
             path.finalizeQueuedInboundFramesAsFailed()
             return
         }
-        // Delivers upward from the path, which requires it to be mid-call: enter as it.
+        // Delivers upward from the path, which requires it to be mid-call: enter as it. The path has
+        // its own event state, so QUIC is idle for the batching down-call.
         self.callouts.enter(as: path) { eventContext in
+            self.startOutboundBatching(in: &eventContext)
             path.invokeInputAvailable(in: &eventContext)
         }
     }
@@ -1690,6 +1705,11 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
     /// The number of paths SwiftNetwork tracks for this connection.
     func _forTesting_getSwiftNetworkPathCount() -> Int {
         self.protocolStorage.quicInstance(for: self.streamListenerLinkage)?.multiplexingPaths.count ?? 0
+    }
+
+    /// Whether QUIC has been told to batch outbound writes.
+    var _forTesting_isBatchingOutboundWrites: Bool {
+        self.batchingEnabled
     }
 
     /// The path considered active.
