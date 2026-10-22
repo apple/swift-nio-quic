@@ -18,6 +18,8 @@ import NIOCore
 import NIOPosix
 import Testing
 
+import struct NIOQUICHelpers.QUICStreamInitializerParameters
+
 @testable import NIOQUIC
 
 @Suite

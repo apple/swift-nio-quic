@@ -12,7 +12,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-@_spi(Essentials) @_spi(ProtocolProvider) import SwiftNetwork
+@_spi(Essentials) @_spi(ProtocolProvider) public import SwiftNetwork
 
 @available(anyAppleOS 26, *)
 @_spi(ProtocolProvider)

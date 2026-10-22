@@ -12,8 +12,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-import Logging
-import NIOCore
+public import Logging
+public import NIOCore
 import X509
 
 @available(anyAppleOS 26, *)

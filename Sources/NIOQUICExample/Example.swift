@@ -17,6 +17,7 @@ import Logging
 import NIOCore
 import NIOPosix
 import NIOQUIC
+import NIOQUICHelpers
 
 @main
 @available(anyAppleOS 26, *)

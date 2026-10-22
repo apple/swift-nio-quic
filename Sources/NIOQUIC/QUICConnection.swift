@@ -13,8 +13,8 @@
 //===----------------------------------------------------------------------===//
 
 import Logging
-import NIOCore
-import NIOQUICHelpers
+public import NIOCore
+public import NIOQUICHelpers
 
 /// Internal type to abstract away the `Output` type of the multiplexer. This means we are going through an existential
 /// in the `QUICChannelStreamHandler` when yielding a new `Channel`. However, this is okay for now otherwise
@@ -124,7 +124,7 @@ public struct QUICConnection<Output: Sendable>: Sendable, StreamMultiplexerConti
             }
 
             public mutating func next() async -> Output? {
-                await self.iterator.next()
+                await self.iterator.next(isolation: #isolation)
             }
         }
     }

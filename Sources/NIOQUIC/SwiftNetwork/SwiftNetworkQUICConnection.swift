@@ -15,7 +15,7 @@
 import Crypto
 import DequeModule
 import Logging
-@_spi(CustomByteBufferAllocator) import NIOCore
+@_spi(CustomByteBufferAllocator) public import NIOCore
 import NIOQUICHelpers
 @_spi(Essentials) @_spi(ProtocolProvider) import SwiftNetwork
 @_spi(SwiftTLSOptions) @_spi(SwiftTLSProtocol) import SwiftTLS

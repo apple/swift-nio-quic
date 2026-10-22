@@ -12,8 +12,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-import NIOCore
-import NIOQUICHelpers
+public import NIOCore
+public import NIOQUICHelpers
 
 /// A view over a QUIC stream as presented to a ``QUICStreamConsumer``.
 @available(anyAppleOS 26, *)

@@ -12,7 +12,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-import NIOConcurrencyHelpers
+package import NIOConcurrencyHelpers
 
 /// This event informs of new source connection IDs associated with the connection.
 /// It only captures connection IDs created after the initial IDs during connection establishment.
