@@ -299,7 +299,7 @@ final class QUICChannelNewFlowHandler<Consumer: QUICStreamConsumer & ~Copyable>:
         let linkage: BaseOutboundStreamLinkage
         do throws(NetworkError) {
             linkage = try lowerProtocol.invokeAttachUpperProtocolToExistingFlow(
-                BaseInboundStreamLinkage(external: table),
+                table.upperLinkage(for: handle, identifier: identifier),
                 existingFlowInstance: flowInstance
             )
         } catch {

@@ -36,9 +36,10 @@ struct QUICStreamTransportState: ~Copyable {
     /// Pending events for this slot for `SwiftNetwork`.
     var eventManager: ProtocolEventManager
 
-    /// The identifier of the flow this stream is attached to, which the table indexes it by. None
-    /// until the stream attaches.
-    var flowIdentifier: InstanceIdentifier
+    /// Whether the stream is attached to a flow, so the stack's events for it are handled. Set by
+    /// `QUICStreamTable.attach`, and cleared by `_remove` and `removeAllSlots` before they close the
+    /// stream.
+    var isAttached: Bool
 
     /// Why the stream closed, as the consumer sees it.
     @usableFromInline
@@ -82,7 +83,7 @@ struct QUICStreamTransportState: ~Copyable {
         self.stopSendingCode = nil
         self.core = consume core
         self.eventManager = ProtocolEventManager()
-        self.flowIdentifier = InstanceIdentifier()
+        self.isAttached = false
         self._isBorrowed = false
     }
 }

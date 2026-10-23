@@ -52,11 +52,4 @@ struct QUICStreamSlotRecord {
         assert(self._isOccupied)
         self._isOccupied = false
     }
-
-    @inlinable
-    mutating func vacateIfOccupied() -> Bool {
-        let wasOccupied = self._isOccupied
-        self._isOccupied = false
-        return wasOccupied
-    }
 }

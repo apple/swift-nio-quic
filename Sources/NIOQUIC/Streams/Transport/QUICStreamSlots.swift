@@ -115,21 +115,6 @@ struct QUICStreamSlots<Value: ~Copyable>: ~Copyable {
         return true
     }
 
-    /// Vacates every slot, handing each value to `body`.
-    @inlinable
-    mutating func removeAll(_ body: (_ value: consuming Value) -> Void) {
-        for index in self._slots.indices {
-            let wasOccupied = self._slots[index].vacateIfOccupied()
-
-            if wasOccupied {
-                let slotIndex = QUICStreamHandle.Index(index)
-                self._freeList.append(slotIndex)
-                self._count &-= 1
-                body(self._storage.pointer(at: slotIndex.rawValue).move())
-            }
-        }
-    }
-
     /// Whether `handle` addresses an occupied slot of a matching generation.
     @inlinable
     func containsValue(for handle: QUICStreamHandle) -> Bool {

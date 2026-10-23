@@ -41,13 +41,14 @@ extension QUICStreamTable where Consumer: ~Copyable {
 
         let handle = self.insertSlot(id: nil, state: consume state)
         let identifier = self.registerIdentifier(for: handle)
+        let upperLinkage = self.upperLinkage(for: handle, identifier: identifier)
 
         var linkage: BaseOutboundStreamLinkage?
         do throws(NetworkError) {
             try self.callouts.callFramework { () throws(NetworkError) in
                 try opener.attach(
                     isUnidirectional: type.isUnidirectional,
-                    upperProtocol: BaseInboundStreamLinkage(external: self)
+                    upperProtocol: upperLinkage
                 )
                 // Take linkage here to ensure it is not overwritten by a callout
                 // in the queue that runs at the end of `callFramework`.

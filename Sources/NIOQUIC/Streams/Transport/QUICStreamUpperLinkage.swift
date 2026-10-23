@@ -13,32 +13,41 @@
 //===----------------------------------------------------------------------===//
 
 import NIOQUICHelpers
-@_spi(Essentials) @_spi(ProtocolProvider) public import SwiftNetwork
+@_spi(Essentials) @_spi(ProtocolProvider) import SwiftNetwork
 
-/// `QUICStreamTable` is the single `ExternalInboundStreamLinkage` for every stream it hosts.
+/// The `ExternalInboundStreamLinkage` of one stream in a ``QUICStreamTable``.
 ///
-/// `BaseInboundStreamLinkage.init(external:)` reads `identifier` exactly once, at construction,
-/// which is how each stream's upper linkage gets its own identifier. Every event after that
-/// arrives `for` the identifier of the flow that sent it, so one class can back arbitrarily many
-/// streams, resolving each call via `_byFlowIdentifier`.
+/// The stack delivers a stream's events to the linkage the stream attached with, `for` the flow
+/// that sent them. Each stream attaching with a linkage of its own means each event arrives with
+/// the stream's handle, so the table resolves it without a lookup.
 ///
-/// Every witness below is `@usableFromInline`: `QUICStreamTable` itself is `@usableFromInline`
-/// (referenced from `@inlinable` code elsewhere in this module), and a member satisfying a
-/// requirement of a public/`@_spi` protocol from another module must be at least as visible as
-/// the conforming type.
+/// The flow holds this linkage until it detaches, and the stack's queued events hold it until they
+/// run, so an event can arrive after its stream left the table: the table drops it then.
 @available(anyAppleOS 27, *)
-@_spi(ProtocolProvider)
-extension QUICStreamTable: ExternalInboundStreamLinkage where Consumer: ~Copyable {
-    @usableFromInline
-    var identifier: InstanceIdentifier {
-        self._pendingAttachIdentifier
-    }
+final class QUICStreamUpperLinkage<Consumer: QUICStreamConsumer & ~Copyable> {
+    /// Held strongly. The cycle through the stack ends with the stream: the stack lets go of this
+    /// linkage once the stream's flow detaches, which closing the stream does, and its queued
+    /// events have run.
+    let table: QUICStreamTable<Consumer>
 
-    private func handle(for instance: InstanceIdentifier) -> QUICStreamHandle? {
-        self._byFlowIdentifier[instance]
-    }
+    /// The stream's slot in the table.
+    let handle: QUICStreamHandle
 
-    @usableFromInline
+    /// The identifier the table registered for the stream.
+    ///
+    /// `BaseInboundStreamLinkage.init(external:)` reads it once, at construction, and the flow
+    /// compares linkages by it.
+    let identifier: InstanceIdentifier
+
+    init(table: QUICStreamTable<Consumer>, handle: QUICStreamHandle, identifier: InstanceIdentifier) {
+        self.table = table
+        self.handle = handle
+        self.identifier = identifier
+    }
+}
+
+@available(anyAppleOS 27, *)
+extension QUICStreamUpperLinkage: ExternalInboundStreamLinkage where Consumer: ~Copyable {
     func invokeAttachLowerProtocol(
         _ lowerProtocol: BaseOutboundStreamLinkage,
         remote: Endpoint?,
@@ -47,8 +56,7 @@ extension QUICStreamTable: ExternalInboundStreamLinkage where Consumer: ~Copyabl
         path: PathProperties?
     ) throws(NetworkError) {
         // An external upper completes the pairing itself, and this second leg is what sets the flow
-        // up in QUIC. `identifier` still reports this stream's, so this linkage equals the one the
-        // flow was created with.
+        // up in QUIC. It hands over this linkage, which equals the one the flow was created with.
         try lowerProtocol.invokeAttachUpperProtocol(
             BaseInboundStreamLinkage(external: self),
             remote: remote,
@@ -58,26 +66,21 @@ extension QUICStreamTable: ExternalInboundStreamLinkage where Consumer: ~Copyabl
         )
         // Stashed only once the attach succeeded. `open` takes it right after its call to
         // `invokeAttachUpperProtocolToNewFlow`, which returns `Void`.
-        self._pendingAttachLinkage = lowerProtocol
+        self.table._pendingAttachLinkage = lowerProtocol
     }
 
-    @usableFromInline
     func handleConnectedEvent(for instance: InstanceIdentifier, in eventContext: inout NetworkContext.EventContext) {
-        guard let handle = self.handle(for: instance) else { return }
-        self.streamConnected(handle, in: &eventContext)
+        self.table.streamConnected(self.handle, in: &eventContext)
     }
 
-    @usableFromInline
     func handleDisconnectedEvent(
         error: NetworkError?,
         for instance: InstanceIdentifier,
         in eventContext: inout NetworkContext.EventContext
     ) {
-        guard let handle = self.handle(for: instance) else { return }
-        self.streamDisconnected(handle, error: error)
+        self.table.streamDisconnected(self.handle, error: error)
     }
 
-    @usableFromInline
     func handleNetworkProtocolEvent(
         event: NetworkProtocolEvent,
         for instance: InstanceIdentifier,
@@ -87,49 +90,41 @@ extension QUICStreamTable: ExternalInboundStreamLinkage where Consumer: ~Copyabl
         // stream's, so there is nothing to do here.
     }
 
-    @usableFromInline
     func handleInboundDataAvailableEvent(
         for instance: InstanceIdentifier,
         in eventContext: inout NetworkContext.EventContext
     ) {
-        guard let handle = self.handle(for: instance) else { return }
-        self.markReady(handle: handle, events: .readable)
+        self.table.streamReady(self.handle, events: .readable)
     }
 
-    @usableFromInline
     func handleOutboundRoomAvailableEvent(
         for instance: InstanceIdentifier,
         in eventContext: inout NetworkContext.EventContext
     ) {
-        guard let handle = self.handle(for: instance) else { return }
-        self.markReady(handle: handle, events: .writable)
+        self.table.streamReady(self.handle, events: .writable)
     }
 
-    @usableFromInline
     func handleInboundAbortedEvent(
         error: NetworkError?,
         for instance: InstanceIdentifier,
         in eventContext: inout NetworkContext.EventContext
     ) {
-        guard let handle = self.handle(for: instance) else { return }
         switch Self.applicationErrorCode(error) {
         case .some(let code):
-            self.peerResetStream(handle, code: code)
+            self.table.peerResetStream(self.handle, code: code)
         case .none:
             ()
         }
     }
 
-    @usableFromInline
     func handleOutboundAbortedEvent(
         error: NetworkError?,
         for instance: InstanceIdentifier,
         in eventContext: inout NetworkContext.EventContext
     ) {
-        guard let handle = self.handle(for: instance) else { return }
         switch Self.applicationErrorCode(error) {
         case .some(let code):
-            self.peerStoppedSending(handle, code: code, in: &eventContext)
+            self.table.peerStoppedSending(self.handle, code: code, in: &eventContext)
         case .none:
             ()
         }

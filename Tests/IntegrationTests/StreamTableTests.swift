@@ -790,6 +790,29 @@ struct StreamTableTests {
         }
     }
 
+    /// A consumer may leave streams unpulled, so a forced close tears down streams still attached
+    /// to their flows. Closing one makes the stack report its disconnect before the close returns,
+    /// while the table tears its slots down: that event must find nothing.
+    @available(anyAppleOS 27, *)
+    @Test
+    func forceClosingUnpulledStreamsDropsTheirEvents() async throws {
+        try await withConsumerPair(client: IdleConsumer(), server: EchoConsumer()) { pair in
+            // No FIN, so the stream is still open when the connection is forced closed.
+            let handle = try await pair.openClientStream(writing: ByteBuffer(string: "GET /quic"), fin: false)
+
+            let channel = try #require(pair.clientConnection.channel as? QUICConnectionChannel<IdleConsumer>)
+            try await channel.eventLoop.submit {
+                channel.transportView.forceClose()
+            }.get()
+            try await channel.closeFuture.get()
+
+            let resolved = try await pair.clientConnection.withStreams { streams -> Bool in
+                streams.withStream(handle: handle) { _, _ in } != nil
+            }.get()
+            #expect(resolved == false)
+        }
+    }
+
     @available(anyAppleOS 27, *)
     @Test
     func creditBlockedStreamIsOpenedOnlyOnceItHasAnID() async throws {
@@ -990,6 +1013,48 @@ struct StreamTableTests {
             #expect(wasVisited)
         }
     }
+
+    /// Each stream's linkage holds its table, and the stack holds the linkages: closing the
+    /// connections must still release both tables. One stream finishes before the close, and one
+    /// is still open at it.
+    @available(anyAppleOS 27, *)
+    @Test
+    func closingTheConnectionsReleasesTheirStreamTables() async throws {
+        let recording = StreamRecording()
+        let clientTable = ReleaseProbe()
+        let serverTable = ReleaseProbe()
+        let serverConnection = NIOLockedValueBox<QUICStreamConnection<EchoConsumer>?>(nil)
+        let captureConnection: @Sendable (QUICStreamConnection<EchoConsumer>) -> Void = { connection in
+            serverConnection.withLockedValue { $0 = connection }
+        }
+
+        try await withConsumerPair(
+            client: RecordConsumer(recording: recording),
+            server: EchoConsumer(),
+            onServerConnection: captureConnection
+        ) { pair in
+            _ = try await pair.openClientStream(writing: ByteBuffer(string: "GET /finished"), fin: true)
+            _ = await recording.visits(untilClosedStreams: 1)
+            _ = try await pair.openClientStream(writing: ByteBuffer(string: "GET /open"), fin: false)
+
+            _ = try await pair.clientConnection.withStreams { streams in
+                clientTable.observe(streams._table)
+            }.get()
+            // Taken, so this test doesn't keep the server's connection alive.
+            let server = try #require(serverConnection.withLockedValue { $0.take() })
+            _ = try await server.withStreams { streams in
+                serverTable.observe(streams._table)
+            }.get()
+        }
+
+        // The last references go on later event loop ticks.
+        let deadline = ContinuousClock.now + .seconds(2)
+        while !(clientTable.isReleased && serverTable.isReleased), ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(clientTable.isReleased)
+        #expect(serverTable.isReleased)
+    }
 }
 
 // MARK: - Handlers
@@ -1042,5 +1107,44 @@ private final class OpenStreamOnReadComplete: ChannelInboundHandler {
             let wasVisited = handle.map { handle in opened.withLockedValue { $0.contains(handle) } } ?? false
             visitedInTime.succeed(wasVisited)
         }
+    }
+}
+
+/// Never pulls a visit, as a consumer may: its streams stay unvisited.
+@available(anyAppleOS 27, *)
+private struct IdleConsumer: QUICStreamConsumer {
+    func makeStreamState(_ stream: inout QUICStream<Self>) -> ByteBuffer {
+        ByteBuffer()
+    }
+
+    mutating func processStreams(_ streams: inout QUICStreamIterator<Self>) {}
+}
+
+/// Tells whether an object has been released, without keeping it alive.
+///
+/// `@unchecked Sendable`: its state is only read and written under `lock`, so the event loop that
+/// observes the object and the test's task that checks on it don't race. The reference is weak on
+/// purpose: a probe that held the object would keep it alive.
+private final class ReleaseProbe: @unchecked Sendable {
+    private let lock: NIOLock
+    private weak var object: AnyObject?
+    private var hasObserved: Bool
+
+    init() {
+        self.lock = NIOLock()
+        self.object = nil
+        self.hasObserved = false
+    }
+
+    func observe(_ object: AnyObject) {
+        self.lock.withLock {
+            self.object = object
+            self.hasObserved = true
+        }
+    }
+
+    /// Whether the observed object has been released: `false` until something was observed.
+    var isReleased: Bool {
+        self.lock.withLock { self.hasObserved && self.object == nil }
     }
 }

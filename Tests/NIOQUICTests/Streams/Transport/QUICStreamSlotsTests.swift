@@ -173,16 +173,6 @@ struct QUICStreamSlotsTests {
     }
 
     @Test
-    func removeAllVisitsEveryValue() {
-        var store = QUICStreamSlots<Int>()
-        for value in 0..<5 { _ = store.insert(value) }
-        var seen: [Int] = []
-        store.removeAll { seen.append($0) }
-        #expect(seen.sorted() == [0, 1, 2, 3, 4])
-        #expect(store.count == 0)
-    }
-
-    @Test
     func containsValueOnlyForALiveHandle() {
         var store = QUICStreamSlots<Int>()
         let first = store.insert(1)
