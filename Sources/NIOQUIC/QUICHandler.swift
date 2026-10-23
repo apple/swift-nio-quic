@@ -705,6 +705,12 @@ extension QUICHandler where Consumer: ~Copyable {
     }
 }
 
+/// Unwraps the datagrams `QUICHandler` reads. Its own `unwrapInboundIn` is generic over `Self`, which
+/// is generic over the consumer, and would run unspecialized, requiring a dynamic cast for every datagram.
+private final class DatagramUnwrapper: ChannelInboundHandler {
+    typealias InboundIn = AddressedEnvelope<ByteBuffer>
+}
+
 @available(anyAppleOS 26, *)
 extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
     public typealias InboundIn = AddressedEnvelope<ByteBuffer>
@@ -761,7 +767,7 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
 
     public func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         self.expectingChannelReadComplete = true
-        let addressedEnvelope = self.unwrapInboundIn(data)
+        let addressedEnvelope = DatagramUnwrapper.unwrapInboundIn(data)
 
         let header = addressedEnvelope.data.parseQUICPacketHeader(
             destinationIDLength: self.connectionIDGenerator.connectionIDLength
@@ -1156,7 +1162,10 @@ extension QUICHandler where Consumer: ~Copyable {
             ]
         )
         self.didWrite = true
-        context.write(QUICHandler.wrapOutboundOut(envelope), promise: promise)
+        // Do not use `wrapOutboundOut` as it's generic over `Self`, which is generic
+        // over the consumer and does not get specialized, requiring a dynamic casts
+        // on every datagram.
+        context.write(NIOAny(envelope), promise: promise)
     }
 
     internal func flush() {
