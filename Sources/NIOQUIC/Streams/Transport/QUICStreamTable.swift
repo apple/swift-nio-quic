@@ -683,7 +683,9 @@ extension QUICStreamTable where Consumer: ~Copyable {
     func withEventContext<R, E: Error>(
         _ body: (inout NetworkContext.EventContext) throws(E) -> R
     ) throws(E) -> R {
-        precondition(!self.isClosed, "stream table used after it was closed")
+        // Debug only: in release, SwiftNetwork traps on entering as the retired anchor anyway, and
+        // a precondition here would cost every entry an exclusivity check and a call.
+        assert(!self.isClosed, "stream table used after it was closed")
         return try self.callouts.enter(as: self.anchor, body)
     }
 
