@@ -588,6 +588,191 @@ struct QUICStreamTableTests {
         // The slot registered with the stack, so it must be removed before the table is released.
         table.closeAll(error: nil, disconnect: nil, into: &consumer)
     }
+
+    // MARK: - Reading
+
+    /// Each pull enters the stack. Nothing follows a FIN, so a read that brings one pulls once; any
+    /// other read pulls again to find the stack has nothing more.
+    @available(anyAppleOS 27, *)
+    @Test(arguments: [true, false])
+    func readPullsAgainOnlyWithoutTheFin(fin: Bool) {
+        let table = Self.makeRecordingTable()
+        var consumer = RecordingConsumer()
+        let handle = table.insertSlot(id: 0, state: .init(madeAt: 0))
+        let identifier = table.registerIdentifier(for: handle)
+        let lowerLinkage = TestLowerLinkage(context: table.context)
+        table.attach(handle, identifier: identifier, linkage: BaseOutboundStreamLinkage(external: lowerLinkage))
+        table.assignID(0, to: handle)
+
+        var frame = Frame(copyBuffer: Array("hello".utf8))
+        frame.connectionComplete = fin
+        lowerLinkage.inbound = FrameArray(frame: frame)
+
+        let outcome = table.withStream(handle: handle) { stream, _ in
+            stream.read { bytes in bytes.byteCount }
+        }
+
+        let expected: QUICStreamReadOutcome = fin ? .endOfStream(5) : .read(5)
+        #expect(outcome == expected)
+        #expect(lowerLinkage.receiveCalls == (fin ? 1 : 2))
+
+        table.closeAll(error: nil, disconnect: nil, into: &consumer)
+    }
+
+    @available(anyAppleOS 27, *)
+    @Test(arguments: [true, false])
+    func readOnlyDeliversFINWhenEverythingWasConsumed(fin: Bool) {
+        let table = Self.makeRecordingTable()
+        var consumer = RecordingConsumer()
+        let handle = table.insertSlot(id: 0, state: .init(madeAt: 0))
+        let identifier = table.registerIdentifier(for: handle)
+        let lowerLinkage = TestLowerLinkage(context: table.context)
+        table.attach(handle, identifier: identifier, linkage: BaseOutboundStreamLinkage(external: lowerLinkage))
+        table.assignID(0, to: handle)
+
+        // Configure lengths to read.
+        let data = Array("hello".utf8)
+        let totalLength = data.count
+        let firstReadLength = 3
+        assert(firstReadLength < totalLength)
+        let secondReadLength = totalLength - firstReadLength
+
+        var frame = Frame(copyBuffer: data)
+        frame.connectionComplete = fin
+        lowerLinkage.inbound = FrameArray(frame: frame)
+
+        let outcomePartialRead = table.withStream(handle: handle) { stream, _ in
+            stream.read { bytes in
+                if bytes.byteCount == totalLength {
+                    return firstReadLength
+                } else {
+                    return 0
+                }
+            }
+        }
+
+        let expectedPartialRead: QUICStreamReadOutcome = .read(firstReadLength)
+        #expect(outcomePartialRead == expectedPartialRead)
+        #expect(lowerLinkage.receiveCalls == 1)
+
+        let outcomeFinalRead = table.withStream(handle: handle) { stream, _ in
+            stream.read { bytes in bytes.byteCount }
+        }
+
+        let expectedFinalRead: QUICStreamReadOutcome = fin ? .endOfStream(secondReadLength) : .read(secondReadLength)
+        #expect(outcomeFinalRead == expectedFinalRead)
+        #expect(lowerLinkage.receiveCalls == (fin ? 1 : 2))
+
+        let outcomeEmptyRead = table.withStream(handle: handle) { stream, _ in
+            stream.read { bytes in bytes.byteCount }
+        }
+
+        let expectedEmptyRead: QUICStreamReadOutcome = fin ? .endOfStream(0) : .nothingAvailable
+        #expect(outcomeEmptyRead == expectedEmptyRead)
+        #expect(lowerLinkage.receiveCalls == (fin ? 1 : 3))
+
+        table.closeAll(error: nil, disconnect: nil, into: &consumer)
+    }
+}
+
+/// A stream's lower linkage standing in for the stack: it hands over the inbound frames a test
+/// queues.
+@available(anyAppleOS 27, *)
+private final class TestLowerLinkage: ExternalOutboundStreamLinkage, ProtocolInstance {
+    let context: NetworkContext
+    var identifier: InstanceIdentifier
+    var eventManager: ProtocolEventManager
+
+    /// The frames the next pull hands over.
+    var inbound: FrameArray?
+
+    /// How many times the stream pulled inbound frames.
+    private(set) var receiveCalls: Int
+
+    /// Registers with `context`, which acquires the event context: must be called with none held.
+    init(context: NetworkContext) {
+        self.context = context
+        var eventManager = ProtocolEventManager()
+        self.identifier = InstanceIdentifier(context: context, eventManager: &eventManager)
+        self.eventManager = eventManager
+        self.inbound = nil
+        self.receiveCalls = 0
+    }
+
+    func disconnect(
+        error: NetworkError?,
+        for instance: InstanceIdentifier,
+        in eventContext: inout NetworkContext.EventContext
+    ) {}
+
+    func teardown(in eventContext: inout NetworkContext.EventContext) {
+        self.unregisterEventManager(in: &eventContext)
+    }
+
+    func protocolIsConnected(in eventContext: inout NetworkContext.EventContext) -> Bool {
+        true
+    }
+
+    func connect(for instance: InstanceIdentifier, in eventContext: inout NetworkContext.EventContext) {}
+
+    func detach(
+        for instance: InstanceIdentifier,
+        in eventContext: inout NetworkContext.EventContext
+    ) throws(NetworkError) {}
+
+    func handleApplicationEvent(
+        event: ApplicationEvent,
+        for instance: InstanceIdentifier,
+        in eventContext: inout NetworkContext.EventContext
+    ) {}
+
+    func getMetadata<P: NetworkProtocol>(
+        for instance: InstanceIdentifier,
+        in eventContext: inout NetworkContext.EventContext
+    ) -> ProtocolMetadata<P>? {
+        nil
+    }
+
+    func getMetrics(
+        requestedNetworkMetric: RequestedNetworkMetrics,
+        for instance: InstanceIdentifier,
+        in eventContext: inout NetworkContext.EventContext
+    ) -> NetworkMetrics? {
+        nil
+    }
+
+    func invokeAttachUpperProtocol(
+        _ upperProtocol: BaseInboundStreamLinkage,
+        remote: Endpoint?,
+        local: Endpoint?,
+        parameters: Parameters?,
+        path: PathProperties?
+    ) throws(NetworkError) {}
+
+    func receiveStreamData(
+        minimumBytes: Int,
+        maximumBytes: Int,
+        for instance: InstanceIdentifier,
+        in eventContext: inout NetworkContext.EventContext
+    ) throws(NetworkError) -> FrameArray? {
+        self.receiveCalls += 1
+        return self.inbound.take()
+    }
+
+    func getOutboundStreamDataRoomAvailable(
+        for instance: InstanceIdentifier,
+        in eventContext: inout NetworkContext.EventContext
+    ) throws(NetworkError) -> Int {
+        0
+    }
+
+    func sendStreamData(
+        _ streamData: consuming FrameArray,
+        from instance: InstanceIdentifier,
+        in eventContext: inout NetworkContext.EventContext
+    ) throws(NetworkError) {
+        streamData.finalizeAllFramesAsFailed()
+    }
 }
 
 @available(anyAppleOS 27, *)
