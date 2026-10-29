@@ -958,6 +958,12 @@ extension QUICConnectionChannel where Consumer: ~Copyable {
             // the lower protocol). Their own closeFutures may resolve on a later tick, but we
             // don't wait — that's the whole point of force-close.
             _ = self._connection.closeAllStreams()
+            // If there is a stream table, close its streams as well.
+            if let table = self._table {
+                table.closeAll(error: nil, disconnect: nil, into: &self._consumer!)
+                // Drop the opener so new streams can't be created.
+                table.opener = nil
+            }
             self.completeChannelInactive(error: nil)
         }
     }
