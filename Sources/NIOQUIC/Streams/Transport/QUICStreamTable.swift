@@ -341,6 +341,9 @@ extension QUICStreamTable where Consumer: ~Copyable {
 
         var iterator = QUICStreamIterator(table: self)
         consumer.processStreams(&iterator)
+        // Finish any visit the consumer didn't pull to completion, so `QUICStreamIterator.deinit`'s
+        // precondition holds once the iterator's scope ends right after this.
+        iterator._finishVisit()
     }
 
     /// Marks every stream as closed and visits each of them.
@@ -491,5 +494,45 @@ extension QUICStreamTable where Consumer: ~Copyable {
         self._ready.removeAll(keepingCapacity: true)
         self._needsState.removeAll(keepingCapacity: true)
         self._byID.removeAll()
+    }
+}
+
+// MARK: - Stream operations
+
+/// `QUICStream`'s operations that reach the stack.
+@available(anyAppleOS 26, *)
+extension QUICStreamTable where Consumer: ~Copyable {
+    /// Reads from the stream `transport` belongs to.
+    @usableFromInline
+    func read(
+        _ transport: UnsafeMutablePointer<QUICStreamTransportState>,
+        minContiguous: Int,
+        _ body: (_ span: borrowing RawSpan) -> Int
+    ) -> QUICStreamReadOutcome {
+        transport.pointee.core.read(minContiguous: minContiguous, body)
+    }
+
+    /// How many bytes the stream `transport` belongs to will accept right now.
+    @usableFromInline
+    func writableBytes(_ transport: UnsafeMutablePointer<QUICStreamTransportState>) -> Int {
+        transport.pointee.core.writableBytes
+    }
+
+    /// Writes the queued data of the stream `transport` belongs to.
+    @usableFromInline
+    func flush(_ transport: UnsafeMutablePointer<QUICStreamTransportState>, fin: Bool) throws {
+        try transport.pointee.core.flush(fin: fin)
+    }
+
+    /// Resets the send side of the stream `transport` belongs to.
+    @usableFromInline
+    func sendResetStream(_ transport: UnsafeMutablePointer<QUICStreamTransportState>, code: QUICApplicationErrorCode) {
+        transport.pointee.core.sendResetStream(code: code)
+    }
+
+    /// Closes the receive side of the stream `transport` belongs to.
+    @usableFromInline
+    func sendStopSending(_ transport: UnsafeMutablePointer<QUICStreamTransportState>, code: QUICApplicationErrorCode) {
+        transport.pointee.core.sendStopSending(code: code)
     }
 }

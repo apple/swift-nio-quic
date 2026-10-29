@@ -51,10 +51,10 @@ public struct QUICStreamIterator<Consumer: QUICStreamConsumer & ~Copyable>: ~Cop
     }
 
     deinit {
-        // Finish the last visit (in case the iterator wasn't completely consumed).
-        if let pending = self._pending {
-            self._table.finishVisit(pending.handle, presented: pending.presented)
-        }
+        precondition(
+            self._pending == nil,
+            "QUICStreamIterator dropped with a visit pending: call _finishVisit(), as drain(into:) does"
+        )
     }
 
     /// The next stream to service, or `nil` if there are none left.

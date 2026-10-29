@@ -1427,7 +1427,11 @@ extension QUICChannelStreamHandler: Channel, ChannelCore {
     func close0(error: any Error, mode: CloseMode, promise: EventLoopPromise<Void>?) {
         self.eventLoop.preconditionInEventLoop()
         self.log("ChildChannel close0 mode \(mode)")
+        self.closeStreamSides(mode: mode, promise: promise)
+    }
 
+    /// Closes the sides of the stream `mode` names, for `close0`.
+    private func closeStreamSides(mode: CloseMode, promise: EventLoopPromise<Void>?) {
         switch mode {
         case .output:
             if self.streamStateMachine.canWrite {
@@ -1490,6 +1494,17 @@ extension QUICChannelStreamHandler: Channel, ChannelCore {
             "ChildChannel triggerUserOutboundEvent0: \(event)"
         )
 
+        self.handleUserOutboundEvent(event, promise: promise)
+        guard let promise else {
+            return
+        }
+        // We are not expecting any outbound events here so we are simply
+        // failing the promise
+        promise.fail(ChannelError.operationUnsupported)
+    }
+
+    /// Handles the stop-sending and reset events for `triggerUserOutboundEvent0`.
+    private func handleUserOutboundEvent(_ event: Any, promise: EventLoopPromise<Void>?) {
         switch event {
         case let event as NIOQUICHelpers.QUICStopSendingEvent:
             // Send a STOP_SENDING frame to close the read (input) side
@@ -1519,12 +1534,6 @@ extension QUICChannelStreamHandler: Channel, ChannelCore {
         default:
             break
         }
-        guard let promise else {
-            return
-        }
-        // We are not expecting any outbound events here so we are simply
-        // failing the promise
-        promise.fail(ChannelError.operationUnsupported)
     }
 
     @inlinable
