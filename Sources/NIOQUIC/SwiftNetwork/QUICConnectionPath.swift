@@ -32,11 +32,9 @@ import Musl
 /// the SwiftNetwork `QUICConnection` as the lower datagram protocol of this path and deals with
 /// both getting bytes in and out of it.
 @available(anyAppleOS 26, *)
-final class QUICConnectionPath<Consumer: QUICStreamConsumer & ~Copyable>:
-    ProtocolInstanceContainer, OutboundDatagramHandler
-{
+final class QUICConnectionPath<Consumer: QUICStreamConsumer & ~Copyable>: ExternalOutboundDatagramLinkage {
 
-    typealias UpperProtocol = InboundDatagramLinkage
+    typealias UpperProtocol = BaseInboundDatagramLinkage
 
     /// The endpoint information (IP, port) for this path.
     let remoteAddress: SocketAddress
@@ -51,11 +49,10 @@ final class QUICConnectionPath<Consumer: QUICStreamConsumer & ~Copyable>:
     private var logPrefix: String
 
     // SwiftNetwork requirements for protocol conformance
-    internal var reference: ProtocolInstanceReference { ProtocolInstanceReference(custom: self) }
+    internal var identifier: InstanceIdentifier
     internal var eventManager = ProtocolEventManager()
     internal var context: SwiftNetwork.NetworkContext
-    private var upperProtocol = UpperProtocol(reference: .init())
-    private var asLower: OutboundDatagramLinkage { .init(reference: reference) }
+    private var upperProtocol: UpperProtocol = .init()
 
     private enum State {
         /// Not attached to a connection yet.
@@ -72,6 +69,7 @@ final class QUICConnectionPath<Consumer: QUICStreamConsumer & ~Copyable>:
     private var coalescer: GSOCoalescer
     private var inputPacketQueue: FrameArray
 
+    /// Registers the path with `context`, which acquires the event context: must be called with none held.
     init(
         role: Role,
         remoteAddress: SocketAddress,
@@ -96,6 +94,7 @@ final class QUICConnectionPath<Consumer: QUICStreamConsumer & ~Copyable>:
             bufferPoolCapacity: bufferPoolCapacity
         )
         self.inputPacketQueue = FrameArray(capacity: 10)
+        self.identifier = InstanceIdentifier(context: context, eventManager: &self.eventManager)
     }
 
     deinit {
@@ -125,24 +124,13 @@ final class QUICConnectionPath<Consumer: QUICStreamConsumer & ~Copyable>:
 
     // Called from SwiftNetworkQUICConnection to notify the stack that there are inbound packets available.
     // This function is important for getting data into the stack
-    func invokeInputAvailable() {
-        let reference = self.reference
-        reference.fromExternal {
-            self.upperProtocol.deliverInboundDataAvailableEvent(reference)
-        }
+    func invokeInputAvailable(in eventContext: inout NetworkContext.EventContext) {
+        self.upperProtocol.deliverInboundDataAvailableEvent(from: self.identifier, in: &eventContext)
     }
 
     /// Notify SwiftNetwork that the path is gone.
-    func invokeDisconnected() {
-        let reference = self.reference
-        reference.fromExternal {
-            self.upperProtocol.deliverDisconnectedEvent(reference, error: nil)
-        }
-    }
-
-    final internal func getMetadata<P>(_ from: ProtocolInstanceReference) -> ProtocolMetadata<P>?
-    where P: NetworkProtocol {
-        nil
+    func invokeDisconnected(in eventContext: inout NetworkContext.EventContext) {
+        self.upperProtocol.deliverDisconnectedEvent(error: nil, from: self.identifier, in: &eventContext)
     }
 
     // MARK: - Inbound
@@ -200,55 +188,79 @@ final class QUICConnectionPath<Consumer: QUICStreamConsumer & ~Copyable>:
 
     /// Detaches the path from its connection and from SwiftNetwork, breaking the cycles with both. A detached path
     /// drops inbound packets and outbound datagrams.
+    ///
+    /// The framework releases the path itself from above, through `teardown(in:)`, when the QUIC
+    /// instance destroys its path for it.
     func detach() {
         self.state = .detached
         // SwiftNetwork's path holds this path as its lower protocol, so drop the reference back to it.
-        self.upperProtocol = UpperProtocol(reference: .init())
+        self.upperProtocol = .init()
     }
 }
 
 @available(anyAppleOS 26, *)
-extension QUICConnectionPath: LowerProtocolHandler where Consumer: ~Copyable {
+extension QUICConnectionPath: ProtocolInstance where Consumer: ~Copyable {}
+
+@available(anyAppleOS 26, *)
+extension QUICConnectionPath where Consumer: ~Copyable {
+    // The framework's answer for its own lower protocols: connected once this path delivered its
+    // connected event, and no longer once it delivered its disconnected event or was released.
+    func protocolIsConnected(in eventContext: inout NetworkContext.EventContext) -> Bool {
+        self.identifier.isConnected(in: &eventContext)
+    }
+
     func getMetrics(
-        _ from: SwiftNetwork.ProtocolInstanceReference,
-        requestedNetworkMetric: SwiftNetwork.RequestedNetworkMetrics
+        requestedNetworkMetric: SwiftNetwork.RequestedNetworkMetrics,
+        for instance: InstanceIdentifier,
+        in eventContext: inout NetworkContext.EventContext
     ) -> SwiftNetwork.NetworkMetrics? {
         nil
     }
 
-    internal func disconnect(_ from: SwiftNetwork.ProtocolInstanceReference, error: SwiftNetwork.NetworkError?) {
-        log("received disconnect")
-        upperProtocol.deliverDisconnectedEvent(reference, error: error)
+    func getMetadata<P>(
+        for instance: InstanceIdentifier,
+        in eventContext: inout NetworkContext.EventContext
+    ) -> ProtocolMetadata<P>? where P: NetworkProtocol {
+        nil
     }
 
-    func handleApplicationEvent(_ from: SwiftNetwork.ProtocolInstanceReference, event: SwiftNetwork.ApplicationEvent) {
+    func disconnect(
+        error: SwiftNetwork.NetworkError?,
+        for instance: InstanceIdentifier,
+        in eventContext: inout NetworkContext.EventContext
+    ) {
+        log("received disconnect")
+        self.upperProtocol.deliverDisconnectedEvent(error: error, from: self.identifier, in: &eventContext)
+    }
+
+    func handleApplicationEvent(
+        event: SwiftNetwork.ApplicationEvent,
+        for instance: InstanceIdentifier,
+        in eventContext: inout NetworkContext.EventContext
+    ) {
         log("application event: \(event)")
     }
 
-    // Output handler connected
-    internal func connect(_ from: ProtocolInstanceReference) {
+    func connect(for instance: InstanceIdentifier, in eventContext: inout NetworkContext.EventContext) {
         log("received connect")
-        upperProtocol.deliverConnectedEvent(reference)
+        self.upperProtocol.deliverConnectedEvent(from: self.identifier, in: &eventContext)
     }
 
-    func attachUpperProtocol<Linkage>(
-        _ from: SwiftNetwork.ProtocolInstanceReference,
+    func invokeAttachUpperProtocol(
+        _ upperProtocol: BaseInboundDatagramLinkage,
         remote: SwiftNetwork.Endpoint?,
         local: SwiftNetwork.Endpoint?,
         parameters: SwiftNetwork.Parameters?,
         path: SwiftNetwork.PathProperties?
-    ) throws(SwiftNetwork.NetworkError) -> Linkage where Linkage: SwiftNetwork.LowerProtocolLinkage {
-        guard Linkage.self == OutboundDatagramLinkage.self,
-            let lower = asLower as? Linkage
-        else {
-            throw NetworkError.posix(ENOTSUP)
-        }
+    ) throws(SwiftNetwork.NetworkError) {
         log("received attach upper protocol")
-        upperProtocol = InboundDatagramLinkage(reference: from)
-        return lower
+        self.upperProtocol = upperProtocol
     }
 
-    func detach(_ from: SwiftNetwork.ProtocolInstanceReference) throws(SwiftNetwork.NetworkError) {
+    func detach(
+        for instance: InstanceIdentifier,
+        in eventContext: inout NetworkContext.EventContext
+    ) throws(SwiftNetwork.NetworkError) {
         log("received detach")
         // Do not reset the upper linkage here so the last packets can get out the door, e.g.,
         // APPLICATION_CLOSE or CONNECTION_CLOSE frames.
@@ -262,30 +274,27 @@ extension QUICConnectionPath: LowerProtocolHandler where Consumer: ~Copyable {
         }
     }
 
-    func attachUpperDatagramProtocol(
-        _ from: SwiftNetwork.ProtocolInstanceReference,
-        remote: SwiftNetwork.Endpoint?,
-        local: SwiftNetwork.Endpoint?,
-        parameters: SwiftNetwork.Parameters?,
-        path: SwiftNetwork.PathProperties?
-    ) throws(SwiftNetwork.NetworkError) -> SwiftNetwork.OutboundDatagramLinkage {
-        upperProtocol = InboundDatagramLinkage(reference: from)
-        return asLower
+    func teardown(in eventContext: inout NetworkContext.EventContext) {
+        // Nothing to release beyond what `detach` deliberately keeps.
+        // Just unregister the event manager as it traps when it's released.
+        self.unregisterEventManager(in: &eventContext)
     }
 
     // Gets the inbound packets queued by `enqueueInboundPacket(_:)`.
     func receiveDatagrams(
-        _ from: SwiftNetwork.ProtocolInstanceReference,
-        maximumDatagramCount: Int
+        maximumDatagramCount: Int,
+        for instance: InstanceIdentifier,
+        in eventContext: inout NetworkContext.EventContext
     ) throws(SwiftNetwork.NetworkError) -> SwiftNetwork.FrameArray? {
         self.drainInboundFrames(maximumDatagramCount: maximumDatagramCount)
     }
 
     // Allocates storage for a default frame array to be filled with data
     func getDatagramsToSend(
-        _ from: SwiftNetwork.ProtocolInstanceReference,
         maximumDatagramCount: Int,
-        minimumDatagramSize: Int
+        minimumDatagramSize: Int,
+        for instance: InstanceIdentifier,
+        in eventContext: inout NetworkContext.EventContext
     ) throws(SwiftNetwork.NetworkError) -> SwiftNetwork.FrameArray? {
         var array = FrameArray(capacity: maximumDatagramCount)
 
@@ -299,8 +308,9 @@ extension QUICConnectionPath: LowerProtocolHandler where Consumer: ~Copyable {
 
     // Queues the datagram frames for sending and tells the connection about them.
     func sendDatagrams(
-        _ from: SwiftNetwork.ProtocolInstanceReference,
-        datagrams: consuming SwiftNetwork.FrameArray
+        _ datagrams: consuming SwiftNetwork.FrameArray,
+        from instance: InstanceIdentifier,
+        in eventContext: inout NetworkContext.EventContext
     ) throws(SwiftNetwork.NetworkError) {
         log("received finalize output frames")
         switch self.state {
