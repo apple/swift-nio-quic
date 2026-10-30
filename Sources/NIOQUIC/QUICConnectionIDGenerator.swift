@@ -22,6 +22,9 @@ extension QUICConnectionID {
     ///
     /// All generated CIDs must have a length equal to ``connectionIDLength``
     /// and must be unique across the lifetime of the connection (RFC 9000 Section 5.1).
+    ///
+    /// NIOQUIC may call a generator while SwiftNetwork is handling the connection's events, so a
+    /// generator must not call back into NIOQUIC.
     @available(anyAppleOS 26, *)
     public protocol Generator: Sendable {
         /// The length of connection IDs produced by this generator (0-20).
