@@ -17,6 +17,7 @@ import NIOConcurrencyHelpers
 import NIOCore
 import NIOPosix
 import Testing
+import NIOQUICHelpers
 
 @testable import NIOQUIC
 
@@ -163,7 +164,7 @@ struct ConnectionMigrationTests {
         var latestServerStreamChannel: NIOLockedValueBox<(any Channel)?>
         var clientChannel: any Channel
         var clientConnectionChannel: any Channel
-        var streamCreator: QUICStreamCreator
+        var streamCreator: NIOQUIC.QUICStreamCreator
 
         static func connect(serverHost: String) async throws -> ConnectedPeers {
             // One thread: the relay hands datagrams from one channel's pipeline to the other's synchronously.
@@ -292,7 +293,7 @@ struct ConnectionMigrationTests {
 
     /// Sends a request on a new stream and returns the full response.
     @available(anyAppleOS 26, *)
-    private static func request(on streamCreator: QUICStreamCreator) async throws -> ByteBuffer {
+    private static func request(on streamCreator: NIOQUIC.QUICStreamCreator) async throws -> ByteBuffer {
         let stream = try await streamCreator.createBidirectionalStream { initializer in
             initializer.channel.eventLoop.makeCompletedFuture {
                 try NIOAsyncChannel(
