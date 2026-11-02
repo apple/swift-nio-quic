@@ -705,12 +705,6 @@ extension QUICHandler where Consumer: ~Copyable {
     }
 }
 
-/// Unwraps the datagrams `QUICHandler` reads. Its own `unwrapInboundIn` is generic over `Self`, which
-/// is generic over the consumer, and would run unspecialized, requiring a dynamic cast for every datagram.
-private final class DatagramUnwrapper: ChannelInboundHandler {
-    typealias InboundIn = AddressedEnvelope<ByteBuffer>
-}
-
 @available(anyAppleOS 26, *)
 extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
     public typealias InboundIn = AddressedEnvelope<ByteBuffer>
@@ -767,7 +761,8 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
 
     public func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         self.expectingChannelReadComplete = true
-        let addressedEnvelope = DatagramUnwrapper.unwrapInboundIn(data)
+        // Use a specific type for the generic to allow the compiler to specialize the calls.
+        let addressedEnvelope = QUICHandler<QUICStreamChannels>.unwrapInboundIn(data)
 
         let header = addressedEnvelope.data.parseQUICPacketHeader(
             destinationIDLength: self.connectionIDGenerator.connectionIDLength
