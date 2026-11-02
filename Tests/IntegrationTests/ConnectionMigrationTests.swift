@@ -16,8 +16,8 @@ import Logging
 import NIOConcurrencyHelpers
 import NIOCore
 import NIOPosix
-import Testing
 import NIOQUICHelpers
+import Testing
 
 @testable import NIOQUIC
 
