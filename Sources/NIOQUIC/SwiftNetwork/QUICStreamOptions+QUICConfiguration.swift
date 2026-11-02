@@ -45,7 +45,7 @@ extension QUICProtocol {
         )
 
         if let qLogConfiguration = config.qLogConfiguration {
-            perProtocolOptions.quicConnectionOptions.qlogConfiguration = QLogConfiguration(
+            perProtocolOptions.quicConnectionOptions.qlogConfiguration = SwiftNetwork.QLogConfiguration(
                 logTitle: qLogConfiguration.topic.isEmpty ? nil : qLogConfiguration.topic,
                 logDescription: qLogConfiguration.description.isEmpty ? nil : qLogConfiguration.description,
                 logPath: qLogConfiguration.path

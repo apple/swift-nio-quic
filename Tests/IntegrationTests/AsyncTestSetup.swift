@@ -125,7 +125,7 @@ func makeMockClientAndServerPair(
         // Mock server multiplexer setup
         let (quicHandler, connectionMultiplexer) = try QUICHandler.makeHandlerAndConnectionMultiplexer(
             channel: serverChannel,
-            quicConfiguration: QUICConfiguration.server(
+            quicConfiguration: QUICConfiguration.forServer(
                 serverName: "quic-test.local",
                 authenticationConfiguration: AuthenticationConfiguration.rawPublicKeys(
                     publicKeyFilePath: publicKeyPath,
@@ -154,12 +154,12 @@ func makeMockClientAndServerPair(
 
     let clientMultiplexer = try await testingEventLoop.executeInContext {
         // Mock client multiplexer setup
-        let clientConfiguration = QUICConfiguration.client(
+        var clientConfiguration = QUICConfiguration.forClient(
             verificationConfiguration: VerificationConfiguration.rawPublicKeys(publicKeyFilePath: publicKeyPath),
-            applicationProtocols: ["http/0.9"] + extraClientALPNs,
-            maxIdleTimeout: maxIdleTimeout,
-            keepAliveInterval: clientKeepAliveTime
+            applicationProtocols: ["http/0.9"] + extraClientALPNs
         )
+        clientConfiguration.maxIdleTimeout = maxIdleTimeout
+        clientConfiguration.keepAliveInterval = clientKeepAliveTime
 
         let (quicHandler, connectionMultiplexer) = try QUICHandler.makeHandlerAndConnectionMultiplexer(
             channel: clientChannel,
@@ -259,18 +259,18 @@ private func setUpClientConnectionMultiplexer(
             channel.eventLoop.makeCompletedFuture {
                 var logger = Logger(label: "Testing Client")
                 logger.logLevel = .debug
-                let clientConfiguration = QUICConfiguration.client(
+                var clientConfiguration = QUICConfiguration.forClient(
                     verificationConfiguration: .rawPublicKeys(
                         publicKeyFilePath: publicKeyFilePath
                     ),
-                    applicationProtocols: ["http/0.9"] + extraClientALPNs,
-                    maxIdleTimeout: maxIdleTimeout,
-                    initialMaxData: initialMaxData,
-                    initialMaxStreamDataBidiLocal: initialMaxStreamDataBidi,
-                    initialMaxStreamDataBidiRemote: initialMaxStreamDataBidi,
-                    initialMaxStreamsBidi: initialMaxStreamsBidi,
-                    keyLogPath: "/tmp/quic-integration-tests-keylogs"
+                    applicationProtocols: ["http/0.9"] + extraClientALPNs
                 )
+                clientConfiguration.maxIdleTimeout = maxIdleTimeout
+                clientConfiguration.initialMaxData = initialMaxData
+                clientConfiguration.initialMaxStreamDataBidiLocal = initialMaxStreamDataBidi
+                clientConfiguration.initialMaxStreamDataBidiRemote = initialMaxStreamDataBidi
+                clientConfiguration.initialMaxStreamsBidi = initialMaxStreamsBidi
+                clientConfiguration.keyLogPath = "/tmp/quic-integration-tests-keylogs"
                 let (quicHandler, connectionMultiplexer) = try QUICHandler.makeHandlerAndConnectionMultiplexer(
                     channel: channel,
                     quicConfiguration: clientConfiguration,
@@ -311,18 +311,18 @@ private func setUpServerChannelAndConnectionMultiplexer(
         .channelOption(ChannelOptions.maxMessagesPerRead, value: 32)
         .bind(host: host, port: 0) { channel in
             channel.eventLoop.makeCompletedFuture {
-                let quicConfiguration = QUICConfiguration.server(
+                var quicConfiguration = QUICConfiguration.forServer(
                     serverName: "quic-test.local",
                     authenticationConfiguration: AuthenticationConfiguration.rawPublicKeys(
                         publicKeyFilePath: publicKeyFilePath,
                         privateKeyFilePath: privateKeyFilePath
                     ),
-                    applicationProtocols: ["http/0.9"],
-                    initialMaxData: initialMaxData,
-                    initialMaxStreamDataBidiLocal: initialMaxStreamDataBidi,
-                    initialMaxStreamDataBidiRemote: initialMaxStreamDataBidi,
-                    initialMaxStreamsBidi: initialMaxStreamsBidi,
+                    applicationProtocols: ["http/0.9"]
                 )
+                quicConfiguration.initialMaxData = initialMaxData
+                quicConfiguration.initialMaxStreamDataBidiLocal = initialMaxStreamDataBidi
+                quicConfiguration.initialMaxStreamDataBidiRemote = initialMaxStreamDataBidi
+                quicConfiguration.initialMaxStreamsBidi = initialMaxStreamsBidi
                 let (quicHandler, connectionMultiplexer) = try QUICHandler.makeHandlerAndConnectionMultiplexer(
                     channel: channel,
                     quicConfiguration: quicConfiguration,

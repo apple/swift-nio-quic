@@ -150,25 +150,31 @@ func makeConsumerPair<Client: QUICStreamConsumer, Server: QUICStreamConsumer>(
     let publicKeyPath = Bundle.module.url(forResource: "publicKey", withExtension: "der")!.path
     let privateKeyPath = Bundle.module.url(forResource: "privateKey", withExtension: "der")!.path
 
-    let serverConfiguration = QUICConfiguration.server(
-        serverName: "quic-test.local",
-        authenticationConfiguration: .rawPublicKeys(
-            publicKeyFilePath: publicKeyPath,
-            privateKeyFilePath: privateKeyPath
-        ),
-        applicationProtocols: ["http/0.9"],
-        maxIdleTimeout: maxIdleTimeout,
-        initialMaxStreamsBidi: initialMaxStreamsBidi,
-        initialMaxStreamsUni: initialMaxStreamsUni
-    )
+    let serverConfiguration = {
+        var configuration = QUICConfiguration.forServer(
+            serverName: "quic-test.local",
+            authenticationConfiguration: .rawPublicKeys(
+                publicKeyFilePath: publicKeyPath,
+                privateKeyFilePath: privateKeyPath
+            ),
+            applicationProtocols: ["http/0.9"]
+        )
+        configuration.maxIdleTimeout = maxIdleTimeout
+        configuration.initialMaxStreamsBidi = initialMaxStreamsBidi
+        configuration.initialMaxStreamsUni = initialMaxStreamsUni
+        return configuration
+    }()
 
-    let clientConfiguration = QUICConfiguration.client(
-        verificationConfiguration: .rawPublicKeys(publicKeyFilePath: publicKeyPath),
-        applicationProtocols: ["http/0.9"],
-        maxIdleTimeout: maxIdleTimeout,
-        initialMaxStreamsBidi: initialMaxStreamsBidi,
-        initialMaxStreamsUni: initialMaxStreamsUni
-    )
+    let clientConfiguration = {
+        var configuration = QUICConfiguration.forClient(
+            verificationConfiguration: .rawPublicKeys(publicKeyFilePath: publicKeyPath),
+            applicationProtocols: ["http/0.9"]
+        )
+        configuration.maxIdleTimeout = maxIdleTimeout
+        configuration.initialMaxStreamsBidi = initialMaxStreamsBidi
+        configuration.initialMaxStreamsUni = initialMaxStreamsUni
+        return configuration
+    }()
 
     let serverChannel = try await DatagramBootstrap(group: eventLoopGroup)
         .channelOption(ChannelOptions.maxMessagesPerRead, value: 32)

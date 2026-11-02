@@ -236,7 +236,10 @@ struct QUICStreamTableTests {
 
     @available(anyAppleOS 26, *)
     @Test
-    func nestedVisitsToOneStreamTrap() async {
+    func nestedVisitsToOneStreamTrap() async throws {
+        #if os(Android)
+        try Test.cancel("Exit tests cannot be run on Android yet")
+        #else
         await #expect(processExitsWith: .failure) {
             let table = Self.makeTable()
             let handle = table.insertSlot(id: nil, state: 1)
@@ -246,6 +249,7 @@ struct QUICStreamTableTests {
                 }
             }
         }
+        #endif
     }
 
     // MARK: - Output pending

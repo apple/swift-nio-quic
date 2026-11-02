@@ -48,17 +48,17 @@ func createServerChannel(
         @Sendable @escaping (any Channel) -> EventLoopFuture<Void> = { $0.eventLoop.makeSucceededVoidFuture() },
     noMoreConnections: @Sendable @escaping () -> Void
 ) -> EventLoopFuture<any Channel> {
-    let quicConfiguration = QUICConfiguration.server(
+    var quicConfiguration = QUICConfiguration.forServer(
         serverName: "quic-test.local",
         authenticationConfiguration: .rawPublicKeys(
             publicKeyFilePath: Bundle.module.url(forResource: "publicKey", withExtension: "der")!.path,
             privateKeyFilePath: Bundle.module.url(forResource: "privateKey", withExtension: "der")!.path
         ),
-        applicationProtocols: ["http/0.9"],
-        keyLogPath: "/tmp/quic-sync-integration-tests-keylogs",
-        maxDatagramFrameSize: maxDatagramFrameSize,
-        initialPacketSize: initialPacketSize
+        applicationProtocols: ["http/0.9"]
     )
+    quicConfiguration.keyLogPath = "/tmp/quic-sync-integration-tests-keylogs"
+    quicConfiguration.maxDatagramFrameSize = maxDatagramFrameSize
+    quicConfiguration.initialPacketSize = initialPacketSize
     return createQUICChannel(
         eventLoopGroup: eventLoopGroup,
         host: host,
@@ -87,14 +87,14 @@ func createClientChannel(
     initialPacketSize: Int = 1200,
     udpChannelInitializer: @Sendable @escaping (any Channel) throws -> Void = { _ in }
 ) -> EventLoopFuture<any Channel> {
-    let quicConfiguration = QUICConfiguration.client(
+    var quicConfiguration = QUICConfiguration.forClient(
         verificationConfiguration: .rawPublicKeys(
             publicKeyFilePath: Bundle.module.url(forResource: "publicKey", withExtension: "der")!.path
         ),
-        applicationProtocols: ["http/0.9"],
-        maxDatagramFrameSize: maxDatagramFrameSize,
-        initialPacketSize: initialPacketSize
+        applicationProtocols: ["http/0.9"]
     )
+    quicConfiguration.maxDatagramFrameSize = maxDatagramFrameSize
+    quicConfiguration.initialPacketSize = .fixed(initialPacketSize)
 
     return createQUICChannel(
         eventLoopGroup: eventLoopGroup,

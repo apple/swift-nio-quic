@@ -36,14 +36,15 @@ final class CertificateAuthTests: XCTestCase {
         let (channel, multiplexer) = try await DatagramBootstrap(group: eventLoopGroup)
             .bind(host: address, port: bindPort) { channel in
                 channel.eventLoop.makeCompletedFuture {
+                    var quicConfiguration = QUICConfiguration.forClient(
+                        verificationConfiguration: .x509Certificates(trustRootsFilePath: trustStoreFilePath),
+                        applicationProtocols: ["swift_nio_quic"]
+                    )
+                    quicConfiguration.maxIdleTimeout = maxIdleTimeout
                     let (quicHandler, connectionMultiplexer) = try QUICHandler<QUICStreamChannels>
                         .makeHandlerAndConnectionMultiplexer(
                             channel: channel,
-                            quicConfiguration: .client(
-                                verificationConfiguration: .x509Certificates(trustRootsFilePath: trustStoreFilePath),
-                                applicationProtocols: ["swift_nio_quic"],
-                                maxIdleTimeout: maxIdleTimeout
-                            ),
+                            quicConfiguration: quicConfiguration,
                             logger: Logger(label: "test"),
                             inboundStreamChannelInitializer: { streamChannel in
                                 channel.eventLoop.makeCompletedFuture { fatalError() }
@@ -71,7 +72,7 @@ final class CertificateAuthTests: XCTestCase {
                     let (quicHandler, connectionMultiplexer) = try QUICHandler<QUICStreamChannels>
                         .makeHandlerAndConnectionMultiplexer(
                             channel: channel,
-                            quicConfiguration: .server(
+                            quicConfiguration: .forServer(
                                 serverName: name,
                                 authenticationConfiguration: .x509Certificates(
                                     certificateChainFilePath: certificateChainFilePath,

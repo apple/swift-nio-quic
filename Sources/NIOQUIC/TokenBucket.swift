@@ -43,7 +43,13 @@ struct TokenBucket {
         let refillIntervalNanoseconds = self.refillInterval.nanoseconds
         let tokensGained = max(0, Int(elapsed.nanoseconds / refillIntervalNanoseconds))
         self.availableTokens = min(self.capacity, self.availableTokens + tokensGained)
-        self.lastRefill = self.lastRefill + .nanoseconds(Int64(tokensGained) * refillIntervalNanoseconds)
+        if self.availableTokens == self.capacity {
+            // A full bucket discards partial refill progress, so time spent full doesn't count
+            // towards the next token.
+            self.lastRefill = now
+        } else {
+            self.lastRefill = self.lastRefill + .nanoseconds(Int64(tokensGained) * refillIntervalNanoseconds)
+        }
 
         if self.availableTokens >= 1 {
             self.availableTokens -= 1

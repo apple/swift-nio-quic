@@ -24,6 +24,19 @@ let testIPv6Address = "::1"
 let testPort = 443
 
 struct SocketAddress_EndpointTests {
+    // Packets are matched to paths by `addressEndpointType`, SwiftNetwork's events by the `Endpoint` a path was
+    // attached with: both have to agree. SwiftNetwork names an IPv4-mapped address by its IPv4 address, but not the
+    // other IPv6 addresses that embed one.
+    @available(anyAppleOS 26, *)
+    @Test(arguments: [
+        testIPv4Address, "192.0.2.17", testIPv6Address, "2001:db8::1:2", "::ffff:192.0.2.17", "::192.0.2.1",
+        "64:ff9b::192.0.2.1", "ffff::ffff:192.0.2.1", "::1:0:ffff:192.0.2.1",
+    ])
+    func addressEndpointTypeMatchesEndpoint(ipAddress: String) throws {
+        let address = try SocketAddress(ipAddress: ipAddress, port: testPort)
+        #expect(address.addressEndpointType == address.toAddressEndpoint().type)
+    }
+
     @available(anyAppleOS 26, *)
     @Test(
         "Convert a IPv4 SocketAddress to an Endpoint"
