@@ -123,8 +123,13 @@ public struct QUICConnection<Output: Sendable>: Sendable, StreamMultiplexerConti
                 self.iterator = iterator
             }
 
+            @concurrent
             public mutating func next() async -> Output? {
-                await self.iterator.next(isolation: #isolation)
+                await self.iterator.next()
+            }
+
+            public mutating func next(isolation actor: isolated (any Actor)?) async -> Output? {
+                await self.iterator.next(isolation: actor)
             }
         }
     }

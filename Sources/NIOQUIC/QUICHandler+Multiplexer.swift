@@ -170,8 +170,13 @@ extension QUICHandler where Consumer: ~Copyable {
                     self.iterator = iterator
                 }
 
+                @concurrent
                 public mutating func next() async -> QUICConnection<Output>? {
-                    await self.iterator.next(isolation: #isolation)
+                    await self.iterator.next()
+                }
+
+                public mutating func next(isolation actor: isolated (any Actor)?) async -> QUICConnection<Output>? {
+                    await self.iterator.next(isolation: actor)
                 }
             }
         }
