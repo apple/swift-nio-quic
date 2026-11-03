@@ -22,7 +22,7 @@ import struct NIOQUICHelpers.QUICStreamInitializerParameters
 
 @testable import NIOQUIC
 
-@Suite(.timeLimit(.minutes(5)))
+@Suite(.timeLimit(.minutes(1)))
 struct DatagramTests {
 
     func getChannelLoggers() -> (serverLogger: Logger, clientLogger: Logger) {
@@ -34,8 +34,7 @@ struct DatagramTests {
     }
 
     @available(anyAppleOS 26, *)
-    @Test
-    func datagramRoundTrip() async throws {
+    @Test func datagramRoundTrip() async throws {
         let eventLoopGroup = MultiThreadedEventLoopGroup.singleton
         let loggers = getChannelLoggers()
         let host = "127.0.0.1"
@@ -114,8 +113,7 @@ struct DatagramTests {
     }
 
     @available(anyAppleOS 26, *)
-    @Test
-    func datagramRoundTripWaitingForReadComplete() async throws {
+    @Test func datagramRoundTripWaitingForReadComplete() async throws {
         let eventLoopGroup = MultiThreadedEventLoopGroup.singleton
         let loggers = getChannelLoggers()
         let host = "127.0.0.1"
@@ -194,8 +192,7 @@ struct DatagramTests {
     }
 
     @available(anyAppleOS 26, *)
-    @Test
-    func datagramsSentBeforeConnectionEstablishmentAreBuffered() async throws {
+    @Test func datagramsSentBeforeConnectionEstablishmentAreBuffered() async throws {
         let eventLoopGroup = MultiThreadedEventLoopGroup.singleton
         let loggers = getChannelLoggers()
         let host = "127.0.0.1"
@@ -252,8 +249,7 @@ struct DatagramTests {
     }
 
     @available(anyAppleOS 26, *)
-    @Test
-    func streamRoundTripWithDatagramsEnabled() async throws {
+    @Test func streamRoundTripWithDatagramsEnabled() async throws {
         let eventLoopGroup = MultiThreadedEventLoopGroup.singleton
         let loggers = getChannelLoggers()
         let host = "127.0.0.1"
@@ -321,8 +317,7 @@ struct DatagramTests {
     }
 
     @available(anyAppleOS 26, *)
-    @Test
-    func unidirectionalDatagramAdvertisement() async throws {
+    @Test func unidirectionalDatagramAdvertisement() async throws {
         let eventLoopGroup = MultiThreadedEventLoopGroup.singleton
         let loggers = getChannelLoggers()
         let host = "127.0.0.1"
@@ -433,8 +428,7 @@ struct DatagramTests {
     /// A datagram larger than the peer's advertised `max_datagram_frame_size` is rejected locally,
     /// before it reaches the transport; the connection stays open and unrelated writes still work.
     @available(anyAppleOS 26, *)
-    @Test
-    func oversizedDatagramIsDroppedAndConnectionStaysOpen() async throws {
+    @Test func oversizedDatagramIsDroppedAndConnectionStaysOpen() async throws {
         let eventLoopGroup = MultiThreadedEventLoopGroup.singleton
         let loggers = getChannelLoggers()
         let host = "127.0.0.1"
@@ -629,8 +623,7 @@ struct DatagramTests {
     }
 
     @available(anyAppleOS 26, *)
-    @Test
-    func serverPacketSizeMatchesClientInitial() async throws {
+    @Test func serverPacketSizeMatchesClientInitial() async throws {
         let eventLoopGroup = MultiThreadedEventLoopGroup.singleton
         let loggers = getChannelLoggers()
         let host = "127.0.0.1"
@@ -725,8 +718,7 @@ struct DatagramTests {
     /// Unidirectional: a client's first bidirectional stream reuses the one the connection created
     /// up front, which attaches no new flow.
     @available(anyAppleOS 26, *)
-    @Test
-    func streamOpenedFromADatagramReadOpens() async throws {
+    @Test func streamOpenedFromADatagramReadOpens() async throws {
         let eventLoopGroup = MultiThreadedEventLoopGroup.singleton
         let loggers = getChannelLoggers()
         let host = "127.0.0.1"
