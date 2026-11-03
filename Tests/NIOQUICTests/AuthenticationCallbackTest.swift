@@ -14,6 +14,7 @@
 
 import Crypto
 import Foundation
+import SwiftASN1
 import SwiftTLS
 import Testing
 import X509

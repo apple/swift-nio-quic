@@ -12,8 +12,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-import NIOCore
-import NIOQUICHelpers
+public import NIOCore
+public import NIOQUICHelpers
 
 /// A struct representing the ability to make outbound streams.
 /// When an inbound connection is received, or an outbound connection is created on ``QUICHandler``, the connection initializer closure will give you an instance of this object to allow you to create outbound streams on that connection.

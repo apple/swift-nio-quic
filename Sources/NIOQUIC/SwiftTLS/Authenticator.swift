@@ -15,7 +15,7 @@
 import Foundation
 import SwiftASN1
 @_spi(SwiftTLSProtocol) import SwiftTLS
-import X509
+public import X509
 
 @available(macOS 11, iOS 14, tvOS 14, watchOS 7, *)
 enum AuthParameters {

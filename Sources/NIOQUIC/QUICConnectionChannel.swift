@@ -17,6 +17,8 @@ import NIOCore
 import NIOQUICHelpers
 import Synchronization
 
+import struct NIOConcurrencyHelpers.NIOLockedValueBox
+
 /// A channel for a QUIC connection.
 @available(anyAppleOS 26, *)
 final class QUICConnectionChannel<Consumer: QUICStreamConsumer & ~Copyable>: @unchecked Sendable {

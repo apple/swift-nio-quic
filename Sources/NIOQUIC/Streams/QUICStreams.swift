@@ -12,7 +12,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-import NIOQUICHelpers
+public import NIOQUICHelpers
 
 /// Access to the streams of a connection.
 @available(anyAppleOS 26, *)

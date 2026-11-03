@@ -12,8 +12,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-import DequeModule
-import NIOQUICHelpers
+public import DequeModule
+public import NIOQUICHelpers
 @_spi(Essentials) @_spi(ProtocolProvider) import SwiftNetwork
 
 @available(anyAppleOS 26, *)

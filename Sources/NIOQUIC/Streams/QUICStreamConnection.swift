@@ -12,7 +12,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-import NIOCore
+public import NIOCore
 
 /// A connection whose streams are serviced by a ``QUICStreamConsumer``.
 ///
