@@ -503,7 +503,7 @@ extension QUICStreamTable where Consumer: ~Copyable {
 @available(anyAppleOS 26, *)
 extension QUICStreamTable where Consumer: ~Copyable {
     /// Reads from the stream `transport` belongs to.
-    @usableFromInline
+    @inlinable
     func read(
         _ transport: UnsafeMutablePointer<QUICStreamTransportState>,
         minContiguous: Int,
@@ -513,25 +513,25 @@ extension QUICStreamTable where Consumer: ~Copyable {
     }
 
     /// How many bytes the stream `transport` belongs to will accept right now.
-    @usableFromInline
+    @inlinable
     func writableBytes(_ transport: UnsafeMutablePointer<QUICStreamTransportState>) -> Int {
         transport.pointee.core.writableBytes
     }
 
     /// Writes the queued data of the stream `transport` belongs to.
-    @usableFromInline
+    @inlinable
     func flush(_ transport: UnsafeMutablePointer<QUICStreamTransportState>, fin: Bool) throws {
         try transport.pointee.core.flush(fin: fin)
     }
 
     /// Resets the send side of the stream `transport` belongs to.
-    @usableFromInline
+    @inlinable
     func sendResetStream(_ transport: UnsafeMutablePointer<QUICStreamTransportState>, code: QUICApplicationErrorCode) {
         transport.pointee.core.sendResetStream(code: code)
     }
 
     /// Closes the receive side of the stream `transport` belongs to.
-    @usableFromInline
+    @inlinable
     func sendStopSending(_ transport: UnsafeMutablePointer<QUICStreamTransportState>, code: QUICApplicationErrorCode) {
         transport.pointee.core.sendStopSending(code: code)
     }
