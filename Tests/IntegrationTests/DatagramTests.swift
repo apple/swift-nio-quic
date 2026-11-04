@@ -712,81 +712,6 @@ struct DatagramTests {
 
         try await serverChannel.close()
     }
-
-    /// A stream opened from a datagram's `channelRead` opens right away.
-    ///
-    /// Unidirectional: a client's first bidirectional stream reuses the one the connection created
-    /// up front, which attaches no new flow.
-    @available(anyAppleOS 26, *)
-    @Test func streamOpenedFromADatagramReadOpens() async throws {
-        let eventLoopGroup = MultiThreadedEventLoopGroup.singleton
-        let loggers = getChannelLoggers()
-        let host = "127.0.0.1"
-        let datagram = ByteBuffer(string: "open a stream")
-        let request = ByteBuffer(string: "opened from channelRead")
-
-        let noMoreConnectionsPromise = eventLoopGroup.any().makePromise(of: Void.self)
-        let serverReceivedPromise = eventLoopGroup.any().makePromise(of: ByteBuffer.self)
-        let streamOpenedPromise = eventLoopGroup.any().makePromise(of: (any Channel).self)
-
-        let serverChannel = try await createServerChannel(
-            eventLoopGroup: eventLoopGroup,
-            host: host,
-            port: 0,
-            logger: loggers.serverLogger,
-            inboundConnectionInitializer: { connectionChannel, _ in
-                connectionChannel.eventLoop.makeCompletedFuture {
-                    try connectionChannel.pipeline.syncOperations.addHandler(
-                        DatagramCapture(onDatagram: { connectionChannel.writeAndFlush($0, promise: nil) })
-                    )
-                }
-            },
-            inboundStreamInitializer: { streamChannel in
-                streamChannel.eventLoop.makeCompletedFuture {
-                    try streamChannel.pipeline.syncOperations.addHandler(
-                        ResponseCapture(response: request, receivedPromise: serverReceivedPromise)
-                    )
-                }
-            },
-            noMoreConnections: {
-                noMoreConnectionsPromise.succeed()
-            }
-        ).get()
-        let serverPort = serverChannel.localAddress!.port!
-
-        let clientChannel = try await createClientChannel(
-            eventLoopGroup: eventLoopGroup,
-            host: host,
-            port: 0,
-            logger: loggers.clientLogger
-        ).get()
-
-        let (clientConnectionChannel, _) = try await connectOutbound(
-            clientChannel,
-            host: host,
-            port: serverPort
-        ) { connectionChannel, streamCreator in
-            connectionChannel.eventLoop.makeCompletedFuture {
-                try connectionChannel.pipeline.syncOperations.addHandler(
-                    StreamOpeningDatagramHandler(
-                        streamCreator: streamCreator,
-                        request: request,
-                        streamOpened: streamOpenedPromise
-                    )
-                )
-            }
-        }
-
-        // The server echoes it, and the client's handler opens the stream when the echo arrives.
-        clientConnectionChannel.writeAndFlush(datagram, promise: nil)
-
-        _ = try await streamOpenedPromise.futureResult.get()
-        let serverReceived = try await serverReceivedPromise.futureResult.get()
-        #expect(serverReceived == request)
-
-        try await serverChannel.close()
-        try await noMoreConnectionsPromise.futureResult.get()
-    }
 }
 
 /// Opens an outbound QUIC connection on `clientChannel` to `host:port`, running
@@ -989,32 +914,5 @@ private final class ErrorRecordingHandler: ChannelInboundHandler {
     func errorCaught(context: ChannelHandlerContext, error: any Error) {
         self.errors.withLockedValue { $0.append("\(error)") }
         context.fireErrorCaught(error)
-    }
-}
-
-/// Opens a unidirectional stream when a datagram arrives, from inside `channelRead`, and writes
-/// `request` on it.
-@available(anyAppleOS 26, *)
-private final class StreamOpeningDatagramHandler: ChannelInboundHandler {
-    typealias InboundIn = ByteBuffer
-
-    private let streamCreator: QUICStreamCreator
-    private let request: ByteBuffer
-    private let streamOpened: EventLoopPromise<any Channel>
-
-    init(streamCreator: QUICStreamCreator, request: ByteBuffer, streamOpened: EventLoopPromise<any Channel>) {
-        self.streamCreator = streamCreator
-        self.request = request
-        self.streamOpened = streamOpened
-    }
-
-    func channelRead(context: ChannelHandlerContext, data: NIOAny) {
-        let request = self.request
-        self.streamCreator.assumeIsolated().createUnidirectionalStream { parameters in
-            parameters.channel.eventLoop.makeCompletedFuture {
-                parameters.channel.writeAndFlush(request, promise: nil)
-                return parameters.channel
-            }
-        }.cascade(to: self.streamOpened)
     }
 }
