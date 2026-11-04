@@ -769,6 +769,42 @@ struct StreamTableTests {
 
     @available(anyAppleOS 26, *)
     @Test
+    func forceCloseClosesEveryStream() async throws {
+        let recording = StreamRecording()
+
+        try await withConsumerPair(
+            client: RecordConsumer(recording: recording),
+            server: EchoConsumer()
+        ) { pair in
+            // No FIN, so the stream is still open when the connection is forced closed.
+            let handle = try await pair.openClientStream(writing: ByteBuffer(string: "GET /quic"), fin: false)
+
+            let channel = try #require(pair.clientConnection.channel as? QUICConnectionChannel<RecordConsumer>)
+            try await channel.eventLoop.submit {
+                channel.transportView.forceClose()
+            }.get()
+
+            // Completes once the channel has torn down.
+            try await channel.closeFuture.get()
+
+            // The stream closed with the connection: its handle no longer resolves, so there is
+            // nothing left to flush.
+            let resolved = try await pair.clientConnection.withStreams { streams -> Bool in
+                try streams.withStream(handle: handle) { stream, _ in
+                    try stream.flush(fin: true)
+                } != nil
+            }.get()
+
+            #expect(resolved == false)
+
+            let visits = await recording.visits(untilClosedStreams: 1)
+            let closed = visits.filter { $0.events.contains(.closed) }
+            #expect(closed.map { $0.handle } == [handle])
+        }
+    }
+
+    @available(anyAppleOS 26, *)
+    @Test
     func creditBlockedStreamIsOpenedOnlyOnceItHasAnID() async throws {
         let recording = StreamRecording()
         let failures = NIOLockedValueBox<[String]>([])

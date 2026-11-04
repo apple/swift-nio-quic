@@ -761,7 +761,8 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
 
     public func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         self.expectingChannelReadComplete = true
-        let addressedEnvelope = self.unwrapInboundIn(data)
+        // Use a specific type for the generic to allow the compiler to specialize the calls.
+        let addressedEnvelope = QUICHandler<QUICStreamChannels>.unwrapInboundIn(data)
 
         let header = addressedEnvelope.data.parseQUICPacketHeader(
             destinationIDLength: self.connectionIDGenerator.connectionIDLength
@@ -1156,7 +1157,10 @@ extension QUICHandler where Consumer: ~Copyable {
             ]
         )
         self.didWrite = true
-        context.write(QUICHandler.wrapOutboundOut(envelope), promise: promise)
+        // Do not use `wrapOutboundOut` as it's generic over `Self`, which is generic
+        // over the consumer and does not get specialized, requiring a dynamic casts
+        // on every datagram.
+        context.write(NIOAny(envelope), promise: promise)
     }
 
     internal func flush() {

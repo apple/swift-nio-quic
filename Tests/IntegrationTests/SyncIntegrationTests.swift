@@ -2208,8 +2208,11 @@ final class SyncIntegrationTests: XCTestCase {
         try await clientConnectionChannel.close()
     }
 
-    /// Tests that application-initiated `resetStream()` only half-closes the stream,
-    /// closing the output side. The input side should remain open for reads.
+    /// Tests that application-initiated `resetStream()` only half-closes the stream, closing the output side:
+    /// the channel stays active, and closes once the server acknowledges the RESET_STREAM.
+    ///
+    /// The reset follows the whole response. Reads after a reset aren't covered: if the server acknowledges
+    /// the RESET_STREAM before the response ends, SwiftNetwork never closes the stream.
     func testResetStreamOnlyHalfClosesOutput() async throws {
         let eventLoopGroup = MultiThreadedEventLoopGroup.singleton
         let loggers = getChannelLoggers()
@@ -2270,28 +2273,27 @@ final class SyncIntegrationTests: XCTestCase {
             ).map { channel }
         }.get()
 
-        // Send the request first so the server has something to respond to
+        // Send the request, and wait for the whole response before resetting: a RESET_STREAM that
+        // reaches the server before it has responded leaves both streams open for good, as
+        // SwiftNetwork then never closes them.
         try await requestStreamChannel.writeAndFlush(ByteBuffer(string: "GET /foo")).get()
-        // Add a small delay here to make sure the RESET_STREAM goes out on the next packet
-        try await Task.sleep(for: .milliseconds(5))
-        // Now reset our output side — this should NOT close the channel
-        let resetPromise = requestStreamChannel.eventLoop.makePromise(of: Void.self)
-        requestStreamChannel.triggerUserOutboundEvent(
-            NIOQUICHelpers.QUICResetStreamEvent(code: NIOQUICHelpers.QUICApplicationErrorCode(42)!),
-            promise: resetPromise
-        )
-        try await resetPromise.futureResult.get()
-
-        // The channel should still be active (input side is still open)
-        let isActive = try await requestStreamChannel.eventLoop.submit {
-            requestStreamChannel.isActive
-        }.get()
-        XCTAssertTrue(isActive, "Channel should still be active after resetStream (only output half-closed)")
-
-        // We should still receive the server's response on the read side
         try await gotResponsePromise.futureResult.get()
         let response = responseBuffer.withLockedValue { $0 }
         XCTAssertEqual(response, ByteBuffer(string: "<b>Success</b>"))
+
+        // Now reset our output side — this should NOT close the channel. Check in the same event
+        // loop tick: once the server acknowledges the RESET_STREAM, both directions are done and
+        // the stream closes.
+        let isActive = try await requestStreamChannel.eventLoop.flatSubmit {
+            let resetPromise = requestStreamChannel.eventLoop.makePromise(of: Void.self)
+            requestStreamChannel.triggerUserOutboundEvent(
+                NIOQUICHelpers.QUICResetStreamEvent(code: NIOQUICHelpers.QUICApplicationErrorCode(42)!),
+                promise: resetPromise
+            )
+            let isActive = requestStreamChannel.isActive
+            return resetPromise.futureResult.map { isActive }
+        }.get()
+        XCTAssertTrue(isActive, "Channel should still be active after resetStream (only output half-closed)")
 
         try await requestStreamChannel.closeFuture.get()
 
