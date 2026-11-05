@@ -37,7 +37,7 @@ final class QUICDatagramTransport<Consumer: QUICStreamConsumer & ~Copyable>: Ext
     internal var identifier: InstanceIdentifier
     internal var eventManager = ProtocolEventManager()
     /// The datagram flow this transport sends and receives on. Replaced with a live linkage by
-    /// `setFlowLinkage(_:)` once the flow has been attached.
+    /// `invokeAttachLowerProtocol` once the flow has been attached.
     internal var lower: BaseOutboundDatagramLinkage = .init()
     internal var context: SwiftNetwork.NetworkContext
 
@@ -63,12 +63,6 @@ final class QUICDatagramTransport<Consumer: QUICStreamConsumer & ~Copyable>: Ext
         self.context = context
         self.callouts = callouts
         self.identifier = InstanceIdentifier(eventManager: &self.eventManager, in: &eventContext)
-    }
-
-    /// Installs the flow linkage `invokeAttachLowerProtocol` hands over when this transport is attached
-    /// to a new datagram flow.
-    func setFlowLinkage(_ linkage: BaseOutboundDatagramLinkage) {
-        self.lower = linkage
     }
 
     func log(_ message: @autoclosure () -> String) {
@@ -200,7 +194,7 @@ extension QUICDatagramTransport where Consumer: ~Copyable {
         parameters: SwiftNetwork.Parameters?,
         path: SwiftNetwork.PathProperties?
     ) throws(SwiftNetwork.NetworkError) {
-        self.setFlowLinkage(lowerProtocol)
+        self.lower = lowerProtocol
         try lowerProtocol.invokeAttachUpperProtocol(
             BaseInboundDatagramLinkage(external: self),
             remote: remote,

@@ -65,6 +65,8 @@ final class QUICCallouts {
 
     /// Queues `callout` to run once the event context is released.
     ///
+    /// - Note: `eventContext` is unused. Holding it just proves that the caller is in the stack.
+    ///
     /// - Precondition: Must only be called from inside the stack.
     func add(_ callout: QUICCallout, in eventContext: inout NetworkContext.EventContext) {
         #if DEBUG

@@ -79,8 +79,6 @@ final class QUICChannelStreamHandler: ExternalInboundStreamLinkage, @unchecked S
 
     // MARK: Private Constant state
 
-    internal typealias LowerProtocol = BaseOutboundStreamLinkage
-
     private let role: Role
     private let logger: Logger
     /// The connection's queued callouts: the pipeline events and promise completions the stack's
@@ -1429,12 +1427,13 @@ extension QUICChannelStreamHandler: Channel, ChannelCore {
     func flush0() {
         self.eventLoop.preconditionInEventLoop()
         self.log("ChildChannel flush0")
-        let succeeded = self.callouts.enter(as: self) { eventContext in
-            self.writeBuffersToStream(self.bufferedWriteData, fin: false, in: &eventContext)
-        }
-        if succeeded {
-            self.log("ChildChannel flush0 succeeded")
-            self.bufferedWriteData.removeAll(where: { _ in true })
+        self.callouts.enter(as: self) { eventContext in
+            // Clear data before returning in case queued tasks running when `enter` returns
+            // send anything.
+            if self.writeBuffersToStream(self.bufferedWriteData, fin: false, in: &eventContext) {
+                self.log("ChildChannel flush0 succeeded")
+                self.bufferedWriteData.removeAll(where: { _ in true })
+            }
         }
     }
 
@@ -1732,10 +1731,7 @@ extension QUICChannelStreamHandler {
     }
 
     func deliverClose(promise: EventLoopPromise<Void>?, error: (any Error)?) {
-        if self.isPipelineClosed {
-            promise?.succeed()
-            return
-        }
+        assert(!self.isPipelineClosed)
         // As NIO's channels do: update the state first, then the close promise, then the events.
         self.isPipelineClosed = true
         let wasActive = self._isActive.exchange(false, ordering: .sequentiallyConsistent)

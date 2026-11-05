@@ -36,7 +36,6 @@ import Musl
 final class QUICChannelNewFlowHandler<Consumer: QUICStreamConsumer & ~Copyable>: ExternalInboundStreamFlowLinkage {
 
     internal typealias LowerProtocol = BaseStreamListenerLinkage
-    typealias UpperStreamHandlerType = QUICChannelStreamHandler
 
     // Internal mutable state
     internal var eventManager = ProtocolEventManager()

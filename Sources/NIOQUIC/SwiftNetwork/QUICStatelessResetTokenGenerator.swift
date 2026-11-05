@@ -21,11 +21,12 @@ extension QUICStatelessResetToken {
 
     /// Derives the stateless reset tokens for the connection IDs this endpoint issues.
     ///
-    /// Tokens are be derived from the key and the connection ID, so they can be
+    /// Tokens are derived from the key and the connection ID, so they can be
     /// regenerated after restarts.
     ///
-    /// NIOQUIC may call a generator while SwiftNetwork is handling the connection's events, so a
-    /// generator must not call back into NIOQUIC.
+    /// - Warning: NIOQUIC may call a generator while SwiftNetwork is handling the
+    /// connection's events, so a generator must not call back into NIOQUIC as a call
+    /// that reaches SwiftNetwork traps.
     @available(anyAppleOS 26, *)
     public protocol Generator: Sendable {
         /// The stateless reset token for `connectionID`.

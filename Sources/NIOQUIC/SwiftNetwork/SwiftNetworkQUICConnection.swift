@@ -729,36 +729,34 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
             fatalError("Could not create a new outbound stream handler")
         }
 
-        // The stream handler's own calls: enter as it, as `start` does for the initial client stream.
-        let connectedStreamID: QUICStreamID? = self.callouts.enter(as: streamHandler) { eventContext in
-            streamHandler.start(in: &eventContext)
-
-            // Fast path: Check if the metadata is available immediately.
-            guard let metadata: ProtocolMetadata<QUICProtocol> = streamHandler.getStreamMetadata(in: &eventContext),
-                let rawStreamID = metadata.streamID, streamHandler.streamStateMachine.isConnected
-            else {
-                // Metadata not yet available or stream not connected. Wait for the connected callback.
-                self.pendingOutboundStreams[temporaryID] = .init(
-                    streamHandler: streamHandler,
-                    onStreamReady: onStreamReady
-                )
-                // And wait for the connected event from the stream handler.
-                streamHandler.setConnectedEventHandler { streamID in
-                    self.outboundStreamConnectedCallback(
-                        temporaryID: temporaryID,
-                        streamID: streamID
-                    )
-                }
-                return nil
-            }
-            return QUICStreamID(rawValue: rawStreamID)
+        // Wait for the connected event, which the stack delivers once the handler is idle again: as
+        // `enter` below returns at the earliest.
+        self.pendingOutboundStreams[temporaryID] = .init(
+            streamHandler: streamHandler,
+            onStreamReady: onStreamReady
+        )
+        streamHandler.setConnectedEventHandler { streamID in
+            self.outboundStreamConnectedCallback(
+                temporaryID: temporaryID,
+                streamID: streamID
+            )
         }
 
-        if let connectedStreamID {
+        // The stream handler's own calls: enter as it, as `start` does for the initial client stream.
+        self.callouts.enter(as: streamHandler) { eventContext in
+            streamHandler.start(in: &eventContext)
+        }
+
+        // Fast path: a stream the stack connected right away got its connected event as `enter`
+        // left the handler, and its `channelActive` from the callouts `enter` ran. The connected
+        // callback then finds nothing left to do.
+        if streamHandler.streamStateMachine.isConnected, let streamID = streamHandler.streamID,
+            self.pendingOutboundStreams.removeValue(forKey: temporaryID) != nil
+        {
             // Runs the user's stream initializer and completes its promise.
             self.finishOutboundStreamSetup(
                 temporaryID: temporaryID,
-                streamID: connectedStreamID,
+                streamID: streamID,
                 streamHandler: streamHandler,
                 onStreamReady: onStreamReady
             )
