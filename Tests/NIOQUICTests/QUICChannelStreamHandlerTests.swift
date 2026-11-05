@@ -18,7 +18,7 @@ import NIOConcurrencyHelpers
 import NIOCore
 import NIOEmbedded
 import NIOQUICHelpers
-@_spi(ProtocolProvider) import SwiftNetwork
+@_spi(Essentials) @_spi(ProtocolProvider) import SwiftNetwork
 import Synchronization
 import Testing
 
@@ -383,11 +383,9 @@ struct QUICChannelStreamHandlerTests {
         }
     }
 
-    /// `handleDisconnectedEvent` must flip `_isActive` synchronously; deferring
-    /// races the multiplexer's `removeHandlers` and drops `fireChannelInactive`.
     @available(anyAppleOS 26, *)
-    @Test("handleDisconnectedEvent flips _isActive synchronously")
-    func handleDisconnectedEventFlipsIsActiveSynchronously() throws {
+    @Test("A disconnected event flips _isActive before its entry returns")
+    func disconnectedEventFlipsIsActiveBeforeItsEntryReturns() throws {
         try Self.withServerStream { streamChannel in
             // Set up the normal case: linkage attached, channel active.
             streamChannel._isActive.store(true, ordering: .sequentiallyConsistent)
@@ -396,7 +394,7 @@ struct QUICChannelStreamHandlerTests {
             let isActiveBefore = streamChannel.isActive
             #expect(isActiveBefore)
 
-            // Fire `handleDisconnectedEvent`. After it returns —
+            // Deliver the disconnected event. After the entry returns —
             // *without* having drained the event loop — `_isActive` must
             // already be `false`. If the cascade were deferred via
             // `eventLoop.execute` (the pre-fix shape), `_isActive` would
@@ -406,11 +404,158 @@ struct QUICChannelStreamHandlerTests {
             let isActiveAfterImmediately = streamChannel.isActive
             #expect(
                 !isActiveAfterImmediately,
-                "handleDisconnectedEvent must flip _isActive synchronously to resolve _closePromise on the same tick as the stream handler is detached"
+                "A disconnected event must flip _isActive before its entry returns, to resolve _closePromise on the same tick as the stream handler is detached"
             )
 
             // Drain the deferred pipeline body.
             (streamChannel.eventLoop as! EmbeddedEventLoop).run()
+        }
+    }
+
+    @available(anyAppleOS 26, *)
+    @Test("A disconnect closes the stream with its error, unless it's an idle timeout", arguments: [true, false])
+    func disconnectErrorReachesThePipelineUnlessItsAnIdleTimeout(idleTimeout: Bool) throws {
+        try Self.withServerStream { streamChannel in
+            streamChannel._isActive.store(true, ordering: .sequentiallyConsistent)
+            let recorder = RecordingHandler()
+            try streamChannel.pipeline.syncOperations.addHandler(recorder)
+
+            let error =
+                idleTimeout
+                ? NetworkError.posix(ETIMEDOUT)
+                : NetworkError(quicApplicationError: 10, reason: "test")
+            streamChannel.deliverDisconnectedEvent(error: error)
+
+            // The error, if any, comes first: `channelInactive` is the last thing the pipeline sees.
+            #expect(recorder.events == (idleTimeout ? [] : [.errorCaught]) + [.channelInactive, .channelUnregistered])
+
+            // `_close` defers the rest of its body to the next event-loop tick.
+            (streamChannel.eventLoop as! EmbeddedEventLoop).run()
+        }
+    }
+
+    @available(anyAppleOS 26, *)
+    @Test("The close promise completes when the channel is already inactive")
+    func closePromiseCompletesWithTheChannelInactive() throws {
+        try Self.withServerStream { streamChannel in
+            streamChannel._isActive.store(true, ordering: .sequentiallyConsistent)
+            let activeWhenClosed = NIOLockedValueBox<Bool?>(nil)
+            let promise = streamChannel.eventLoop.makePromise(of: Void.self)
+            promise.futureResult.whenComplete { _ in
+                activeWhenClosed.withLockedValue { $0 = streamChannel.isActive }
+            }
+
+            streamChannel.close(promise: promise)
+
+            #expect(activeWhenClosed.withLockedValue { $0 } == false)
+            (streamChannel.eventLoop as! EmbeddedEventLoop).run()
+        }
+    }
+
+    @available(anyAppleOS 26, *)
+    @Test("Several data events in one batch make one read burst, even with a read issued before it's delivered")
+    func severalDataEventsInOneBatchMakeOneReadBurst() throws {
+        try Self.withServerStream(autoRead: false) { streamChannel in
+            let recorder = RecordingHandler()
+            try streamChannel.pipeline.syncOperations.addHandler(recorder)
+            streamChannel.pipeline.read()
+
+            // Runs ahead of the queued read, and issues another one before that is delivered.
+            let promise = streamChannel.eventLoop.makePromise(of: Void.self)
+            promise.futureResult.assumeIsolated().whenSuccess { streamChannel.pipeline.read() }
+
+            let first = ByteBuffer(string: "first")
+            let second = ByteBuffer(string: "second")
+            streamChannel.callouts.enter(as: streamChannel) { eventContext in
+                streamChannel.callouts.add(.completePromise(promise, .success(())), in: &eventContext)
+                streamChannel._testOnly_appendToBufferedReadData(first)
+                streamChannel.handleInboundDataAvailableEvent(for: InstanceIdentifier(), in: &eventContext)
+                streamChannel._testOnly_appendToBufferedReadData(second)
+                streamChannel.handleInboundDataAvailableEvent(for: InstanceIdentifier(), in: &eventContext)
+            }
+
+            // One read and one read complete, for both reads.
+            let both = ByteBuffer(string: "firstsecond")
+            #expect(recorder.events == [.read, .read, .channelRead(both), .channelReadComplete])
+        }
+    }
+
+    @available(anyAppleOS 26, *)
+    @Test("A stream closed from channelRead sees nothing more of that batch")
+    func aStreamClosedFromChannelReadSeesNothingMoreOfThatBatch() throws {
+        try Self.withServerStream { streamChannel in
+            streamChannel._isActive.store(true, ordering: .sequentiallyConsistent)
+            let recorder = RecordingHandler()
+            try streamChannel.pipeline.syncOperations.addHandlers([recorder, CloseOnReadHandler()])
+            streamChannel.pipeline.read()
+
+            // Data and a FIN: the batch queues `inputClosed` and `channelReadComplete` behind the
+            // read, and the read complete would issue an auto-read.
+            let testData = ByteBuffer(string: "test")
+            streamChannel._testOnly_appendToBufferedReadData(testData)
+            _ = try streamChannel.streamStateMachine.receiveFin(finalSize: 0)
+            streamChannel.deliverInboundDataAvailableEvent()
+
+            #expect(recorder.events == [.read, .channelRead(testData), .channelInactive, .channelUnregistered])
+
+            // `_close` defers the rest of its body to the next event-loop tick.
+            (streamChannel.eventLoop as! EmbeddedEventLoop).run()
+        }
+    }
+
+    @available(anyAppleOS 26, *)
+    @Test("isActive follows the delivered events", arguments: [false, true])
+    func isActiveFollowsTheDeliveredEvents(closedFirst: Bool) throws {
+        try Self.withServerStream { streamChannel in
+            let recorder = RecordingHandler()
+            try streamChannel.pipeline.syncOperations.addHandler(recorder)
+
+            streamChannel.callouts.enter(as: streamChannel) { eventContext in
+                if closedFirst {
+                    streamChannel.callouts.add(
+                        .streamClosed(streamChannel, promise: nil, error: nil),
+                        in: &eventContext
+                    )
+                }
+                streamChannel.callouts.add(.streamActive(streamChannel), in: &eventContext)
+                #expect(!streamChannel.isActive)
+            }
+
+            #expect(streamChannel.isActive == !closedFirst)
+            #expect(recorder.events == (closedFirst ? [] : [.channelActive]))
+            (streamChannel.eventLoop as! EmbeddedEventLoop).run()
+        }
+    }
+
+    @available(anyAppleOS 26, *)
+    @Test("A stream closed while attached unregisters only once its flow's disconnect detaches it")
+    func closedStreamUnregistersOnceDetached() throws {
+        try Self.withServerStream { streamChannel in
+            streamChannel.close(promise: nil)
+            (streamChannel.eventLoop as! EmbeddedEventLoop).run()
+
+            // The close has completed, and the flow still has the handler as its upper.
+            let isAttached = streamChannel.swiftNetworkStreamHandle.isAttached
+            #expect(isAttached)
+            try #require(!streamChannel.identifier.isNone)
+
+            streamChannel.deliverDisconnectedEvent(error: nil)
+            #expect(streamChannel.identifier.isNone)
+        }
+    }
+
+    @available(anyAppleOS 26, *)
+    @Test("A stream closed while attached unregisters once stop detaches it")
+    func closedStreamUnregistersOnceStopDetachesIt() throws {
+        try Self.withServerStream { streamChannel in
+            streamChannel.close(promise: nil)
+            (streamChannel.eventLoop as! EmbeddedEventLoop).run()
+            try #require(!streamChannel.identifier.isNone)
+
+            streamChannel.fromExternal { eventContext in
+                streamChannel.stop(detachFromLowerProtocol: true, in: &eventContext)
+            }
+            #expect(streamChannel.identifier.isNone)
         }
     }
 
@@ -452,7 +597,7 @@ struct QUICChannelStreamHandlerTests {
     func invokeWrappersReleaseBorrowBeforeReturning() throws {
         try Self.withServerStream { streamChannel in
             // Extract the linkage from the non-mutating send-data wrapper.
-            let linkage: OutboundStreamLinkage
+            let linkage: BaseOutboundStreamLinkage
             switch streamChannel.swiftNetworkStreamHandle.invokeSendStreamData() {
             case .proceed(let extracted):
                 linkage = extracted
@@ -497,14 +642,20 @@ struct QUICChannelStreamHandlerTests {
 
 @available(anyAppleOS 26, *)
 extension QUICChannelStreamHandler {
-    /// Delivers the stack's inbound-data-available event, as the stack does.
+    /// Delivers the stack's inbound-data-available event the way the stack does: with the event
+    /// context held, which this fabricates by entering as the handler, and the callouts it queues
+    /// run once it's released.
     fileprivate func deliverInboundDataAvailableEvent() {
-        self.handleInboundDataAvailableEvent(.init())
+        self.callouts.enter(as: self) { eventContext in
+            self.handleInboundDataAvailableEvent(for: InstanceIdentifier(), in: &eventContext)
+        }
     }
 
     /// Delivers the stack's disconnected event, as ``deliverInboundDataAvailableEvent()`` does.
     fileprivate func deliverDisconnectedEvent(error: NetworkError?) {
-        self.handleDisconnectedEvent(.init(), error: error)
+        self.callouts.enter(as: self) { eventContext in
+            self.handleDisconnectedEvent(error: error, for: InstanceIdentifier(), in: &eventContext)
+        }
     }
 }
 
@@ -604,6 +755,8 @@ extension QUICChannelStreamHandlerTests {
             case channelRead(ByteBuffer)
             case channelReadComplete
             case inputClosedEvent
+            case channelActive
+            case errorCaught
             case channelInactive
             case channelUnregistered
         }
@@ -645,9 +798,19 @@ extension QUICChannelStreamHandlerTests {
             context.fireChannelReadComplete()
         }
 
+        func channelActive(context: ChannelHandlerContext) {
+            self.events.append(.channelActive)
+            context.fireChannelActive()
+        }
+
         func channelInactive(context: ChannelHandlerContext) {
             self.events.append(.channelInactive)
             context.fireChannelInactive()
+        }
+
+        func errorCaught(context: ChannelHandlerContext, error: any Error) {
+            self.events.append(.errorCaught)
+            context.fireErrorCaught(error)
         }
 
         func channelUnregistered(context: ChannelHandlerContext) {
@@ -668,6 +831,15 @@ extension QUICChannelStreamHandlerTests {
         func read(context: ChannelHandlerContext) {
             self.events.append(.read)
             context.read()
+        }
+    }
+
+    /// Closes the channel from `channelRead`.
+    private final class CloseOnReadHandler: ChannelInboundHandler {
+        typealias InboundIn = ByteBuffer
+
+        func channelRead(context: ChannelHandlerContext, data: NIOAny) {
+            context.close(promise: nil)
         }
     }
 

@@ -429,16 +429,16 @@ extension QUICConnectionChannel.ConnectionView where Consumer: ~Copyable {
     /// The connection associated a new ID with itself, update the routing table so that the new
     /// ID is routed to this connection.
     ///
-    /// Only updates the routing table: the connection reports a successful association with
-    /// ``connectionIDAssociated(_:)``.
+    /// Called with the event context held, so it must only update the routing table. The
+    /// connection then reports a successful association with ``connectionIDAssociated(_:)``.
     func associate(_ newID: QUICConnectionID) -> Bool {
         self._channel._registrar.associate(newID)
     }
 
     /// The connection retired the given ID, update the routing table to drop the retired ID.
     ///
-    /// Only updates the routing table: the connection reports a successful retirement with
-    /// ``connectionIDRetired(_:)``.
+    /// Called with the event context held, so it must only update the routing table. The
+    /// connection then reports a successful retirement with ``connectionIDRetired(_:)``.
     func retire(_ id: QUICConnectionID) -> Bool {
         self._channel._registrar.retire(id)
     }

@@ -18,23 +18,22 @@
 @available(anyAppleOS 26, *)
 struct QUICStreamOpener {
     /// The connection's stream listener.
-    let listener: StreamListenerLinkage
+    let listener: BaseStreamListenerLinkage
 
     /// The stack's connection instance.
-    let connection: ProtocolInstanceReference
+    let connection: InstanceIdentifier
 
     let context: NetworkContext
 
     /// Attaches a new outbound flow for a stream.
     ///
-    /// - Parameters:
-    ///   - isUnidirectional: Whether the stream has a send side only.
-    ///   - reference: The reference the stack routes the stream's events back through.
-    /// - Returns: The flow the stack attached, which is not yet connected.
+    /// The new flow's linkage is delivered synchronously via the callback
+    /// `upperProtocol.invokeAttachLowerProtocol`, which will
+    /// assign it to `QUICStreamTable._pendingAttachLinkage`.
     func attach(
         isUnidirectional: Bool,
-        from reference: ProtocolInstanceReference
-    ) throws(NetworkError) -> OutboundStreamLinkage {
+        upperProtocol: BaseInboundStreamLinkage
+    ) throws(NetworkError) {
         var parameters = SwiftNetwork.Parameters()
         parameters.context = self.context
         let path = SwiftNetwork.PathProperties(parameters: parameters)
@@ -44,8 +43,8 @@ struct QUICStreamOpener {
         options.setProtocolInstance(self.connection)
         parameters.defaultStack.prepend(applicationProtocol: options)
 
-        return try self.listener.invokeAttachUpperStreamProtocolToNewFlow(
-            reference,
+        try self.listener.invokeAttachUpperProtocolToNewFlow(
+            upperProtocol,
             remote: nil,
             local: nil,
             parameters: parameters,

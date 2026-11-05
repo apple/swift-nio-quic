@@ -744,6 +744,27 @@ final class ConnectionActiveHandler: ChannelInboundHandler {
     }
 }
 
+/// Opens a stream from `channelInactive`, and completes `streamOpened` with the outcome.
+@available(anyAppleOS 26, *)
+final class StreamOpeningInactiveHandler: ChannelInboundHandler {
+    typealias InboundIn = Never
+
+    private let streamCreator: NIOQUIC.QUICStreamCreator
+    private let streamOpened: EventLoopPromise<any Channel>
+
+    init(streamCreator: NIOQUIC.QUICStreamCreator, streamOpened: EventLoopPromise<any Channel>) {
+        self.streamCreator = streamCreator
+        self.streamOpened = streamOpened
+    }
+
+    func channelInactive(context: ChannelHandlerContext) {
+        self.streamCreator.assumeIsolated().createBidirectionalStream { parameters in
+            parameters.channel.eventLoop.makeSucceededFuture(parameters.channel)
+        }.cascade(to: self.streamOpened)
+        context.fireChannelInactive()
+    }
+}
+
 /// Waits for incoming requests, ensure they match GET /foo, then responds with success. Refuses to do this more than once
 @available(anyAppleOS 26, *)
 final class StreamingServerHandler: ChannelInboundHandler {
@@ -1994,6 +2015,65 @@ final class SyncIntegrationTests: XCTestCase {
         XCTAssertLessThan(elapsed, .milliseconds(500))
 
         try await clientConnectionChannel.close()
+        try await serverChannel.close()
+    }
+
+    /// The connection channel's `channelInactive` runs once the connection is torn down, so a stream
+    /// opened from it fails rather than attaching to a QUIC instance that may be released.
+    func testStreamOpenedFromChannelInactiveFails() async throws {
+        let eventLoopGroup = MultiThreadedEventLoopGroup.singleton
+        let loggers = getChannelLoggers()
+        let host = "127.0.0.1"
+
+        let serverChannel = try await createServerChannel(
+            eventLoopGroup: eventLoopGroup,
+            host: host,
+            port: 0,
+            logger: loggers.serverLogger,
+            inboundConnectionInitializer: { connectionChannel, _ in
+                connectionChannel.eventLoop.makeSucceededVoidFuture()
+            },
+            noMoreConnections: {}
+        ).get()
+        let serverPort = serverChannel.localAddress!.port!
+
+        let clientChannel = try await createClientChannel(
+            eventLoopGroup: eventLoopGroup,
+            host: host,
+            port: 0,
+            logger: loggers.clientLogger
+        ).get()
+
+        let streamOpened = clientChannel.eventLoop.makePromise(of: (any Channel).self)
+        let (clientConnectionChannel, _) = try await clientChannel.pipeline.handler(
+            type: QUICHandler<QUICStreamChannels>.self
+        )
+        .flatMap { quicHandler in
+            quicHandler.createOutboundConnection(
+                serverName: "\(host):\(serverPort)",
+                remoteAddress: try! .init(ipAddress: host, port: serverPort),
+                connectionInitializer: { connectionChannel, streamCreator in
+                    connectionChannel.eventLoop.makeCompletedFuture {
+                        try connectionChannel.pipeline.syncOperations.addHandler(
+                            StreamOpeningInactiveHandler(streamCreator: streamCreator, streamOpened: streamOpened)
+                        )
+                    }
+                },
+                inboundStreamInitializer: { streamChannel in
+                    streamChannel.eventLoop.makeSucceededVoidFuture()
+                }
+            )
+        }.get()
+
+        try await clientConnectionChannel.close()
+
+        do {
+            _ = try await streamOpened.futureResult.get()
+            XCTFail("A stream opened from channelInactive opened")
+        } catch {
+            XCTAssertEqual(error as? ChannelError, .ioOnClosedChannel)
+        }
+
         try await serverChannel.close()
     }
 
