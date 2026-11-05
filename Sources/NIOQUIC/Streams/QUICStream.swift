@@ -91,7 +91,7 @@ extension QUICStream where Consumer: ~Copyable {
         minContiguousBytes: Int = 1,
         _ body: (_ span: borrowing RawSpan) -> Int
     ) -> QUICStreamReadOutcome {
-        self.transport.pointee.core.read(minContiguous: minContiguousBytes, body)
+        self.table.read(self.transport, minContiguous: minContiguousBytes, body)
     }
 
     /// Appends the stream's inbound bytes to `buffer`.
@@ -101,7 +101,7 @@ extension QUICStream where Consumer: ~Copyable {
     /// - Returns: What was appended, and whether the peer's data is now exhausted.
     @inlinable
     public mutating func read(into buffer: inout ByteBuffer) -> QUICStreamReadOutcome {
-        self.transport.pointee.core.read(minContiguous: 1) { bytes in
+        self.table.read(self.transport, minContiguous: 1) { bytes in
             buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: bytes.byteCount) { target in
                 bytes.withUnsafeBytes { target.copyMemory(from: $0) }
                 return bytes.byteCount
@@ -120,7 +120,7 @@ extension QUICStream where Consumer: ~Copyable {
     /// the next ``QUICStreamEvents/writable`` event.
     @inlinable
     public var writableBytes: Int {
-        self.transport.pointee.core.writableBytes
+        self.table.writableBytes(self.transport)
     }
 
     /// Enqueue data to send at the next ``flush(fin:)``.
@@ -152,7 +152,7 @@ extension QUICStream where Consumer: ~Copyable {
     @inlinable
     public mutating func flush(fin: Bool = false) throws {
         self.table.markOutputPending()
-        try self.transport.pointee.core.flush(fin: fin)
+        try self.table.flush(self.transport, fin: fin)
     }
 }
 
@@ -166,7 +166,7 @@ extension QUICStream where Consumer: ~Copyable {
     @inlinable
     public mutating func sendResetStream(code: QUICApplicationErrorCode) {
         self.table.markOutputPending()
-        self.transport.pointee.core.sendResetStream(code: code)
+        self.table.sendResetStream(self.transport, code: code)
     }
 
     /// Closes the receive side, telling the peer to stop sending on this stream.
@@ -175,7 +175,7 @@ extension QUICStream where Consumer: ~Copyable {
     @inlinable
     public mutating func sendStopSending(code: QUICApplicationErrorCode) {
         self.table.markOutputPending()
-        self.transport.pointee.core.sendStopSending(code: code)
+        self.table.sendStopSending(self.transport, code: code)
     }
 }
 

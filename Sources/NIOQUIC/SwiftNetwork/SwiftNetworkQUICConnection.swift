@@ -1140,6 +1140,7 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
         let associated = channelView.associate(extraConnectionID)
 
         if associated {
+            channelView.connectionIDAssociated(extraConnectionID)
             // Sometimes connection IDs are retired before new ones are added. Each connection requires at least one ID to refer
             // to its channel. Remove the ID pending deletion now that a new ID is available.
             if let obsoleteSCID = self.scidPendingDeletion {
@@ -1232,6 +1233,7 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
         let retired = channelView.retire(retiredConnectionID)
 
         if retired {
+            channelView.connectionIDRetired(retiredConnectionID)
             // It's gone. Save it to check ID reuse. This might not be worth it, but we can save them for now.
             self.rememberRetiredSCID(retiredConnectionID)
             // Generate a replacement CID.
@@ -1549,6 +1551,16 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
     /// Simulate a path unreachable event for the path to `remote`.
     func _forTesting_handlePathUnreachable(remote: AddressEndpoint) {
         self.handlePathUnreachable(remote: remote)
+    }
+
+    /// Simulate a new inbound connection ID event for `connectionID`.
+    func _forTesting_handleAssociateConnectionID(_ connectionID: QUICConnectionID) {
+        self.handleAssociateConnectionID(connectionID)
+    }
+
+    /// Simulate a retired inbound connection ID event for `connectionID`.
+    func _forTesting_handleRetireConnectionID(_ connectionID: QUICConnectionID) {
+        self.handleRetireConnectionID(connectionID)
     }
     #endif
 }

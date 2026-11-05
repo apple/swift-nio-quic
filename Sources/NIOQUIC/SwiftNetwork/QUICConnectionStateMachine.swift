@@ -444,7 +444,7 @@ struct QUICConnectionStateMachine: ~Copyable {
         // Inspect and convert the error
         if let error = error {
             // Idle timeout from SwiftNetwork
-            if error == .posix(ETIMEDOUT) {
+            if error.isIdleTimeout {
                 isIdleTimeout = true
                 // No error actions for timeout
             }
