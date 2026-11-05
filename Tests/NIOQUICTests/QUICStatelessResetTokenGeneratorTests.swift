@@ -26,9 +26,8 @@ struct QUICStatelessResetTokenGeneratorTests {
         QUICConnectionID(bytes: InlineArray<20, UInt8>(repeating: byte), length: 8)
     }
 
-    @Test
     @available(anyAppleOS 26, *)
-    func tokenIsStableForTheSameKeyAndConnectionID() {
+    @Test func tokenIsStableForTheSameKeyAndConnectionID() {
         let connectionID = self.makeConnectionID(1)
         let generator = QUICStatelessResetToken.HMACSHA256Generator(key: Self.key)
         let other = QUICStatelessResetToken.HMACSHA256Generator(key: Self.key)
@@ -38,17 +37,15 @@ struct QUICStatelessResetTokenGeneratorTests {
         #expect(generator.token(for: connectionID) == other.token(for: connectionID))
     }
 
-    @Test
     @available(anyAppleOS 26, *)
-    func tokenDiffersPerConnectionID() {
+    @Test func tokenDiffersPerConnectionID() {
         let generator = QUICStatelessResetToken.HMACSHA256Generator(key: Self.key)
 
         #expect(generator.token(for: self.makeConnectionID(1)) != generator.token(for: self.makeConnectionID(2)))
     }
 
-    @Test
     @available(anyAppleOS 26, *)
-    func tokenDiffersPerKey() {
+    @Test func tokenDiffersPerKey() {
         let connectionID = self.makeConnectionID(1)
 
         #expect(
@@ -57,9 +54,8 @@ struct QUICStatelessResetTokenGeneratorTests {
         )
     }
 
-    @Test
     @available(anyAppleOS 26, *)
-    func keyIsGeneratedWhenNoneIsConfigured() {
+    @Test func keyIsGeneratedWhenNoneIsConfigured() {
         let connectionID = self.makeConnectionID(1)
 
         #expect(
@@ -68,9 +64,8 @@ struct QUICStatelessResetTokenGeneratorTests {
         )
     }
 
-    @Test
     @available(anyAppleOS 26, *)
-    func resetPacketEndsWithTheTokenAndLooksLikeAShortHeader() throws {
+    @Test func resetPacketEndsWithTheTokenAndLooksLikeAShortHeader() throws {
         let connectionID = self.makeConnectionID(1)
         let generator = QUICStatelessResetToken.HMACSHA256Generator(key: Self.key)
 
@@ -90,9 +85,8 @@ struct QUICStatelessResetTokenGeneratorTests {
         #expect(packet.readableBytes >= 21)
     }
 
-    @Test
     @available(anyAppleOS 26, *)
-    func resetPacketIsSmallerThanThePacketThatTriggeredIt() throws {
+    @Test func resetPacketIsSmallerThanThePacketThatTriggeredIt() throws {
         let generator = QUICStatelessResetToken.HMACSHA256Generator(key: Self.key)
 
         // RFC 9000 § 10.3.3: every reset must be smaller than its trigger, so an exchange of
@@ -109,9 +103,8 @@ struct QUICStatelessResetTokenGeneratorTests {
         }
     }
 
-    @Test
     @available(anyAppleOS 26, *)
-    func noResetPacketWhenTheTriggerIsTooSmall() {
+    @Test func noResetPacketWhenTheTriggerIsTooSmall() {
         let generator = QUICStatelessResetToken.HMACSHA256Generator(key: Self.key)
 
         // A reset needs 5 unpredictable bytes plus the 16-byte token, so nothing valid fits into
