@@ -428,26 +428,29 @@ extension QUICConnectionChannel.ConnectionView: Sendable where Consumer: ~Copyab
 extension QUICConnectionChannel.ConnectionView where Consumer: ~Copyable {
     /// The connection associated a new ID with itself, update the routing table so that the new
     /// ID is routed to this connection.
+    ///
+    /// Only updates the routing table: the connection reports a successful association with
+    /// ``connectionIDAssociated(_:)``.
     func associate(_ newID: QUICConnectionID) -> Bool {
-        let associated = self._channel._registrar.associate(newID)
-
-        if associated {
-            let event = QUICSCIDAssociatedEvent(scid: newID)
-            self._channel.pipeline.fireUserInboundEventTriggered(event)
-        }
-
-        return associated
+        self._channel._registrar.associate(newID)
     }
 
     /// The connection retired the given ID, update the routing table to drop the retired ID.
+    ///
+    /// Only updates the routing table: the connection reports a successful retirement with
+    /// ``connectionIDRetired(_:)``.
     func retire(_ id: QUICConnectionID) -> Bool {
-        let retired = self._channel._registrar.retire(id)
+        self._channel._registrar.retire(id)
+    }
 
-        if retired {
-            self._channel.pipeline.fireUserInboundEventTriggered(QUICSCIDRetiredEvent(scid: id))
-        }
+    /// The connection associated `newID` with itself.
+    func connectionIDAssociated(_ newID: QUICConnectionID) {
+        self._channel.pipeline.fireUserInboundEventTriggered(QUICSCIDAssociatedEvent(scid: newID))
+    }
 
-        return retired
+    /// The connection retired `id`.
+    func connectionIDRetired(_ id: QUICConnectionID) {
+        self._channel.pipeline.fireUserInboundEventTriggered(QUICSCIDRetiredEvent(scid: id))
     }
 
     /// Generate a new connection ID for the connection.

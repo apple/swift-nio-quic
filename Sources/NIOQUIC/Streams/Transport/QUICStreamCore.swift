@@ -68,18 +68,6 @@ struct QUICStreamCore: ~Copyable {
     /// the leading frame doesn't contain enough bytes.
     private var coalescedBytes: [UInt8]
 
-    init(id: QUICStreamID?, reference: ProtocolInstanceReference, linkage: OutboundStreamLinkage) {
-        self.id = id
-        self.state = QUICStreamStateMachine()
-        self.handle = SwiftNetworkStreamHandle(linkage: linkage)
-        self.reference = reference
-        self.pendingWrites = FrameArray()
-        self.undeliveredReads = FrameArray()
-        self.finPending = false
-        self.coalescedBytes = []
-        self._needsReadVisit = false
-    }
-
     /// Creates a stream core which is not yet wired to the stack.
     ///
     /// - Parameter id: The stream ID, if the stack has already assigned one.
