@@ -2273,14 +2273,14 @@ struct SwiftNetworkStreamHandle: ~Copyable {
 
     enum ViolationReason: CustomStringConvertible {
         /// The handle hasn't attached yet; there is no linkage.
-        case notAttached
+        case neverAttached
         /// The handle has been detached; the linkage is gone.
         case detached
 
         var description: String {
             switch self {
-            case .notAttached: return "linkage not attached"
-            case .detached: return "linkage detached"
+            case .neverAttached: return "linkage was never attached"
+            case .detached: return "linkage already detached"
             }
         }
     }
@@ -2308,7 +2308,7 @@ struct SwiftNetworkStreamHandle: ~Copyable {
     func invokeConnect() -> InvokeConnectAction {
         switch self.state {
         case .unattached:
-            return .handleViolation(.notAttached)
+            return .handleViolation(.neverAttached)
         case .attached(let linkage, let identifier):
             return .proceed(linkage, identifier)
         case .detached:
@@ -2372,7 +2372,7 @@ struct SwiftNetworkStreamHandle: ~Copyable {
     func invokeSendStreamData() -> InvokeSendStreamDataAction {
         switch self.state {
         case .unattached:
-            return .handleViolation(.notAttached)
+            return .handleViolation(.neverAttached)
         case .attached(let linkage, let identifier):
             return .proceed(linkage, identifier)
         case .detached:
@@ -2388,7 +2388,7 @@ struct SwiftNetworkStreamHandle: ~Copyable {
     func invokeReceiveStreamData() -> InvokeReceiveStreamDataAction {
         switch self.state {
         case .unattached:
-            return .handleViolation(.notAttached)
+            return .handleViolation(.neverAttached)
         case .attached(let linkage, let identifier):
             return .proceed(linkage, identifier)
         case .detached:

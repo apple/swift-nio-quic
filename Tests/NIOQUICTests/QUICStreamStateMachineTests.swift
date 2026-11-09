@@ -1467,15 +1467,15 @@ struct SwiftNetworkStreamHandleTests {
 
         switch handle.invokeConnect() {
         case .proceed: Issue.record("Expected .handleViolation when unattached")
-        case .handleViolation(let reason): #expect(reason == .notAttached)
+        case .handleViolation(let reason): #expect(reason == .neverAttached)
         }
         switch handle.invokeSendStreamData() {
         case .proceed: Issue.record("Expected .handleViolation when unattached")
-        case .handleViolation(let reason): #expect(reason == .notAttached)
+        case .handleViolation(let reason): #expect(reason == .neverAttached)
         }
         switch handle.invokeReceiveStreamData() {
         case .proceed: Issue.record("Expected .handleViolation when unattached")
-        case .handleViolation(let reason): #expect(reason == .notAttached)
+        case .handleViolation(let reason): #expect(reason == .neverAttached)
         }
         switch handle.invokeDisconnect() {
         case .proceed: Issue.record("Expected .ignore when unattached")
