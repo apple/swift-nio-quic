@@ -488,8 +488,8 @@ final class QUICChannelStreamHandler: ExternalInboundStreamLinkage, @unchecked S
         do throws(NetworkError) {
             self.log("abortInbound")
             switch self.swiftNetworkStreamHandle.invokeAbortInbound() {
-            case .proceed(let linkage):
-                try linkage.invokeAbortInbound(error: error, for: self.identifier, in: &eventContext)
+            case .proceed(let linkage, let identifier):
+                try linkage.invokeAbortInbound(error: error, for: identifier, in: &eventContext)
             case .ignore:
                 break
             }
@@ -503,8 +503,8 @@ final class QUICChannelStreamHandler: ExternalInboundStreamLinkage, @unchecked S
     internal func abortOutbound(error: NetworkError?, in eventContext: inout NetworkContext.EventContext) {
         do throws(NetworkError) {
             switch self.swiftNetworkStreamHandle.invokeAbortOutbound() {
-            case .proceed(let linkage):
-                try linkage.invokeAbortOutbound(error: error, for: self.identifier, in: &eventContext)
+            case .proceed(let linkage, let identifier):
+                try linkage.invokeAbortOutbound(error: error, for: identifier, in: &eventContext)
             case .ignore:
                 break
             }
@@ -655,8 +655,8 @@ final class QUICChannelStreamHandler: ExternalInboundStreamLinkage, @unchecked S
         log("start")
         self.eventLoop.preconditionInEventLoop()
         switch self.swiftNetworkStreamHandle.invokeConnect() {
-        case .proceed(let linkage):
-            linkage.invokeConnect(for: self.identifier, in: &eventContext)
+        case .proceed(let linkage, let identifier):
+            linkage.invokeConnect(for: identifier, in: &eventContext)
         case .handleViolation(let reason):
             preconditionFailure("invokeConnect on SwiftNetworkStreamHandle: \(reason)")
         }
@@ -685,20 +685,22 @@ final class QUICChannelStreamHandler: ExternalInboundStreamLinkage, @unchecked S
         }
 
         switch self.swiftNetworkStreamHandle.invokeDisconnect() {
-        case .proceed(let linkage):
-            linkage.invokeDisconnect(error: nil, for: self.identifier, in: &eventContext)
+        case .proceed(let linkage, let identifier):
+            linkage.invokeDisconnect(error: nil, for: identifier, in: &eventContext)
         case .ignore:
             break
         }
         if detachFromLowerProtocol {
             switch self.swiftNetworkStreamHandle.invokeDetach() {
-            case .proceed(let linkage):
+            case .proceed(let linkage, let identifier):
                 do throws(NetworkError) {
-                    try linkage.invokeDetach(for: self.identifier, in: &eventContext)
+                    try linkage.invokeDetach(for: identifier, in: &eventContext)
                 } catch {
                     self.log("Failed to detach lower protocol: \(error)")
                 }
                 self.unregisterIfCloseCompleted(in: &eventContext)
+            case .skipNotAttached:
+                break
             case .skipAlreadyDetached:
                 break
             }
@@ -729,13 +731,15 @@ final class QUICChannelStreamHandler: ExternalInboundStreamLinkage, @unchecked S
     ) {
         self.log("handleDisconnectedEvent error: \(String(describing: error))")
         switch self.swiftNetworkStreamHandle.invokeDetach() {
-        case .proceed(let linkage):
+        case .proceed(let linkage, let identifier):
             do throws(NetworkError) {
-                try linkage.invokeDetach(for: self.identifier, in: &eventContext)
+                try linkage.invokeDetach(for: identifier, in: &eventContext)
             } catch {
                 self.log("Failed to detach lower protocol: \(error)")
             }
             self.unregisterIfCloseCompleted(in: &eventContext)
+        case .skipNotAttached:
+            break
         case .skipAlreadyDetached:
             break
         }
@@ -961,8 +965,8 @@ final class QUICChannelStreamHandler: ExternalInboundStreamLinkage, @unchecked S
         in eventContext: inout NetworkContext.EventContext
     ) -> ProtocolMetadata<P>? {
         switch self.swiftNetworkStreamHandle.invokeGetMetadata() {
-        case .proceed(let linkage):
-            return linkage.invokeGetMetadata(for: self.identifier, in: &eventContext) as ProtocolMetadata<P>?
+        case .proceed(let linkage, let identifier):
+            return linkage.invokeGetMetadata(for: identifier, in: &eventContext) as ProtocolMetadata<P>?
         case .ignore:
             return nil
         }
@@ -1024,8 +1028,8 @@ final class QUICChannelStreamHandler: ExternalInboundStreamLinkage, @unchecked S
             log("write \(frameArray.count) frames, \(totalBytes) bytes, fin: \(fin)")
 
             switch self.swiftNetworkStreamHandle.invokeSendStreamData() {
-            case .proceed(let linkage):
-                try linkage.invokeSendStreamData(frameArray, from: self.identifier, in: &eventContext)
+            case .proceed(let linkage, let identifier):
+                try linkage.invokeSendStreamData(frameArray, from: identifier, in: &eventContext)
             case .handleViolation(let reason):
                 frameArray.finalizeAllFramesAsFailed()
                 throw SwiftNetworkStreamHandle.violationError(operation: "invokeSendStreamData", reason: reason)
@@ -1047,8 +1051,8 @@ final class QUICChannelStreamHandler: ExternalInboundStreamLinkage, @unchecked S
             finFrame.connectionComplete = true
             var finFrameArray = FrameArray(frame: finFrame)
             switch self.swiftNetworkStreamHandle.invokeSendStreamData() {
-            case .proceed(let linkage):
-                try linkage.invokeSendStreamData(finFrameArray, from: self.identifier, in: &eventContext)
+            case .proceed(let linkage, let identifier):
+                try linkage.invokeSendStreamData(finFrameArray, from: identifier, in: &eventContext)
             case .handleViolation(let reason):
                 finFrameArray.finalizeAllFramesAsFailed()
                 throw SwiftNetworkStreamHandle.violationError(operation: "invokeSendStreamData", reason: reason)
@@ -1077,11 +1081,11 @@ final class QUICChannelStreamHandler: ExternalInboundStreamLinkage, @unchecked S
         var frameArray: FrameArray?
         do throws(NetworkError) {
             switch self.swiftNetworkStreamHandle.invokeReceiveStreamData() {
-            case .proceed(let linkage):
+            case .proceed(let linkage, let identifier):
                 frameArray = try linkage.invokeReceiveStreamData(
                     minimumBytes: 1,
                     maximumBytes: Int.max,
-                    for: self.identifier,
+                    for: identifier,
                     in: &eventContext
                 )
             case .handleViolation(let reason):
@@ -1257,7 +1261,7 @@ extension QUICChannelStreamHandler {
         parameters: SwiftNetwork.Parameters?,
         path: SwiftNetwork.PathProperties?
     ) throws(SwiftNetwork.NetworkError) {
-        self.swiftNetworkStreamHandle = SwiftNetworkStreamHandle(linkage: lowerProtocol)
+        self.swiftNetworkStreamHandle.attach(linkage: lowerProtocol, identifier: self.identifier)
         try lowerProtocol.invokeAttachUpperProtocol(
             BaseInboundStreamLinkage(external: self),
             remote: remote,

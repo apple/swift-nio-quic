@@ -1409,48 +1409,126 @@ struct QUICStreamPipelineStateMachineTests {
     }
 }
 
-// MARK: - SwiftNetworkStreamHandle.StateMachine
+// MARK: - SwiftNetworkStreamHandle
 
-struct SwiftNetworkStreamHandleStateMachineTests {
-    /// Hard violation: starting a torn-down stream is a programmer bug. The wrapper
+struct SwiftNetworkStreamHandleTests {
+    /// A handle attached to an empty linkage, which ignores the calls made through it.
+    @available(anyAppleOS 26, *)
+    private static func attachedHandle() -> SwiftNetworkStreamHandle {
+        var handle = SwiftNetworkStreamHandle()
+        handle.attach(linkage: BaseOutboundStreamLinkage(), identifier: InstanceIdentifier())
+        return handle
+    }
+
+    /// Streams start unattached: there is nothing to call until they attach to their flow.
+    @available(anyAppleOS 26, *)
+    @Test("Default init is unattached")
+    func defaultInitIsUnattached() {
+        let handle = SwiftNetworkStreamHandle()
+
+        let isAttached = handle.isAttached
+        #expect(!isAttached)
+    }
+
+    /// The flow's linkage is wrapped in an attached handle.
+    @available(anyAppleOS 26, *)
+    @Test("attach(linkage:identifier:) attaches")
+    func attachAttaches() {
+        let handle = Self.attachedHandle()
+
+        let isAttached = handle.isAttached
+        #expect(isAttached)
+    }
+
+    /// A handle attaches once: attaching it again, or after it detached, would revive a stream that
+    /// is torn down.
+    @available(anyAppleOS 26, *)
+    @Test("Attaching an attached or a detached handle traps", arguments: [false, true])
+    func attachingAgainTraps(detachFirst: Bool) async throws {
+        #if os(Android)
+        try Test.cancel("Exit tests cannot be run on Android yet")
+        #else
+        await #expect(processExitsWith: .failure) { [detachFirst] in
+            var handle = SwiftNetworkStreamHandleTests.attachedHandle()
+            if detachFirst {
+                _ = handle.invokeDetach()
+            }
+            handle.attach(linkage: BaseOutboundStreamLinkage(), identifier: InstanceIdentifier())
+        }
+        #endif
+    }
+
+    /// Before the attach there is nothing to call: disconnect, the aborts and metadata are ignored,
+    /// and connect, send and receive report a violation.
+    @available(anyAppleOS 26, *)
+    @Test("An unattached handle makes no calls")
+    func unattachedHandleMakesNoCalls() {
+        let handle = SwiftNetworkStreamHandle()
+
+        switch handle.invokeConnect() {
+        case .proceed: Issue.record("Expected .handleViolation when unattached")
+        case .handleViolation(let reason): #expect(reason == .neverAttached)
+        }
+        switch handle.invokeSendStreamData() {
+        case .proceed: Issue.record("Expected .handleViolation when unattached")
+        case .handleViolation(let reason): #expect(reason == .neverAttached)
+        }
+        switch handle.invokeReceiveStreamData() {
+        case .proceed: Issue.record("Expected .handleViolation when unattached")
+        case .handleViolation(let reason): #expect(reason == .neverAttached)
+        }
+        switch handle.invokeDisconnect() {
+        case .proceed: Issue.record("Expected .ignore when unattached")
+        case .ignore: break
+        }
+        switch handle.invokeAbortInbound() {
+        case .proceed: Issue.record("Expected .ignore when unattached")
+        case .ignore: break
+        }
+        switch handle.invokeAbortOutbound() {
+        case .proceed: Issue.record("Expected .ignore when unattached")
+        case .ignore: break
+        }
+        switch handle.invokeGetMetadata() {
+        case .proceed: Issue.record("Expected .ignore when unattached")
+        case .ignore: break
+        }
+    }
+
+    /// Closing a stream whose attach failed detaches it without a call to the stack.
+    @available(anyAppleOS 26, *)
+    @Test("invokeDetach skips an unattached handle and detaches it")
+    func invokeDetachSkipsAnUnattachedHandle() {
+        var handle = SwiftNetworkStreamHandle()
+
+        switch handle.invokeDetach() {
+        case .proceed: Issue.record("Expected .skipNotAttached")
+        case .skipNotAttached: break
+        case .skipAlreadyDetached: Issue.record("Expected .skipNotAttached")
+        }
+
+        switch handle.invokeDetach() {
+        case .proceed: Issue.record("Expected .skipAlreadyDetached once detached")
+        case .skipNotAttached: Issue.record("Expected .skipAlreadyDetached once detached")
+        case .skipAlreadyDetached: break
+        }
+    }
+
+    /// Hard violation: starting a torn-down stream is a programmer bug. The caller
     /// `preconditionFailure`s on this — which we can't test directly — so we verify
-    /// the SM signals it via the action enum here, with the reason that explains why.
+    /// the handle signals it via the action enum here, with the reason that explains why.
     @available(anyAppleOS 26, *)
     @Test("invokeConnect returns .handleViolation(.detached) when detached")
     func invokeConnectReturnsHandleViolation() {
-        var sm = SwiftNetworkStreamHandle.StateMachine()
+        var handle = Self.attachedHandle()
 
-        _ = sm.invokeDetach()
+        _ = handle.invokeDetach()
 
-        let action = sm.invokeConnect()
+        let action = handle.invokeConnect()
         guard case .handleViolation(.detached) = action else {
             Issue.record("Expected .handleViolation(.detached)")
             return
         }
-    }
-}
-
-// MARK: - SwiftNetworkStreamHandle (wrapper)
-
-struct SwiftNetworkStreamHandleTests {
-    /// Outbound streams start with a stub linkage; the handle is usable from creation.
-    @available(anyAppleOS 26, *)
-    @Test("Default init is attached")
-    func defaultInitIsAttached() {
-        let handle = SwiftNetworkStreamHandle()
-
-        let isAttached = handle.isAttached
-        #expect(isAttached)
-    }
-
-    /// Inbound init pathway: the listener-attached linkage is wrapped in an attached handle.
-    @available(anyAppleOS 26, *)
-    @Test("init(linkage:) is attached")
-    func initWithLinkageIsAttached() {
-        let handle = SwiftNetworkStreamHandle(linkage: BaseOutboundStreamLinkage())
-
-        let isAttached = handle.isAttached
-        #expect(isAttached)
     }
 
     /// End-to-end detach contract: wrapper consumes the linkage on the first call and
@@ -1458,10 +1536,11 @@ struct SwiftNetworkStreamHandleTests {
     @available(anyAppleOS 26, *)
     @Test("invokeDetach flips state and is idempotent")
     func invokeDetachIsIdempotent() throws(NetworkError) {
-        var handle = SwiftNetworkStreamHandle()
+        var handle = Self.attachedHandle()
 
         switch handle.invokeDetach() {
         case .proceed: break
+        case .skipNotAttached: Issue.record("Expected .proceed on first detach")
         case .skipAlreadyDetached: Issue.record("Expected .proceed on first detach")
         }
 
@@ -1471,6 +1550,7 @@ struct SwiftNetworkStreamHandleTests {
         // Second call should report already detached, not crash.
         switch handle.invokeDetach() {
         case .proceed: Issue.record("Expected .skipAlreadyDetached on second detach")
+        case .skipNotAttached: Issue.record("Expected .skipAlreadyDetached on second detach")
         case .skipAlreadyDetached: break
         }
     }
@@ -1479,10 +1559,11 @@ struct SwiftNetworkStreamHandleTests {
     @available(anyAppleOS 26, *)
     @Test("invokeDisconnect silently no-ops when detached")
     func invokeDisconnectNoopsWhenDetached() throws(NetworkError) {
-        var handle = SwiftNetworkStreamHandle()
+        var handle = Self.attachedHandle()
 
         switch handle.invokeDetach() {
         case .proceed: break
+        case .skipNotAttached: Issue.record("Expected .proceed on first detach")
         case .skipAlreadyDetached: Issue.record("Expected .proceed on first detach")
         }
 
@@ -1496,10 +1577,11 @@ struct SwiftNetworkStreamHandleTests {
     @available(anyAppleOS 26, *)
     @Test("invokeAbortInbound silently no-ops when detached")
     func invokeAbortInboundNoopsWhenDetached() throws(NetworkError) {
-        var handle = SwiftNetworkStreamHandle()
+        var handle = Self.attachedHandle()
 
         switch handle.invokeDetach() {
         case .proceed: break
+        case .skipNotAttached: Issue.record("Expected .proceed on first detach")
         case .skipAlreadyDetached: Issue.record("Expected .proceed on first detach")
         }
 
@@ -1513,10 +1595,11 @@ struct SwiftNetworkStreamHandleTests {
     @available(anyAppleOS 26, *)
     @Test("invokeAbortOutbound silently no-ops when detached")
     func invokeAbortOutboundNoopsWhenDetached() throws(NetworkError) {
-        var handle = SwiftNetworkStreamHandle()
+        var handle = Self.attachedHandle()
 
         switch handle.invokeDetach() {
         case .proceed: break
+        case .skipNotAttached: Issue.record("Expected .proceed on first detach")
         case .skipAlreadyDetached: Issue.record("Expected .proceed on first detach")
         }
 
@@ -1531,10 +1614,11 @@ struct SwiftNetworkStreamHandleTests {
     @available(anyAppleOS 26, *)
     @Test("invokeSendStreamData reports violation when detached")
     func invokeSendStreamDataThrowsWhenDetached() throws(NetworkError) {
-        var handle = SwiftNetworkStreamHandle()
+        var handle = Self.attachedHandle()
 
         switch handle.invokeDetach() {
         case .proceed: break
+        case .skipNotAttached: Issue.record("Expected .proceed on first detach")
         case .skipAlreadyDetached: Issue.record("Expected .proceed on first detach")
         }
 
@@ -1542,9 +1626,7 @@ struct SwiftNetworkStreamHandleTests {
         case .proceed:
             Issue.record("Expected .handleViolation when detached")
         case .handleViolation(let reason):
-            switch reason {
-            case .detached: break
-            }
+            #expect(reason == .detached)
         }
     }
 
@@ -1553,10 +1635,11 @@ struct SwiftNetworkStreamHandleTests {
     @available(anyAppleOS 26, *)
     @Test("invokeReceiveStreamData reports violation when detached")
     func invokeReceiveStreamDataThrowsWhenDetached() throws(NetworkError) {
-        var handle = SwiftNetworkStreamHandle()
+        var handle = Self.attachedHandle()
 
         switch handle.invokeDetach() {
         case .proceed: break
+        case .skipNotAttached: Issue.record("Expected .proceed on first detach")
         case .skipAlreadyDetached: Issue.record("Expected .proceed on first detach")
         }
 
@@ -1564,9 +1647,7 @@ struct SwiftNetworkStreamHandleTests {
         case .proceed:
             Issue.record("Expected .handleViolation when detached")
         case .handleViolation(let reason):
-            switch reason {
-            case .detached: break
-            }
+            #expect(reason == .detached)
         }
     }
 
@@ -1575,10 +1656,11 @@ struct SwiftNetworkStreamHandleTests {
     @available(anyAppleOS 26, *)
     @Test("invokeGetMetadata reports ignore when detached")
     func invokeGetMetadataReturnsNilWhenDetached() throws(NetworkError) {
-        var handle = SwiftNetworkStreamHandle()
+        var handle = Self.attachedHandle()
 
         switch handle.invokeDetach() {
         case .proceed: break
+        case .skipNotAttached: Issue.record("Expected .proceed on first detach")
         case .skipAlreadyDetached: Issue.record("Expected .proceed on first detach")
         }
 

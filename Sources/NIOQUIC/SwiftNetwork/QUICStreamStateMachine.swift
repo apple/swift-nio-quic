@@ -2222,285 +2222,208 @@ extension QUICStreamPipelineStateMachine.State {
 }
 
 /// The handle a QUIC stream uses to talk to the SwiftNetwork transport stack.
+///
+/// A stream attaches to its flow once, and detaches from it when it's torn down: a table stream
+/// when its core closes, a channel stream when its flow disconnects or the stream stops. Only an
+/// attached handle has a linkage to call, and the identifier to make the calls from.
 @available(anyAppleOS 26, *)
 struct SwiftNetworkStreamHandle: ~Copyable {
-    /// Pure state machine: tracks attachment.
-    ///
-    /// As opposed to the other state machines this one specifically
-    /// relates to the *SwiftNetwork reference/handle* state.
-    struct StateMachine: ~Copyable {
-        enum State: ~Copyable {
-            case attached
-            case detached
-        }
-
-        private var state: State
-
-        init() {
-            self.state = .attached
-        }
-
-        // MARK: - Queries
-
-        var isAttached: Bool {
-            switch self.state {
-            case .attached: return true
-            case .detached: return false
-            }
-        }
-
-        // MARK: - Per-operation transitions
-
-        enum ViolationReason: CustomStringConvertible {
-            /// The handle has been detached; the linkage is gone.
-            case detached
-
-            var description: String {
-                switch self {
-                case .detached: return "linkage detached"
-                }
-            }
-        }
-
-        enum InvokeConnectAction: ~Copyable {
-            case performConnect
-            case handleViolation(ViolationReason)
-        }
-        func invokeConnect() -> InvokeConnectAction {
-            switch self.state {
-            case .attached: return .performConnect
-            case .detached: return .handleViolation(.detached)
-            }
-        }
-
-        enum InvokeDisconnectAction: ~Copyable {
-            case performDisconnect
-            case ignore
-        }
-        func invokeDisconnect() -> InvokeDisconnectAction {
-            switch self.state {
-            case .attached: return .performDisconnect
-            case .detached: return .ignore
-            }
-        }
-
-        enum InvokeAbortInboundAction: ~Copyable {
-            case performAbortInbound
-            case ignore
-        }
-        func invokeAbortInbound() -> InvokeAbortInboundAction {
-            switch self.state {
-            case .attached: return .performAbortInbound
-            case .detached: return .ignore
-            }
-        }
-
-        enum InvokeAbortOutboundAction: ~Copyable {
-            case performAbortOutbound
-            case ignore
-        }
-        func invokeAbortOutbound() -> InvokeAbortOutboundAction {
-            switch self.state {
-            case .attached: return .performAbortOutbound
-            case .detached: return .ignore
-            }
-        }
-
-        enum InvokeSendStreamDataAction: ~Copyable {
-            case performSendStreamData
-            case handleViolation(ViolationReason)
-        }
-        func invokeSendStreamData() -> InvokeSendStreamDataAction {
-            switch self.state {
-            case .attached: return .performSendStreamData
-            case .detached: return .handleViolation(.detached)
-            }
-        }
-
-        enum InvokeReceiveStreamDataAction: ~Copyable {
-            case performReceiveStreamData
-            case handleViolation(ViolationReason)
-        }
-        func invokeReceiveStreamData() -> InvokeReceiveStreamDataAction {
-            switch self.state {
-            case .attached: return .performReceiveStreamData
-            case .detached: return .handleViolation(.detached)
-            }
-        }
-
-        enum InvokeGetMetadataAction: ~Copyable {
-            case performGetMetadata
-            case ignore
-        }
-        func invokeGetMetadata() -> InvokeGetMetadataAction {
-            switch self.state {
-            case .attached: return .performGetMetadata
-            case .detached: return .ignore
-            }
-        }
-
-        // MARK: - Detach (mutating; transitions `.attached` → `.detached`)
-
-        enum InvokeDetachAction: ~Copyable {
-            case performDetach
-            case skipAlreadyDetached
-        }
-        mutating func invokeDetach() -> InvokeDetachAction {
-            self.state.invokeDetach()
-        }
+    fileprivate enum State: ~Copyable {
+        /// The stream hasn't attached to its flow yet: there is nothing to call.
+        case unattached
+        /// Calls go to the stream's flow through `linkage`, made from `identifier`, the instance
+        /// the stream registered.
+        case attached(linkage: BaseOutboundStreamLinkage, identifier: InstanceIdentifier)
+        /// The stream detached from its flow, or closed without ever attaching: there is nothing
+        /// to call any more.
+        case detached
     }
 
-    private var stateMachine: StateMachine
-    private var linkage: BaseOutboundStreamLinkage
+    private var state: State
 
-    /// Initialise with a stub linkage (the outbound starting state, before
-    /// `invokeConnect` wires up a real identifier).
+    /// Creates a handle for a stream that hasn't attached to its flow yet.
     init() {
-        self.stateMachine = StateMachine()
-        self.linkage = BaseOutboundStreamLinkage()
+        self.state = .unattached
     }
 
-    /// Initialise with a specific linkage, once the stream's flow is attached: the one
-    /// `invokeAttachUpperProtocolToExistingFlow` returns for an inbound stream, or the one the
-    /// stack hands an outbound stream's `invokeAttachLowerProtocol`.
-    init(linkage: BaseOutboundStreamLinkage) {
-        self.stateMachine = StateMachine()
-        self.linkage = linkage
+    /// Attaches the handle to the stream's flow.
+    ///
+    /// - Parameters:
+    ///   - linkage: The flow's linkage: the one `invokeAttachUpperProtocolToExistingFlow` returns
+    ///     for an inbound stream, or the one the stack hands an outbound stream's
+    ///     `invokeAttachLowerProtocol`.
+    ///   - identifier: The instance the stream registered, which every call is made from.
+    /// - Precondition: The handle is unattached. Attaching it again, or after it detached, would
+    ///   revive a stream that is torn down.
+    mutating func attach(linkage: BaseOutboundStreamLinkage, identifier: InstanceIdentifier) {
+        self.state.attach(linkage: linkage, identifier: identifier)
     }
 
-    /// Returns `true` while the linkage is still attached.
+    /// Returns `true` from the attach until the detach.
     var isAttached: Bool {
-        self.stateMachine.isAttached
+        switch self.state {
+        case .unattached:
+            return false
+        case .attached:
+            return true
+        case .detached:
+            return false
+        }
+    }
+
+    enum ViolationReason: CustomStringConvertible {
+        /// The handle hasn't attached yet; there is no linkage.
+        case neverAttached
+        /// The handle has been detached; the linkage is gone.
+        case detached
+
+        var description: String {
+            switch self {
+            case .neverAttached: return "linkage was never attached"
+            case .detached: return "linkage already detached"
+            }
+        }
     }
 
     // MARK: - Wrapper methods
     //
     // Every wrapper here returns an action that, on the success path, carries
-    // a *value snapshot* of `self.linkage` (`BaseOutboundStreamLinkage` is a
-    // `struct`). Callers extract the linkage from the action, which releases the borrow on
-    // `self.swiftNetworkStreamHandle`, and then perform the SwiftNetwork side
-    // effect on the local value. This is load-bearing: SwiftNetwork's
+    // a *value snapshot* of the attached linkage (`BaseOutboundStreamLinkage` is a
+    // `struct`) and identifier. Callers extract them from the action, which releases the borrow on
+    // the handle, and then perform the SwiftNetwork side
+    // effect on the local values. This is load-bearing: SwiftNetwork's
     // `handleCallFromUpperProtocol` drains queued peer events in a `defer`
     // after `body()`, so a peer disconnect can synchronously re-enter
     // `handleDisconnectedEvent` from inside an outer `invoke*` call. If the
-    // outer call held a `read` access on `self.swiftNetworkStreamHandle` for
+    // outer call held a `read` access on the handle for
     // the duration of its linkage call, the inner `invokeDetach` (a `modify`)
     // would overlap and trap on Swift exclusivity. Releasing the borrow before
     // the side effect makes the re-entry safe at the language level.
 
     enum InvokeConnectAction: ~Copyable {
-        case proceed(BaseOutboundStreamLinkage)
-        case handleViolation(StateMachine.ViolationReason)
+        case proceed(BaseOutboundStreamLinkage, InstanceIdentifier)
+        case handleViolation(ViolationReason)
     }
 
     func invokeConnect() -> InvokeConnectAction {
-        switch self.stateMachine.invokeConnect() {
-        case .performConnect:
-            return .proceed(self.linkage)
-        case .handleViolation(let reason):
-            return .handleViolation(reason)
+        switch self.state {
+        case .unattached:
+            return .handleViolation(.neverAttached)
+        case .attached(let linkage, let identifier):
+            return .proceed(linkage, identifier)
+        case .detached:
+            return .handleViolation(.detached)
         }
     }
 
     enum InvokeDisconnectAction: ~Copyable {
-        case proceed(BaseOutboundStreamLinkage)
+        case proceed(BaseOutboundStreamLinkage, InstanceIdentifier)
         case ignore
     }
 
     func invokeDisconnect() -> InvokeDisconnectAction {
-        switch self.stateMachine.invokeDisconnect() {
-        case .performDisconnect:
-            return .proceed(self.linkage)
-        case .ignore:
+        switch self.state {
+        case .unattached:
+            return .ignore
+        case .attached(let linkage, let identifier):
+            return .proceed(linkage, identifier)
+        case .detached:
             return .ignore
         }
     }
 
     enum InvokeAbortInboundAction: ~Copyable {
-        case proceed(BaseOutboundStreamLinkage)
+        case proceed(BaseOutboundStreamLinkage, InstanceIdentifier)
         case ignore
     }
 
     func invokeAbortInbound() -> InvokeAbortInboundAction {
-        switch self.stateMachine.invokeAbortInbound() {
-        case .performAbortInbound:
-            return .proceed(self.linkage)
-        case .ignore:
+        switch self.state {
+        case .unattached:
+            return .ignore
+        case .attached(let linkage, let identifier):
+            return .proceed(linkage, identifier)
+        case .detached:
             return .ignore
         }
     }
 
     enum InvokeAbortOutboundAction: ~Copyable {
-        case proceed(BaseOutboundStreamLinkage)
+        case proceed(BaseOutboundStreamLinkage, InstanceIdentifier)
         case ignore
     }
 
     func invokeAbortOutbound() -> InvokeAbortOutboundAction {
-        switch self.stateMachine.invokeAbortOutbound() {
-        case .performAbortOutbound:
-            return .proceed(self.linkage)
-        case .ignore:
+        switch self.state {
+        case .unattached:
+            return .ignore
+        case .attached(let linkage, let identifier):
+            return .proceed(linkage, identifier)
+        case .detached:
             return .ignore
         }
     }
 
     enum InvokeSendStreamDataAction: ~Copyable {
-        case proceed(BaseOutboundStreamLinkage)
-        case handleViolation(StateMachine.ViolationReason)
+        case proceed(BaseOutboundStreamLinkage, InstanceIdentifier)
+        case handleViolation(ViolationReason)
     }
 
     func invokeSendStreamData() -> InvokeSendStreamDataAction {
-        switch self.stateMachine.invokeSendStreamData() {
-        case .performSendStreamData:
-            return .proceed(self.linkage)
-        case .handleViolation(let reason):
-            return .handleViolation(reason)
+        switch self.state {
+        case .unattached:
+            return .handleViolation(.neverAttached)
+        case .attached(let linkage, let identifier):
+            return .proceed(linkage, identifier)
+        case .detached:
+            return .handleViolation(.detached)
         }
     }
 
     enum InvokeReceiveStreamDataAction: ~Copyable {
-        case proceed(BaseOutboundStreamLinkage)
-        case handleViolation(StateMachine.ViolationReason)
+        case proceed(BaseOutboundStreamLinkage, InstanceIdentifier)
+        case handleViolation(ViolationReason)
     }
 
     func invokeReceiveStreamData() -> InvokeReceiveStreamDataAction {
-        switch self.stateMachine.invokeReceiveStreamData() {
-        case .performReceiveStreamData:
-            return .proceed(self.linkage)
-        case .handleViolation(let reason):
-            return .handleViolation(reason)
+        switch self.state {
+        case .unattached:
+            return .handleViolation(.neverAttached)
+        case .attached(let linkage, let identifier):
+            return .proceed(linkage, identifier)
+        case .detached:
+            return .handleViolation(.detached)
         }
     }
 
     enum InvokeGetMetadataAction: ~Copyable {
-        case proceed(BaseOutboundStreamLinkage)
+        case proceed(BaseOutboundStreamLinkage, InstanceIdentifier)
         case ignore
     }
 
     func invokeGetMetadata() -> InvokeGetMetadataAction {
-        switch self.stateMachine.invokeGetMetadata() {
-        case .performGetMetadata:
-            return .proceed(self.linkage)
-        case .ignore:
+        switch self.state {
+        case .unattached:
+            return .ignore
+        case .attached(let linkage, let identifier):
+            return .proceed(linkage, identifier)
+        case .detached:
             return .ignore
         }
     }
 
     enum InvokeDetachAction: ~Copyable {
-        case proceed(BaseOutboundStreamLinkage)
+        case proceed(BaseOutboundStreamLinkage, InstanceIdentifier)
+        /// The handle never attached, so there is nothing to detach.
+        case skipNotAttached
         case skipAlreadyDetached
     }
 
-    /// Mutating: transitions the SM to `.detached` before returning. The
+    /// Mutating: transitions to `.detached` before returning, from either other state. The
     /// modify borrow ends with the return; the caller performs `invokeDetach`
     /// on the returned linkage value without holding any borrow on the handle.
     mutating func invokeDetach() -> InvokeDetachAction {
-        switch self.stateMachine.invokeDetach() {
-        case .performDetach:
-            return .proceed(self.linkage)
-        case .skipAlreadyDetached:
-            return .skipAlreadyDetached
-        }
+        self.state.invokeDetach()
     }
 
     /// Builds the error raised by soft-violation operations
@@ -2509,7 +2432,7 @@ struct SwiftNetworkStreamHandle: ~Copyable {
     /// went wrong.
     static func violationError(
         operation: String,
-        reason: StateMachine.ViolationReason
+        reason: ViolationReason
     ) -> NetworkError {
         NetworkError(
             category: NetworkError.CommonCategory(
@@ -2523,12 +2446,26 @@ struct SwiftNetworkStreamHandle: ~Copyable {
 // MARK: - SwiftNetwork Stream Handle State Transitions
 
 @available(anyAppleOS 26, *)
-extension SwiftNetworkStreamHandle.StateMachine.State {
-    mutating func invokeDetach() -> SwiftNetworkStreamHandle.StateMachine.InvokeDetachAction {
+extension SwiftNetworkStreamHandle.State {
+    mutating func attach(linkage: BaseOutboundStreamLinkage, identifier: InstanceIdentifier) {
         switch consume self {
+        case .unattached:
+            self = .attached(linkage: linkage, identifier: identifier)
         case .attached:
+            preconditionFailure("A stream handle attaches only once")
+        case .detached:
+            preconditionFailure("A detached stream handle can't attach again")
+        }
+    }
+
+    mutating func invokeDetach() -> SwiftNetworkStreamHandle.InvokeDetachAction {
+        switch consume self {
+        case .unattached:
             self = .detached
-            return .performDetach
+            return .skipNotAttached
+        case .attached(let linkage, let identifier):
+            self = .detached
+            return .proceed(linkage, identifier)
         case .detached:
             self = .detached
             return .skipAlreadyDetached
