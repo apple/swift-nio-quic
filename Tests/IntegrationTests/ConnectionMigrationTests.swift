@@ -86,6 +86,18 @@ struct ConnectionMigrationTests {
         }
     }
 
+    @available(anyAppleOS 26, *)
+    @Test func clientCloseReachesServerAfterMigration() async throws {
+        try await Self.withConnectedPeers { peers in
+            let newSocket = try await peers.makeClientSocket()
+            try await peers.rebindClient(to: newSocket)
+            #expect(try await Self.request(on: peers.streamCreator) == ByteBuffer(string: "<b>Success</b>"))
+
+            try await peers.clientConnectionChannel.close()
+            try await peers.serverConnectionChannel.closeFuture.get()
+        }
+    }
+
     /// Anyone who sees the connection's traffic can send packets to it from any address.
     @available(anyAppleOS 26, *)
     @Test(arguments: [1, 2, 100])

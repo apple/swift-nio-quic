@@ -354,9 +354,7 @@ extension QUICChannelNewFlowHandler where Consumer: ~Copyable {
                 break
             case .remoteUnidirectionalStreamsBlocked:
                 break
-            case .pathCIDAssigned, .pathCurrent:
-                // The connection takes the last validated path as the active one, so it doesn't act on
-                // these path events (yet).
+            case .pathCIDAssigned:
                 break
             case .pathChanged:
                 // SwiftNetwork announces a path as soon as it is attached. Not much to do at that point.
@@ -365,6 +363,8 @@ extension QUICChannelNewFlowHandler where Consumer: ~Copyable {
                 self.connectionView.pathValidated(remote: info.remote)
             case .pathUnreachable(let info):
                 self.connectionView.pathUnreachable(remote: info.remote, in: &eventContext)
+            case .pathCurrent(let info):
+                self.connectionView?.pathCurrent(remote: info.remote)
             }
         } else {
             // There might be more that we are interested in.
