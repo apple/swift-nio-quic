@@ -1903,9 +1903,10 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
         if path === self.activePath {
             self.log("Keeping the active path until SwiftNetwork migrates away from it")
             return false
+        } else {
+            self.otherPaths.removeAll { $0 === path }
+            return true
         }
-        self.otherPaths.removeAll { $0 === path }
-        return true
     }
 
     /// Fails what's queued on a removed path, and detaches it.
