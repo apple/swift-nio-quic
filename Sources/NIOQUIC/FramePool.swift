@@ -21,7 +21,7 @@ import BasicContainers
 /// frames must have exactly the capacity as required by their size class. The pool limits also how
 /// many of each category size can be stored at a given time. This avoids situations where bursty
 /// traffic results in the pool overcomitting memory indefinitely.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 final class FramePool {
     private var smallStorage: BufferPool
     private var largeStorage: BufferPool

@@ -16,7 +16,7 @@ import NIOCore
 import NIOQUICHelpers
 
 /// The connection channel's view of its underlying connection.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 protocol QUICConnectionProtocol {
     /// The local address of the connection.
     var localAddress: SocketAddress { get }
@@ -87,7 +87,7 @@ protocol QUICConnectionProtocol {
     func quiesceStreams()
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICConnectionChannel where Consumer: ~Copyable {
     /// The channel's connection, either the real SwiftNetwork-backed connection
     /// (statically dispatched) or an existential test conformance.
@@ -114,7 +114,7 @@ extension QUICConnectionChannel where Consumer: ~Copyable {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICConnectionChannel.Connection: QUICConnectionProtocol where Consumer: ~Copyable {
     var localAddress: SocketAddress {
         switch self {

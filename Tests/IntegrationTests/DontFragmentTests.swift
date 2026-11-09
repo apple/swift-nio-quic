@@ -106,7 +106,7 @@ struct DontFragmentTests {
     }
 
     /// The handler leaves the bit to the user.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test(arguments: Installation.allCases)
     func handlerDoesNotSetDontFragment(installation: Installation) async throws {
         let channel = try await Self.makeChannel(host: "127.0.0.1", installation: installation)
@@ -125,7 +125,7 @@ struct DontFragmentTests {
         return channel
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     private static func makeChannel(host: String, installation: Installation) async throws -> any Channel {
         let bootstrap = DatagramBootstrap(group: MultiThreadedEventLoopGroup.singleton)
         switch installation {
@@ -145,7 +145,7 @@ struct DontFragmentTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     private static func makeHandler(channel: any Channel) -> QUICHandler<QUICStreamChannels> {
         QUICHandler(
             channel: channel,

@@ -27,7 +27,7 @@ enum AuthParameters {
 }
 
 /// Authenticates the server during TLS 1.3 handshakes using X509 certificates.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 public final class Authenticator: Sendable {
     let privateKey: Certificate.PrivateKey
     let certificates: [Certificate]

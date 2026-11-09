@@ -12,7 +12,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 final class AsyncVerifierRunner: Sendable {
     let asyncVerifier: AsyncVerifier
     let asyncVerifierTask: Task<(), Never>

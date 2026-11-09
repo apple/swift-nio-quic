@@ -13,7 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 /// Consumes streams for a single QUIC connection.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 public protocol QUICStreamConsumer: SendableMetatype, ~Copyable {
     /// Per-stream state stored by the connection.
     #if swift(>=6.4)

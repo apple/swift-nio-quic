@@ -13,7 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 /// A consumer which provides a `Channel` per QUIC stream.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 public enum QUICStreamChannels: QUICStreamConsumer, ~Copyable {
     public typealias StreamState = Never
 

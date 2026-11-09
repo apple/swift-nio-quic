@@ -20,7 +20,7 @@ import Testing
 
 // MARK: - Test Helpers for ~Copyable Action Enums
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICStreamStateMachine.StreamConnectedAction {
     consuming func requireActivateStream(sourceLocation: SourceLocation = #_sourceLocation) {
         guard case .activateStream = self else {
@@ -30,7 +30,7 @@ extension QUICStreamStateMachine.StreamConnectedAction {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICStreamStateMachine.WriteDataAction {
     consuming func requireSendData(sourceLocation: SourceLocation = #_sourceLocation) {
         guard case .sendData = self else {
@@ -40,7 +40,7 @@ extension QUICStreamStateMachine.WriteDataAction {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICStreamStateMachine.ReceiveDataAction {
     consuming func requireBufferData(sourceLocation: SourceLocation = #_sourceLocation) {
         guard case .bufferData = self else {
@@ -50,7 +50,7 @@ extension QUICStreamStateMachine.ReceiveDataAction {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICStreamStateMachine.SendFinAction {
     @discardableResult
     consuming func requireSendFin(sourceLocation: SourceLocation = #_sourceLocation) -> Bool {
@@ -62,7 +62,7 @@ extension QUICStreamStateMachine.SendFinAction {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICStreamStateMachine.AcknowledgeDataAction {
     consuming func requireCompleteSend(sourceLocation: SourceLocation = #_sourceLocation) {
         guard case .completeSend = self else {
@@ -79,7 +79,7 @@ extension QUICStreamStateMachine.AcknowledgeDataAction {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICStreamStateMachine.ApplicationReadAction {
     consuming func requireDeliverEndOfStream(sourceLocation: SourceLocation = #_sourceLocation) {
         guard case .deliverEndOfStream = self else {
@@ -89,7 +89,7 @@ extension QUICStreamStateMachine.ApplicationReadAction {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICStreamStateMachine.CloseAction {
     consuming func requireClose(sourceLocation: SourceLocation = #_sourceLocation) {
         guard case .close = self else {
@@ -100,7 +100,7 @@ extension QUICStreamStateMachine.CloseAction {
 }
 
 struct QUICStreamSendStateMachineTests {
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Initial state is ready")
     func initialStateIsReady() {
         let sm = QUICStreamSendStateMachine()
@@ -117,7 +117,7 @@ struct QUICStreamSendStateMachineTests {
     }
 
     /// RFC 9000 §3.5: STOP_SENDING after FIN sent but before ack should still trigger RESET_STREAM.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Receive STOP_SENDING from dataSent triggers RESET_STREAM")
     func receiveStopSendingFromDataSent() throws {
         var sm = QUICStreamSendStateMachine()
@@ -131,7 +131,7 @@ struct QUICStreamSendStateMachineTests {
     }
 
     /// STOP_SENDING after all data acknowledged should be ignored.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Receive STOP_SENDING from dataRecvd is ignored")
     func receiveStopSendingFromDataRecvd() {
         var sm = QUICStreamSendStateMachine()
@@ -145,7 +145,7 @@ struct QUICStreamSendStateMachineTests {
     }
 
     /// Duplicate STOP_SENDING should preserve the first error code.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Duplicate STOP_SENDING preserves first error code")
     func receiveStopSendingFromResetSentPreservesFirstErrorCode() {
         var sm = QUICStreamSendStateMachine()
@@ -159,7 +159,7 @@ struct QUICStreamSendStateMachineTests {
         #expect(resetErrorCode == QUICApplicationErrorCode(1))
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Normal lifecycle: write, FIN, ack")
     func normalLifecycle() {
         var sm = QUICStreamSendStateMachine()
@@ -186,7 +186,7 @@ struct QUICStreamSendStateMachineTests {
         #expect(!wasReset)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Reset lifecycle via localReset")
     func resetLifecycleViaLocalReset() {
         var sm = QUICStreamSendStateMachine()
@@ -209,7 +209,7 @@ struct QUICStreamSendStateMachineTests {
         #expect(resetErrorCode == QUICApplicationErrorCode(77))
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Reset lifecycle via STOP_SENDING")
     func resetLifecycleViaStopSending() {
         var sm = QUICStreamSendStateMachine()
@@ -237,7 +237,7 @@ struct QUICStreamSendStateMachineTests {
 
     /// RFC 9000 §3.5: "An endpoint SHOULD copy the error code from the STOP_SENDING frame
     /// to the RESET_STREAM frame it sends". Verify this from the ready state.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("STOP_SENDING from ready copies error code to RESET_STREAM")
     func stopSendingFromReadyCopiesErrorCode() {
         var sm = QUICStreamSendStateMachine()
@@ -252,7 +252,7 @@ struct QUICStreamSendStateMachineTests {
     }
 
     /// RFC 9000 §3.5: Verify error code copy from the send state (data in flight).
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("STOP_SENDING from send copies error code to RESET_STREAM")
     func stopSendingFromSendCopiesErrorCode() {
         var sm = QUICStreamSendStateMachine()
@@ -268,7 +268,7 @@ struct QUICStreamSendStateMachineTests {
     }
 
     /// RFC 9000 §3.5: Verify error code copy from the dataSent state (FIN sent, awaiting ack).
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("STOP_SENDING from dataSent copies error code to RESET_STREAM")
     func stopSendingFromDataSentCopiesErrorCode() {
         var sm = QUICStreamSendStateMachine()
@@ -288,7 +288,7 @@ struct QUICStreamSendStateMachineTests {
 
     /// RFC 9000 §3.1: "An endpoint MAY send a RESET_STREAM as the first frame that
     /// mentions a stream". This opens and immediately resets the stream.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("localReset from ready opens and immediately resets")
     func localResetFromReadyOpensAndResets() {
         var sm = QUICStreamSendStateMachine()
@@ -314,7 +314,7 @@ struct QUICStreamSendStateMachineTests {
 
     /// RFC 9000 §3.3: "A sender MUST NOT send [STREAM, STREAM_DATA_BLOCKED, RESET_STREAM]
     /// from a terminal state". Verify writes are rejected after completion.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Write rejected after stream completed")
     func writeRejectedAfterCompletion() {
         var sm = QUICStreamSendStateMachine()
@@ -329,7 +329,7 @@ struct QUICStreamSendStateMachineTests {
     }
 
     /// RFC 9000 §3.3: Verify writes are rejected after stream reset.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Write rejected after stream reset")
     func writeRejectedAfterReset() {
         var sm = QUICStreamSendStateMachine()
@@ -343,7 +343,7 @@ struct QUICStreamSendStateMachineTests {
     }
 
     /// RFC 9000 §3.3: localReset from a terminal state should be ignored.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("localReset ignored after stream completed")
     func localResetIgnoredAfterCompletion() {
         var sm = QUICStreamSendStateMachine()
@@ -359,7 +359,7 @@ struct QUICStreamSendStateMachineTests {
 }
 
 struct QUICStreamReceiveStateMachineTests {
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Initial state is recv")
     func initialStateIsRecv() {
         let sm = QUICStreamReceiveStateMachine()
@@ -378,7 +378,7 @@ struct QUICStreamReceiveStateMachineTests {
     }
 
     /// RESET_STREAM after all data received (FIN already processed) should be ignored.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Receive RESET_STREAM from dataRecvd is ignored")
     func receiveResetFromDataRecvd() {
         var sm = QUICStreamReceiveStateMachine()
@@ -393,7 +393,7 @@ struct QUICStreamReceiveStateMachineTests {
     }
 
     /// Duplicate RESET_STREAM should preserve the first error code.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Duplicate RESET_STREAM preserves first error code")
     func receiveResetFromResetRecvdPreservesFirst() {
         var sm = QUICStreamReceiveStateMachine()
@@ -408,7 +408,7 @@ struct QUICStreamReceiveStateMachineTests {
     }
 
     /// FIN arriving after RESET_STREAM should be ignored.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Receive FIN from resetRecvd is ignored")
     func receiveFinFromResetRecvd() {
         var sm = QUICStreamReceiveStateMachine()
@@ -420,7 +420,7 @@ struct QUICStreamReceiveStateMachineTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Normal lifecycle: receive data, FIN, app read")
     func normalLifecycle() {
         var sm = QUICStreamReceiveStateMachine()
@@ -446,7 +446,7 @@ struct QUICStreamReceiveStateMachineTests {
         #expect(!wasReset)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Reset lifecycle: receive data, RESET_STREAM, app read")
     func resetLifecycle() {
         var sm = QUICStreamReceiveStateMachine()
@@ -475,7 +475,7 @@ struct QUICStreamReceiveStateMachineTests {
 
     /// RFC 9000 §3.2: RESET_STREAM can arrive as the first frame on a stream,
     /// before any STREAM data. The stream transitions directly to resetRecvd.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("RESET_STREAM as first frame with no prior data")
     func resetStreamAsFirstFrame() {
         var sm = QUICStreamReceiveStateMachine()
@@ -500,7 +500,7 @@ struct QUICStreamReceiveStateMachineTests {
     // MARK: - RFC 9000 §3.2: Data after FIN/RESET
 
     /// Receiving data after FIN (dataRecvd state) is rejected.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Data after FIN is rejected")
     func dataAfterFinRejected() {
         var sm = QUICStreamReceiveStateMachine()
@@ -514,7 +514,7 @@ struct QUICStreamReceiveStateMachineTests {
     }
 
     /// Receiving data after RESET_STREAM is rejected.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Data after RESET_STREAM is rejected")
     func dataAfterResetRejected() {
         var sm = QUICStreamReceiveStateMachine()
@@ -530,7 +530,7 @@ struct QUICStreamReceiveStateMachineTests {
     // MARK: - RFC 9000 §3.5: STOP_SENDING from receive states
 
     /// STOP_SENDING can be sent while in recv state.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("sendStopSending from recv is permitted")
     func sendStopSendingFromRecv() {
         var sm = QUICStreamReceiveStateMachine()
@@ -542,7 +542,7 @@ struct QUICStreamReceiveStateMachineTests {
     }
 
     /// STOP_SENDING after all data received is pointless and ignored.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("sendStopSending from dataRecvd is ignored")
     func sendStopSendingFromDataRecvd() {
         var sm = QUICStreamReceiveStateMachine()
@@ -556,7 +556,7 @@ struct QUICStreamReceiveStateMachineTests {
     }
 
     /// STOP_SENDING after RESET_STREAM is unnecessary and ignored.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("sendStopSending from resetRecvd is ignored")
     func sendStopSendingFromResetRecvd() {
         var sm = QUICStreamReceiveStateMachine()
@@ -570,7 +570,7 @@ struct QUICStreamReceiveStateMachineTests {
     }
 
     /// Duplicate FIN is ignored.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Duplicate FIN is ignored")
     func duplicateFinIgnored() {
         var sm = QUICStreamReceiveStateMachine()
@@ -584,7 +584,7 @@ struct QUICStreamReceiveStateMachineTests {
     }
 
     /// applicationRead from dataRead (terminal) returns ignore(.alreadyDelivered).
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("applicationRead from terminal dataRead returns ignore(.alreadyDelivered)")
     func applicationReadFromDataRead() {
         var sm = QUICStreamReceiveStateMachine()
@@ -599,7 +599,7 @@ struct QUICStreamReceiveStateMachineTests {
     }
 
     /// applicationRead from terminal resetRead returns ignore(.alreadyDelivered).
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("applicationRead from terminal resetRead returns ignore(.alreadyDelivered)")
     func applicationReadFromResetRead() {
         var sm = QUICStreamReceiveStateMachine()
@@ -618,7 +618,7 @@ struct QUICStreamStateMachineTests {
 
     // MARK: - Initial State
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Pending ID initial state")
     func pendingIDInitialState() {
         let sm = QUICStreamStateMachine()
@@ -634,7 +634,7 @@ struct QUICStreamStateMachineTests {
 
     // MARK: - Connection Lifecycle
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Bidirectional stream connected from pendingID")
     func streamConnectedBidirectionalFromPendingID() throws {
         var sm = QUICStreamStateMachine()
@@ -649,7 +649,7 @@ struct QUICStreamStateMachineTests {
         try sm.receiveData().requireBufferData()
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Send-only stream connected from pendingID")
     func streamConnectedSendOnlyFromPendingID() throws {
         var sm = QUICStreamStateMachine()
@@ -659,7 +659,7 @@ struct QUICStreamStateMachineTests {
         try sm.writeData().requireSendData()
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Receive-only stream connected from pendingID")
     func streamConnectedReceiveOnlyFromPendingID() throws {
         var sm = QUICStreamStateMachine()
@@ -669,7 +669,7 @@ struct QUICStreamStateMachineTests {
         try sm.receiveData().requireBufferData()
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Stream connected from connected is ignored")
     func streamConnectedFromConnected() {
         var sm = QUICStreamStateMachine()
@@ -682,7 +682,7 @@ struct QUICStreamStateMachineTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Stream connected from closed is ignored")
     func streamConnectedFromClosed() {
         var sm = QUICStreamStateMachine()
@@ -695,7 +695,7 @@ struct QUICStreamStateMachineTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("receiveData and receiveFin work in pendingID for optimistic reads")
     func optimisticReadsInPendingID() throws {
         // receiveData returns .bufferData in pendingID because SwiftNetwork
@@ -715,7 +715,7 @@ struct QUICStreamStateMachineTests {
 
     // MARK: - Bidirectional Stream Lifecycles
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Typical bidirectional stream lifecycle")
     func typicalBidirectionalStreamLifecycle() throws {
         var sm = QUICStreamStateMachine()
@@ -745,7 +745,7 @@ struct QUICStreamStateMachineTests {
         #expect(isFullyClosed)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Bidirectional fully closed requires both sides terminal")
     func combinedFullyClosedBidirectional() throws {
         var sm = QUICStreamStateMachine()
@@ -767,7 +767,7 @@ struct QUICStreamStateMachineTests {
         #expect(isFullyClosed)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Bidirectional stream reset while sending")
     func bidirectionalStreamResetWhileSending() throws {
         var sm = QUICStreamStateMachine()
@@ -795,7 +795,7 @@ struct QUICStreamStateMachineTests {
 
     // MARK: - Unidirectional Stream Lifecycles
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Full outbound send-only lifecycle")
     func fullOutboundSendOnlyLifecycle() throws {
         var sm = QUICStreamStateMachine()
@@ -815,7 +815,7 @@ struct QUICStreamStateMachineTests {
         #expect(isFullyClosed)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Full inbound receive-only lifecycle")
     func fullInboundReceiveOnlyLifecycle() throws {
         var sm = QUICStreamStateMachine()
@@ -841,7 +841,7 @@ struct QUICStreamStateMachineTests {
         #expect(isFullyClosed)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Send-only stream has no read side")
     func sendOnlyDirectionSemantics() {
         var sm = QUICStreamStateMachine()
@@ -851,7 +851,7 @@ struct QUICStreamStateMachineTests {
         #expect(!hasReceivedFin)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Receive-only stream has no write side")
     func receiveOnlyDirectionSemantics() {
         var sm = QUICStreamStateMachine()
@@ -863,7 +863,7 @@ struct QUICStreamStateMachineTests {
 
     // MARK: - Direction Errors
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Send operations throw wrongDirection on receive-only stream")
     func sendOnReceiveOnlyThrows() {
         var sm = QUICStreamStateMachine()
@@ -886,7 +886,7 @@ struct QUICStreamStateMachineTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Closing the read side surfaces end-of-stream exactly once")
     func closeReadSideSurfacesEndOfStreamOnce() throws {
         var sm = QUICStreamStateMachine()
@@ -922,7 +922,7 @@ struct QUICStreamStateMachineTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Closing the read side surfaces a captured FIN which was never read")
     func closeReadSideSurfacesUnreadFIN() throws {
         var sm = QUICStreamStateMachine()
@@ -949,7 +949,7 @@ struct QUICStreamStateMachineTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Receive operations throw wrongDirection on send-only stream")
     func receiveOnSendOnlyThrows() {
         var sm = QUICStreamStateMachine()
@@ -972,7 +972,7 @@ struct QUICStreamStateMachineTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Operations throw notConnected on closed stream")
     func operationsOnClosedStreamThrow() {
         var sm = QUICStreamStateMachine()
@@ -988,7 +988,7 @@ struct QUICStreamStateMachineTests {
 
     // MARK: - Reset Scenarios
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Stream reset by peer via RESET_STREAM")
     func streamResetByPeer() throws {
         var sm = QUICStreamStateMachine()
@@ -1007,7 +1007,7 @@ struct QUICStreamStateMachineTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Stream reset by peer via STOP_SENDING")
     func streamResetByStopSending() throws {
         var sm = QUICStreamStateMachine()
@@ -1029,7 +1029,7 @@ struct QUICStreamStateMachineTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Receive RESET_STREAM after data received delivers error on read")
     func receiveResetAfterDataReceived() throws {
         var sm = QUICStreamStateMachine()
@@ -1055,7 +1055,7 @@ struct QUICStreamStateMachineTests {
 
     // MARK: - RFC Edge Cases
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("STOP_SENDING after FIN before ack triggers RESET_STREAM per RFC 9000 §3.1")
     func stopSendingAfterFinBeforeAck() throws {
         var sm = QUICStreamStateMachine()
@@ -1071,7 +1071,7 @@ struct QUICStreamStateMachineTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("STOP_SENDING after all data acknowledged is ignored")
     func stopSendingAfterAllDataAcknowledged() throws {
         var sm = QUICStreamStateMachine()
@@ -1087,7 +1087,7 @@ struct QUICStreamStateMachineTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("RESET_STREAM after all data received is ignored")
     func resetStreamAfterAllDataReceived() throws {
         var sm = QUICStreamStateMachine()
@@ -1107,7 +1107,7 @@ struct QUICStreamStateMachineTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Duplicate RESET_STREAM preserves first error code")
     func duplicateResetStreamPreservesFirstErrorCode() throws {
         var sm = QUICStreamStateMachine()
@@ -1137,7 +1137,7 @@ struct QUICStreamStateMachineTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Duplicate STOP_SENDING preserves first error code")
     func duplicateStopSendingPreservesFirstErrorCode() throws {
         var sm = QUICStreamStateMachine()
@@ -1158,7 +1158,7 @@ struct QUICStreamStateMachineTests {
 
     // MARK: - Post-Terminal Behavior
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Write after FIN is rejected")
     func writeAfterFinRejected() throws {
         var sm = QUICStreamStateMachine()
@@ -1172,7 +1172,7 @@ struct QUICStreamStateMachineTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Receive data after FIN is rejected")
     func receiveDataAfterFinRejected() throws {
         var sm = QUICStreamStateMachine()
@@ -1186,7 +1186,7 @@ struct QUICStreamStateMachineTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Application read after all data read returns .ignore(.alreadyDelivered)")
     func applicationReadAfterAllDataRead() throws {
         var sm = QUICStreamStateMachine()
@@ -1201,7 +1201,7 @@ struct QUICStreamStateMachineTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Reset error delivered on application read")
     func resetErrorDeliveredOnApplicationRead() throws {
         var sm = QUICStreamStateMachine()
@@ -1221,7 +1221,7 @@ struct QUICStreamStateMachineTests {
 
     // MARK: - Close
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Close from pendingID")
     func closeFromPendingID() {
         var sm = QUICStreamStateMachine()
@@ -1232,7 +1232,7 @@ struct QUICStreamStateMachineTests {
         #expect(isFullyClosed)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Close from connected")
     func closeFromConnected() {
         var sm = QUICStreamStateMachine()
@@ -1246,7 +1246,7 @@ struct QUICStreamStateMachineTests {
         #expect(isFullyClosed)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Double close returns .ignoreAlreadyClosed")
     func doubleClose() {
         var sm = QUICStreamStateMachine()
@@ -1261,7 +1261,7 @@ struct QUICStreamStateMachineTests {
 
     // MARK: - Error Routing
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("RESET_STREAM produces correct error type and code")
     func resetStreamFiresCorrectError() throws {
         var sm = QUICStreamStateMachine()
@@ -1275,7 +1275,7 @@ struct QUICStreamStateMachineTests {
         #expect(code.rawValue == 42)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("STOP_SENDING then RESET_STREAM both produce errors — no cross-direction dedup")
     func bothDirectionsRouteIndependently() throws {
         var sm = QUICStreamStateMachine()
@@ -1413,7 +1413,7 @@ struct QUICStreamPipelineStateMachineTests {
 
 struct SwiftNetworkStreamHandleTests {
     /// A handle attached to an empty linkage, which ignores the calls made through it.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     private static func attachedHandle() -> SwiftNetworkStreamHandle {
         var handle = SwiftNetworkStreamHandle()
         handle.attach(linkage: BaseOutboundStreamLinkage(), identifier: InstanceIdentifier())
@@ -1421,7 +1421,7 @@ struct SwiftNetworkStreamHandleTests {
     }
 
     /// Streams start unattached: there is nothing to call until they attach to their flow.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Default init is unattached")
     func defaultInitIsUnattached() {
         let handle = SwiftNetworkStreamHandle()
@@ -1431,7 +1431,7 @@ struct SwiftNetworkStreamHandleTests {
     }
 
     /// The flow's linkage is wrapped in an attached handle.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("attach(linkage:identifier:) attaches")
     func attachAttaches() {
         let handle = Self.attachedHandle()
@@ -1442,7 +1442,7 @@ struct SwiftNetworkStreamHandleTests {
 
     /// A handle attaches once: attaching it again, or after it detached, would revive a stream that
     /// is torn down.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Attaching an attached or a detached handle traps", arguments: [false, true])
     func attachingAgainTraps(detachFirst: Bool) async throws {
         #if os(Android)
@@ -1460,7 +1460,7 @@ struct SwiftNetworkStreamHandleTests {
 
     /// Before the attach there is nothing to call: disconnect, the aborts and metadata are ignored,
     /// and connect, send and receive report a violation.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("An unattached handle makes no calls")
     func unattachedHandleMakesNoCalls() {
         let handle = SwiftNetworkStreamHandle()
@@ -1496,7 +1496,7 @@ struct SwiftNetworkStreamHandleTests {
     }
 
     /// Closing a stream whose attach failed detaches it without a call to the stack.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("invokeDetach skips an unattached handle and detaches it")
     func invokeDetachSkipsAnUnattachedHandle() {
         var handle = SwiftNetworkStreamHandle()
@@ -1517,7 +1517,7 @@ struct SwiftNetworkStreamHandleTests {
     /// Hard violation: starting a torn-down stream is a programmer bug. The caller
     /// `preconditionFailure`s on this — which we can't test directly — so we verify
     /// the handle signals it via the action enum here, with the reason that explains why.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("invokeConnect returns .handleViolation(.detached) when detached")
     func invokeConnectReturnsHandleViolation() {
         var handle = Self.attachedHandle()
@@ -1533,7 +1533,7 @@ struct SwiftNetworkStreamHandleTests {
 
     /// End-to-end detach contract: wrapper consumes the linkage on the first call and
     /// tolerates duplicates (multiple call sites unconditionally try to tear down).
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("invokeDetach flips state and is idempotent")
     func invokeDetachIsIdempotent() throws(NetworkError) {
         var handle = Self.attachedHandle()
@@ -1556,7 +1556,7 @@ struct SwiftNetworkStreamHandleTests {
     }
 
     /// Stop sequencing: disconnect after detach is a normal teardown ordering and must not throw.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("invokeDisconnect silently no-ops when detached")
     func invokeDisconnectNoopsWhenDetached() throws(NetworkError) {
         var handle = Self.attachedHandle()
@@ -1574,7 +1574,7 @@ struct SwiftNetworkStreamHandleTests {
     }
 
     /// Error/abort during teardown must not raise (called from the close-stream paths).
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("invokeAbortInbound silently no-ops when detached")
     func invokeAbortInboundNoopsWhenDetached() throws(NetworkError) {
         var handle = Self.attachedHandle()
@@ -1592,7 +1592,7 @@ struct SwiftNetworkStreamHandleTests {
     }
 
     /// Error/abort during teardown must not raise (called from the close-stream paths).
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("invokeAbortOutbound silently no-ops when detached")
     func invokeAbortOutboundNoopsWhenDetached() throws(NetworkError) {
         var handle = Self.attachedHandle()
@@ -1611,7 +1611,7 @@ struct SwiftNetworkStreamHandleTests {
 
     /// Soft-violation policy: write-after-detach surfaces as a violation the caller can
     /// surface as a throw (e.g. return false), not a silent no-op that drops bytes.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("invokeSendStreamData reports violation when detached")
     func invokeSendStreamDataThrowsWhenDetached() throws(NetworkError) {
         var handle = Self.attachedHandle()
@@ -1632,7 +1632,7 @@ struct SwiftNetworkStreamHandleTests {
 
     /// Soft-violation policy: read-after-detach surfaces as a violation, not a silent nil that
     /// the caller might confuse with "no data available".
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("invokeReceiveStreamData reports violation when detached")
     func invokeReceiveStreamDataThrowsWhenDetached() throws(NetworkError) {
         var handle = Self.attachedHandle()
@@ -1653,7 +1653,7 @@ struct SwiftNetworkStreamHandleTests {
 
     /// Metadata is genuinely unavailable post-detach; the wrapper returns `.ignore`
     /// so the caller can surface nil to its own consumer.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("invokeGetMetadata reports ignore when detached")
     func invokeGetMetadataReturnsNilWhenDetached() throws(NetworkError) {
         var handle = Self.attachedHandle()

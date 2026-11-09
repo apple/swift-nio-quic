@@ -21,7 +21,7 @@ import NIOCore
 /// ``QUICHandler/ChildView`` directly. This lets the outbound side be
 /// substituted (for example, a recording double) when testing the channel in
 /// isolation. The production conformer is ``QUICHandler/ChildView``.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 protocol QUICTransport {
     /// Write a single addressed datagram to the UDP channel.
     func writeDatagram(_ envelope: AddressedEnvelope<ByteBuffer>, promise: EventLoopPromise<Void>?)
@@ -33,7 +33,7 @@ protocol QUICTransport {
     func read()
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICConnectionChannel where Consumer: ~Copyable {
     enum Transport: QUICTransport {
         case live(QUICHandler<Consumer>.ChildView)

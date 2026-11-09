@@ -31,7 +31,7 @@ import Musl
 /// The path is the bridge between SwiftNetwork and our code on the network-side. It is attached to
 /// the SwiftNetwork `QUICConnection` as the lower datagram protocol of this path and deals with
 /// both getting bytes in and out of it.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 final class QUICConnectionPath<Consumer: QUICStreamConsumer & ~Copyable>: ExternalOutboundDatagramLinkage {
 
     typealias UpperProtocol = BaseInboundDatagramLinkage
@@ -198,10 +198,10 @@ final class QUICConnectionPath<Consumer: QUICStreamConsumer & ~Copyable>: Extern
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICConnectionPath: ProtocolInstance where Consumer: ~Copyable {}
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICConnectionPath where Consumer: ~Copyable {
     // The framework's answer for its own lower protocols: connected once this path delivered its
     // connected event, and no longer once it delivered its disconnected event or was released.

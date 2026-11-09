@@ -21,7 +21,7 @@ import Testing
 
 struct QUICCalloutsTests {
     /// A registered protocol instance to enter the stack as.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     private final class TestInstance: ProtocolInstance {
         let context: NetworkContext
         var identifier: InstanceIdentifier
@@ -36,7 +36,7 @@ struct QUICCalloutsTests {
     }
 
     /// Records the datagrams of the callouts it runs, as strings.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     private final class RecordingTarget: QUICConnectionCalloutTarget {
         var log: [String] = []
         var onRun: ((String) -> Void)?
@@ -57,7 +57,7 @@ struct QUICCalloutsTests {
 
     /// Runs `body` with a queue, its scheduler's event loop and a registered instance, and unregisters
     /// the instance afterwards (its event manager traps on deinit otherwise).
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     private func withCallouts(
         _ body: (QUICCallouts, EmbeddedEventLoop, EventLoopBackedScheduler, TestInstance) throws -> Void
     ) rethrows {
@@ -74,12 +74,12 @@ struct QUICCalloutsTests {
         try body(callouts, loop, scheduler, instance)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     private static func datagram(_ tag: String) -> QUICConnectionCallout {
         .datagramRead(ByteBuffer(string: tag))
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func queuedCalloutsRunInOrderOnceTheAcquisitionEnds() {
         self.withCallouts { callouts, _, _, instance in
@@ -93,7 +93,7 @@ struct QUICCalloutsTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func anEntryFromACalloutRunsItsOwnCalloutsBeforeReturning() {
         // A handler that flushes from a `channelRead`: its entry's callouts run before it returns,
@@ -116,7 +116,7 @@ struct QUICCalloutsTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func aThrowingAcquisitionStillRunsItsCallouts() {
         self.withCallouts { callouts, _, _, instance in
@@ -131,7 +131,7 @@ struct QUICCalloutsTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func calloutsQueuedInAStackTaskRunWhenItEnds() {
         // The stack acquires the event context itself inside the tasks it schedules: a timer, or
@@ -150,7 +150,7 @@ struct QUICCalloutsTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func calloutsQueuedInATimerWakeupRunWhenItEnds() {
         self.withCallouts { callouts, loop, scheduler, instance in
@@ -170,7 +170,7 @@ struct QUICCalloutsTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func calloutsQueuedByAFrameworkCallInACalloutRunBeforeTheRestOfTheBatch() {
         // A queued call that calls a framework entry point which acquires the event context itself,
@@ -195,7 +195,7 @@ struct QUICCalloutsTests {
     }
 
     #if DEBUG
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func queueingWhereNothingRunsTheQueueTraps() async throws {
         #if os(Android)
@@ -217,7 +217,7 @@ struct QUICCalloutsTests {
     #endif
 
     #if DEBUG
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func theQueueKnowsWhenTheStackMayHoldTheEventContext() {
         self.withCallouts { callouts, loop, scheduler, instance in
@@ -234,7 +234,7 @@ struct QUICCalloutsTests {
     }
     #endif
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func aRetiredAnchorLeavesNothingRegistered() {
         // Its event manager traps on deinit if still registered, so completing is the check.

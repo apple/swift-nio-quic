@@ -18,20 +18,20 @@ import Testing
 
 struct ConnectionRegistryTests {
     /// Makes `count` distinct connection IDs.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     private func makeConnectionIDs(_ count: Int) -> [QUICConnectionID] {
         var generator = QUICConnectionID.RandomGenerator()
         return (0..<count).map { _ in generator.next() }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func empty() {
         let registry = ConnectionRegistry<String>()
         #expect(registry.count == 0)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func insertAndLookUpByCreationConnectionID() {
         var registry = ConnectionRegistry<String>()
@@ -44,7 +44,7 @@ struct ConnectionRegistryTests {
         #expect(registry[ids[0]] == "connection")
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func lookUpByAssociatedConnectionID() {
         var registry = ConnectionRegistry<String>()
@@ -60,7 +60,7 @@ struct ConnectionRegistryTests {
         #expect(registry.count == 1)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func lookUpUnknownConnectionID() {
         let registry = ConnectionRegistry<String>()
@@ -68,7 +68,7 @@ struct ConnectionRegistryTests {
         #expect(registry[ids[0]] == nil)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func associateRejectsConnectionIDRoutedElsewhere() {
         var registry = ConnectionRegistry<String>()
@@ -83,7 +83,7 @@ struct ConnectionRegistryTests {
         #expect(registry[ids[1]] == "second")
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func associateRejectsUnknownHandle() {
         var registry = ConnectionRegistry<String>()
@@ -92,7 +92,7 @@ struct ConnectionRegistryTests {
         #expect(registry[ids[0]] == nil)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func retireLeavesTheConnectionReachableByItsOtherConnectionIDs() {
         var registry = ConnectionRegistry<String>()
@@ -110,7 +110,7 @@ struct ConnectionRegistryTests {
         #expect(registry.count == 1)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func retireLastConnectionIDKeepsTheConnectionRemovableByHandle() {
         var registry = ConnectionRegistry<String>()
@@ -127,7 +127,7 @@ struct ConnectionRegistryTests {
         #expect(registry.count == 0)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func retireUnknownConnectionID() {
         var registry = ConnectionRegistry<String>()
@@ -135,7 +135,7 @@ struct ConnectionRegistryTests {
         #expect(registry.retire(ids[0], from: ConnectionHandle.initial) == false)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func retireRejectsAnotherConnectionsConnectionID() {
         var registry = ConnectionRegistry<String>()
@@ -153,7 +153,7 @@ struct ConnectionRegistryTests {
         #expect(registry[ids[0]] == nil)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func retireStopsAConnectionIDBeingDroppedWhenItsOldConnectionIsRemoved() {
         var registry = ConnectionRegistry<String>()
@@ -171,7 +171,7 @@ struct ConnectionRegistryTests {
         #expect(registry[ids[0]] == "second")
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func removeDropsEveryRoute() {
         var registry = ConnectionRegistry<String>()
@@ -190,14 +190,14 @@ struct ConnectionRegistryTests {
         #expect(registry.count == 0)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func removeUnknownHandle() {
         var registry = ConnectionRegistry<String>()
         #expect(registry.remove(ConnectionHandle.initial) == nil)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func removeOneConnectionLeavesOthersIntact() {
         var registry = ConnectionRegistry<String>()
@@ -214,7 +214,7 @@ struct ConnectionRegistryTests {
         #expect(registry.count == 1)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func values() {
         var registry = ConnectionRegistry<String>()

@@ -24,7 +24,7 @@ import Testing
 
 // MARK: - Pair
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 struct ConsumerPair<Client: QUICStreamConsumer, Server: QUICStreamConsumer>: Sendable {
     var clientConnection: QUICStreamConnection<Client>
     var clientChannel: any Channel
@@ -87,7 +87,7 @@ struct ConsumerPair<Client: QUICStreamConsumer, Server: QUICStreamConsumer>: Sen
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension ConsumerPair where Client.StreamState == ByteBuffer {
     func openClientStream(
         _ type: QUICStreamType = .clientInitiatedBidirectional,
@@ -98,7 +98,7 @@ extension ConsumerPair where Client.StreamState == ByteBuffer {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 func withConsumerPair<
     Client: QUICStreamConsumer & Sendable,
     Server: QUICStreamConsumer & Sendable,
@@ -137,7 +137,7 @@ func withConsumerPair<
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 func makeConsumerPair<Client: QUICStreamConsumer, Server: QUICStreamConsumer>(
     eventLoopGroup: any EventLoopGroup = MultiThreadedEventLoopGroup.singleton,
     host: String = "127.0.0.1",
@@ -264,7 +264,7 @@ func makePromise<Value>(
 // MARK: - Recording
 
 /// Every visit a ``RecordConsumer`` made, in order.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 final class StreamRecording: Sendable {
     /// One visit to one stream.
     struct Visit: Sendable {
@@ -334,7 +334,7 @@ final class StreamRecording: Sendable {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension StreamRecording.Visit {
     /// Snapshots `visit` without reading from it.
     init<Consumer: QUICStreamConsumer>(_ visit: inout QUICStreamVisit<Consumer>) {
@@ -372,7 +372,7 @@ extension StreamRecording.Visit {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICStreamVisit where Consumer.StreamState == ByteBuffer {
     /// Reads everything available on the stream into its state.
     ///
@@ -397,7 +397,7 @@ extension QUICStreamVisit where Consumer.StreamState == ByteBuffer {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension [StreamRecording.Visit] {
     /// Every event across all of these visits.
     var allEvents: QUICStreamEvents {
@@ -408,7 +408,7 @@ extension [StreamRecording.Visit] {
 // MARK: - Consumers
 
 /// Reads every stream to its end, writes what it read back, and finishes.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 struct EchoConsumer: QUICStreamConsumer {
     typealias StreamState = ByteBuffer
 
@@ -459,7 +459,7 @@ struct EchoConsumer: QUICStreamConsumer {
 
 /// Reads a whole request, then responds with `chunkCount` separate writes of `chunkSize` bytes
 /// followed by a "Success" marker, all in the one flush which carries the FIN.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 struct StreamingConsumer: QUICStreamConsumer {
     typealias StreamState = ByteBuffer
 
@@ -520,7 +520,7 @@ struct StreamingConsumer: QUICStreamConsumer {
 }
 
 /// Reads every readable stream and records each visit into a ``StreamRecording``.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 struct RecordConsumer: QUICStreamConsumer {
     typealias StreamState = ByteBuffer
 
@@ -543,7 +543,7 @@ struct RecordConsumer: QUICStreamConsumer {
 /// This is the shape a client has to take when it opens more streams than the peer's limit allows:
 /// the flush of a stream without an ID is refused, so the write waits for the
 /// ``QUICStreamEvents/opened`` visit.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 struct RequestOnOpenConsumer: QUICStreamConsumer {
     typealias StreamState = ByteBuffer
 
@@ -591,7 +591,7 @@ struct RequestOnOpenConsumer: QUICStreamConsumer {
 ///
 /// The new stream goes through `visit.streams` rather than the connection, because the consumer is
 /// already inside a drain.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 struct OpeningConsumer: QUICStreamConsumer {
     typealias StreamState = ByteBuffer
 
@@ -640,7 +640,7 @@ struct OpeningConsumer: QUICStreamConsumer {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 struct CallbackConsumer<State>: QUICStreamConsumer, Sendable {
     typealias StreamState = State
 

@@ -20,7 +20,7 @@ import NIOCore
 /// route to that handle. Retiring a connection ID drops one route; it never moves a connection or
 /// invalidates a handle, so a connection with no routes left is unreachable by the peer but still
 /// identifiable, and is removed with ``remove(_:)`` when it closes.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 struct ConnectionRegistry<Value> {
     // Note: 'connections' and 'connectionIDs' are separate: this avoids the  `values` iterator
     // retaining the IDs array each time it's called (which can be frequent, e.g. on writability
@@ -136,7 +136,7 @@ struct ConnectionRegistry<Value> {
 }
 
 /// What the registry needs from a connection.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 protocol QUICConnectionRegistryView {
     func shutdown(promise: EventLoopPromise<Void>?)
     func forceClose()
@@ -150,7 +150,7 @@ private final class ShutdownRace {
     var finished = false
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension ConnectionRegistry where Value: QUICConnectionRegistryView {
     /// Shut down every registered connection, racing graceful completion against `deadline`.
     ///

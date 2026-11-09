@@ -33,7 +33,7 @@ struct DatagramTests {
         return (serverLogger, clientLogger)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test func datagramRoundTrip() async throws {
         let eventLoopGroup = MultiThreadedEventLoopGroup.singleton
         let loggers = getChannelLoggers()
@@ -112,7 +112,7 @@ struct DatagramTests {
         try await noMoreConnectionsPromise.futureResult.get()
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test func datagramRoundTripWaitingForReadComplete() async throws {
         let eventLoopGroup = MultiThreadedEventLoopGroup.singleton
         let loggers = getChannelLoggers()
@@ -191,7 +191,7 @@ struct DatagramTests {
         try await noMoreConnectionsPromise.futureResult.get()
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test func datagramsSentBeforeConnectionEstablishmentAreBuffered() async throws {
         let eventLoopGroup = MultiThreadedEventLoopGroup.singleton
         let loggers = getChannelLoggers()
@@ -248,7 +248,7 @@ struct DatagramTests {
         try await noMoreConnectionsPromise.futureResult.get()
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test func streamRoundTripWithDatagramsEnabled() async throws {
         let eventLoopGroup = MultiThreadedEventLoopGroup.singleton
         let loggers = getChannelLoggers()
@@ -316,7 +316,7 @@ struct DatagramTests {
         try await noMoreConnectionsPromise.futureResult.get()
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test func unidirectionalDatagramAdvertisement() async throws {
         let eventLoopGroup = MultiThreadedEventLoopGroup.singleton
         let loggers = getChannelLoggers()
@@ -427,7 +427,7 @@ struct DatagramTests {
 
     /// A datagram larger than the peer's advertised `max_datagram_frame_size` is rejected locally,
     /// before it reaches the transport; the connection stays open and unrelated writes still work.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test func oversizedDatagramIsDroppedAndConnectionStaysOpen() async throws {
         let eventLoopGroup = MultiThreadedEventLoopGroup.singleton
         let loggers = getChannelLoggers()
@@ -536,7 +536,7 @@ struct DatagramTests {
         try await serverChannel.close()
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test(arguments: [
         (InitialPacketSize.fixed(1200), [6]),
         (InitialPacketSize.fixed(1350), [1250, 6]),
@@ -622,7 +622,7 @@ struct DatagramTests {
         try await serverChannel.close()
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test func serverPacketSizeMatchesClientInitial() async throws {
         let eventLoopGroup = MultiThreadedEventLoopGroup.singleton
         let loggers = getChannelLoggers()
@@ -718,7 +718,7 @@ struct DatagramTests {
     ///
     /// Unidirectional: a client's first bidirectional stream reuses the one the connection created
     /// up front, which attaches no new flow.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test func streamOpenedFromADatagramReadOpens() async throws {
         let eventLoopGroup = MultiThreadedEventLoopGroup.singleton
         let loggers = getChannelLoggers()
@@ -793,7 +793,7 @@ struct DatagramTests {
 /// Opens an outbound QUIC connection on `clientChannel` to `host:port`, running
 /// `connectionInitializer` on the connection channel. The client never accepts inbound streams in
 /// these tests.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 func connectOutbound(
     _ clientChannel: any Channel,
     host: String,
@@ -815,7 +815,7 @@ func connectOutbound(
 
 /// Opens a bidirectional stream, writes `signal`, and waits for the server to report receipt via
 /// `serverReceived` — a lightweight handshake proving the connection reached the connected state.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 func performSyncHandshake(
     _ streamCreator: QUICStreamCreator,
     signal: ByteBuffer,
@@ -830,7 +830,7 @@ func performSyncHandshake(
 
 /// Succeeds `receivedPromise` on the first byte of stream data. Used purely as a
 /// synchronization signal to prove a connection has reached the connected state.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 private final class SyncSignalHandler: ChannelInboundHandler {
     typealias InboundIn = ByteBuffer
 
@@ -846,7 +846,7 @@ private final class SyncSignalHandler: ChannelInboundHandler {
 }
 
 /// Captures inbound QUIC datagrams delivered on the connection channel.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 final class DatagramCapture: ChannelInboundHandler {
     typealias InboundIn = ByteBuffer
 
@@ -863,7 +863,7 @@ final class DatagramCapture: ChannelInboundHandler {
 }
 
 /// Captures inbound QUIC datagrams delivered on the connection channel.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 final class DatagramCaptureOnReadComplete: ChannelInboundHandler {
     typealias InboundIn = ByteBuffer
 
@@ -886,7 +886,7 @@ final class DatagramCaptureOnReadComplete: ChannelInboundHandler {
 }
 
 /// Sets `flag` to `true` on the first stream read.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 private final class StreamReadFlagHandler: ChannelInboundHandler {
     typealias InboundIn = ByteBuffer
 
@@ -903,7 +903,7 @@ private final class StreamReadFlagHandler: ChannelInboundHandler {
 
 /// Echoes a fixed response once it has received the expected request bytes,
 /// then closes the stream.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 private final class StreamEchoHandler: ChannelInboundHandler {
     typealias InboundIn = ByteBuffer
     typealias OutboundOut = ByteBuffer
@@ -931,7 +931,7 @@ private final class StreamEchoHandler: ChannelInboundHandler {
 }
 
 /// Captures the first response buffer received on a request stream.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 private final class ResponseCapture: ChannelInboundHandler {
     typealias InboundIn = ByteBuffer
 
@@ -954,7 +954,7 @@ private final class ResponseCapture: ChannelInboundHandler {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 private final class DirectlySendADatagramHandler: ChannelOutboundHandler {
     typealias OutboundIn = ByteBuffer
     typealias OutboundOut = ByteBuffer
@@ -977,7 +977,7 @@ private final class DirectlySendADatagramHandler: ChannelOutboundHandler {
 /// from here — `errorCaught` runs on an event-loop thread outside the test's task, so under the
 /// concurrent test execution our CI uses the issue would misattribute. Tests assert on the recorded
 /// errors from their own task instead.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 private final class ErrorRecordingHandler: ChannelInboundHandler {
     typealias InboundIn = Any
 
@@ -995,7 +995,7 @@ private final class ErrorRecordingHandler: ChannelInboundHandler {
 
 /// Opens a unidirectional stream when a datagram arrives, from inside `channelRead`, and writes
 /// `request` on it.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 private final class StreamOpeningDatagramHandler: ChannelInboundHandler {
     typealias InboundIn = ByteBuffer
 

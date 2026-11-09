@@ -45,7 +45,7 @@ extension NIOCore.ByteBuffer {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 private enum ConnectionConstants {
     /// The RFC gives a minimum number of connection IDs that implementations should support.
     /// Exception: Connections with zero-length connection IDs should not advertise additional ones.
@@ -67,7 +67,7 @@ private enum ConnectionConstants {
 }
 
 /// An address the connection sets on its event loop and its channels read from any thread.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 final class SendableAddress: Sendable {
     private let address: Mutex<SocketAddress>
 
@@ -87,7 +87,7 @@ final class SendableAddress: Sendable {
 
 /// A wrapper around the objects and state we need to keep track of and access a QUIC connection in SwiftNetwork.
 /// Holds the references required to access QUIC connections and streams
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable> {
     /// Owns the QUIC instance. The linkages below reach it through the storage.
     private let protocolStorage: BaseNetworkProtocolStorage
@@ -1183,7 +1183,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
 
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
 
     /// Schedule a connection close due to a given error. This can be called from callbacks
@@ -1389,7 +1389,7 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
 }
 
 // Callbacks coming from QUICChannelStreamHandler and QUICChannelNewFlowHandler
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
 
     /// Handle disconnected events from SwiftNetwork for individual stream handlers.
@@ -1571,7 +1571,7 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
 }
 
 // Callbacks coming from QUICChannelNewFlowHandler
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
 
     /// Marks a new server stream as newly connected and adds the new stream to streamInputHandlers
@@ -1595,7 +1595,7 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
     /// Request retiring a connection ID that we are using to address our peer.
     func requestRetirementOfConnectionID(_ connectionID: QUICConnectionID) throws {
@@ -1630,7 +1630,7 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
     #if DEBUG  // For testing purposes only
     /// Injects a connection ID into the retired set. Useful for testing because it allows
@@ -1756,7 +1756,7 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
 // * Path events reach the connection through the new-flow handler while SwiftNetwork holds the event context, so
 //   telling SwiftNetwork about a dropped path from there enters as the path with the context it holds.
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
     /// Returns the path for packets from `remoteAddress`.
     ///
@@ -1986,7 +1986,7 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
 }
 
 // Callbacks coming from QUICConnectionPath
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
     private func handleOutboundDatagramsQueued(on path: QUICConnectionPath<Consumer>, count: Int) {
         self.log("finalizeOutputFrames: \(count)")
@@ -2013,7 +2013,7 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension Frame {
     /// The frames returned by Swift QUIC were created in `QUICConnectionPath.getDatagramsToSend`. They all hold
     /// the same buffer type and a pointer to allocated memory. Any other buffer type is unexpected and a logic error. To take ownership
@@ -2058,7 +2058,7 @@ extension Frame {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
     /// A view over the connection for the `QUICChannelNewFlowHandler`.
     struct NewFlowView {
@@ -2140,7 +2140,7 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
 
 // MARK: - Queued callouts
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension SwiftNetworkQUICConnection: QUICConnectionCalloutTarget where Consumer: ~Copyable {
     /// Hands a call queued while the event context was held to the channel.
     func run(_ callout: QUICConnectionCallout) {
@@ -2162,7 +2162,7 @@ extension SwiftNetworkQUICConnection: QUICConnectionCalloutTarget where Consumer
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension SwiftNetworkQUICConnection: QUICConnectionProtocol where Consumer: ~Copyable {
     func close(isApplicationClose: Bool, errorCode: Int64, reason: String) -> Bool {
         let action = self.close(

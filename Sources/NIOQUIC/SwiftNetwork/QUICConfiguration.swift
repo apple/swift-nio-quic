@@ -54,7 +54,7 @@ public enum KeyExchangeGroup: UInt16, Sendable {
     case x25519 = 0x001D
     case x25519MLKEM768 = 0x11EC
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     internal var swiftTLSKeyExchangeGroup: SwiftTLS.SwiftTLSOptions.KeyExchangeGroup {
         switch self {
         case .secp256:
@@ -129,7 +129,7 @@ public struct QLogConfiguration: Sendable {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 public struct QUICConfiguration: Sendable {
 
     // MARK: - Shared options

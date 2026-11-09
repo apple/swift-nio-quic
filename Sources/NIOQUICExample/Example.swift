@@ -20,7 +20,7 @@ import NIOQUIC
 import NIOQUICHelpers
 
 @main
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 struct Example {
     static func main() async throws {
         let logger = Logger(label: "quic.example")

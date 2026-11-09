@@ -15,7 +15,7 @@
 import NIOCore
 @_spi(ProtocolProvider) @_spi(Essentials) import SwiftNetwork
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 final class EventLoopBackedScheduler: NetworkContext.Scheduler {
     struct Wakeup {
         /// When the task is due.

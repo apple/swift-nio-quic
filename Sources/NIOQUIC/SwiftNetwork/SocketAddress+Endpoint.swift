@@ -23,7 +23,7 @@ import Musl
 import Darwin
 #endif
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension SocketAddress {
     /// Returns an `Endpoint` created from this `SocketAddress`.
     func toEndpoint() -> Endpoint {

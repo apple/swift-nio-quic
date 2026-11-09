@@ -21,7 +21,7 @@ import Testing
 struct GSOCoalescerTests {
     private static let peer = try! SocketAddress(ipAddress: "127.0.0.1", port: 4433)
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     private func makeCoalescer(
         maxSegments: Int = 64,
         maxCoalescedSize: Int = 65535
@@ -39,7 +39,7 @@ struct GSOCoalescerTests {
     /// Frames are allocated with `allocation` bytes (defaulting to the packet size) to mimic the
     /// QUIC stack, which allocates a full-MSS frame and then collapses it down to the length of
     /// the packet it actually wrote.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     private func frames(_ sizes: [Int], allocation: Int? = nil) -> FrameArray {
         var array = FrameArray(capacity: sizes.count)
         for (index, size) in sizes.enumerated() {
@@ -60,7 +60,7 @@ struct GSOCoalescerTests {
     }
 
     /// Drains the coalescer into a list of (segment size, total size) pairs.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     private func drain(_ coalescer: inout GSOCoalescer) -> [(segmentSize: Int?, totalSize: Int)] {
         var runs: [(segmentSize: Int?, totalSize: Int)] = []
         while let envelope = coalescer.next() {
@@ -72,7 +72,7 @@ struct GSOCoalescerTests {
         return runs
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func emptyCoalescer() {
         var coalescer = self.makeCoalescer()
@@ -81,7 +81,7 @@ struct GSOCoalescerTests {
         #expect(coalescer.next() == nil)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func emptyBatchIsIgnored() {
         var coalescer = self.makeCoalescer()
@@ -91,7 +91,7 @@ struct GSOCoalescerTests {
         #expect(coalescer.next() == nil)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func singleDatagramIsNotSegmented() {
         var coalescer = self.makeCoalescer()
@@ -104,7 +104,7 @@ struct GSOCoalescerTests {
         #expect(isEmpty)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func equalSizedDatagramsCoalesce() {
         var coalescer = self.makeCoalescer()
@@ -117,7 +117,7 @@ struct GSOCoalescerTests {
 
     /// The QUIC stack hands back frames allocated at full MSS regardless of how many bytes the
     /// packet written into them uses: the run must be sized by the packet, not the allocation.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func packetLengthNotAllocationSizeDrivesTheRun() {
         var coalescer = self.makeCoalescer()
@@ -128,7 +128,7 @@ struct GSOCoalescerTests {
         #expect(runs.map { $0.totalSize } == [3300, 1200])
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func shortDatagramEndsRun() {
         var coalescer = self.makeCoalescer()
@@ -139,7 +139,7 @@ struct GSOCoalescerTests {
         #expect(runs.map { $0.totalSize } == [2900, 1200])
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func largerDatagramStartsNewRun() {
         var coalescer = self.makeCoalescer()
@@ -150,7 +150,7 @@ struct GSOCoalescerTests {
         #expect(runs.map { $0.totalSize } == [1600, 2400])
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func runIsCappedAtMaxSegments() {
         var coalescer = self.makeCoalescer()
@@ -162,7 +162,7 @@ struct GSOCoalescerTests {
         #expect(runs.map { $0.totalSize } == [maxSegments * 100, 300])
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func runIsCappedAtMaxCoalescedSize() throws {
         let maxSegments = 64
@@ -186,7 +186,7 @@ struct GSOCoalescerTests {
         #expect(runs[1].segmentSize == 1400)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func oversizedDatagramIsEmittedAlone() {
         var coalescer = self.makeCoalescer()
@@ -198,7 +198,7 @@ struct GSOCoalescerTests {
         #expect(runs.map { $0.totalSize } == [oversized, 1200])
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func maxSegmentsOfOneNeverCoalesces() {
         var coalescer = GSOCoalescer(
@@ -213,7 +213,7 @@ struct GSOCoalescerTests {
         #expect(runs.map { $0.totalSize } == [1200, 1200, 1200])
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func coalescedRunPreservesBytesInOrder() {
         var coalescer = self.makeCoalescer()

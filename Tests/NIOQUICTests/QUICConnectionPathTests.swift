@@ -26,7 +26,7 @@ struct QUICConnectionPathTests {
     ///
     /// The path registers as it's created. Nothing above it releases it, as a QUIC instance would,
     /// so this unregisters it afterwards: its event manager traps on deinit otherwise.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     private func withPath(
         isValidated: Bool = false,
         remoteAddress: SocketAddress = try! SocketAddress(ipAddress: "127.0.0.1", port: 9000),
@@ -56,7 +56,7 @@ struct QUICConnectionPathTests {
         try body(path)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func freshPathHasNoQueuedData() {
         self.withPath { path in
@@ -65,7 +65,7 @@ struct QUICConnectionPathTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func enqueueInboundPacketTracksQueue() {
         self.withPath { path in
@@ -74,7 +74,7 @@ struct QUICConnectionPathTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func drainInboundFramesEmptiesQueue() {
         self.withPath { path in
@@ -89,7 +89,7 @@ struct QUICConnectionPathTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func drainInboundFramesReturnsNilWhenEmpty() {
         self.withPath { path in
@@ -100,7 +100,7 @@ struct QUICConnectionPathTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func idlePathDropsOutboundDatagrams() throws {
         try self.withPath { path in
@@ -109,7 +109,7 @@ struct QUICConnectionPathTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func detachedPathDropsInboundPackets() {
         self.withPath { path in
@@ -120,7 +120,7 @@ struct QUICConnectionPathTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func unconnectedServerDropsPacketsFromNewAddresses() throws {
         let connection = try self.makeConnection(role: .server, isConnected: false)
@@ -130,7 +130,7 @@ struct QUICConnectionPathTests {
         #expect(connection._forTesting_getOtherPaths().isEmpty)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func clientDropsPacketsFromNewAddresses() throws {
         let connection = try self.makeConnection(role: .client)
@@ -139,7 +139,7 @@ struct QUICConnectionPathTests {
         #expect(connection._forTesting_getOtherPaths().isEmpty)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func clientMatchesIPv4MappedAddressToItsPath() throws {
         let connection = try self.makeConnection(
@@ -158,7 +158,7 @@ struct QUICConnectionPathTests {
         #expect(connection.receivePacket(AddressedEnvelope(remoteAddress: otherPort, data: Self.payload)) == 0)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func serverSetsUpPathForNewAddress() throws {
         let connection = try self.makeConnection(role: .server)
@@ -169,7 +169,7 @@ struct QUICConnectionPathTests {
         #expect(connection._forTesting_getOtherPaths()[0].hasQueuedInboundPackets)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func addressesDifferingOnlyInIPv6FlowInfoShareAPath() throws {
         let connection = try self.makeConnection(role: .server)
@@ -182,7 +182,7 @@ struct QUICConnectionPathTests {
         #expect(connection._forTesting_getOtherPaths().first === path)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func newPathIsNotPromotedBeforeValidation() throws {
         let connection = try self.makeConnection(role: .server)
@@ -194,7 +194,7 @@ struct QUICConnectionPathTests {
         #expect(connection._forTesting_getOtherPaths().map(\.remoteAddress) == [Self.newAddress])
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test func pathValidatedKeepsActivePath() throws {
         let connection = try self.makeConnection(role: .server)
         connection.receivePacket(AddressedEnvelope(remoteAddress: Self.newAddress, data: Self.payload))
@@ -205,7 +205,7 @@ struct QUICConnectionPathTests {
         #expect(connection._forTesting_getOtherPaths().map(\.remoteAddress) == [Self.newAddress])
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test func pathCurrentPromotesPath() throws {
         let connection = try self.makeConnection(role: .server)
         connection.receivePacket(AddressedEnvelope(remoteAddress: Self.newAddress, data: Self.payload))
@@ -218,7 +218,7 @@ struct QUICConnectionPathTests {
         #expect(connection._forTesting_getOtherPaths().map(\.remoteAddress) == [Self.pathAddress])
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test func pathCurrentPromotesIPv4MappedPath() throws {
         // The IPv4-mapped addresses a dual-stack socket reports for an IPv4 peer.
         let pathAddress = try SocketAddress(ipAddress: "::ffff:192.0.2.1", port: 443)
@@ -233,7 +233,7 @@ struct QUICConnectionPathTests {
         #expect(connection._forTesting_getActivePath().remoteAddress == newAddress)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func pathUnreachableRemovesPath() throws {
         let connection = try self.makeConnection(role: .server)
@@ -252,7 +252,7 @@ struct QUICConnectionPathTests {
         #expect(isReleased)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func newAddressReplacesUnvalidatedPath() throws {
         let connection = try self.makeConnection(role: .server)
@@ -270,7 +270,7 @@ struct QUICConnectionPathTests {
         #expect(isReleased)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func closingTheConnectionReleasesItsPaths() throws {
         var firstPath: QUICConnectionPath<QUICStreamChannels>
@@ -290,7 +290,7 @@ struct QUICConnectionPathTests {
         #expect(isNewPathReleased)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func newAddressKeepsValidatedPaths() throws {
         let connection = try self.makeConnection(role: .server)
@@ -305,7 +305,7 @@ struct QUICConnectionPathTests {
         )
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test func pathUnreachableKeepsActivePath() throws {
         let connection = try self.makeConnection(role: .server)
         connection.receivePacket(AddressedEnvelope(remoteAddress: Self.newAddress, data: Self.payload))
@@ -317,7 +317,7 @@ struct QUICConnectionPathTests {
         #expect(connection._forTesting_getOtherPaths().map(\.remoteAddress) == [Self.newAddress])
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func lastPathSurvivesPathUnreachable() throws {
         let connection = try self.makeConnection(role: .server)
@@ -329,7 +329,7 @@ struct QUICConnectionPathTests {
         #expect(connection._forTesting_getActivePath().hasQueuedInboundPackets)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func swiftNetworkDetachingRemovesOnlyNonActivePaths() throws {
         let connection = try self.makeConnection(role: .server)
@@ -345,7 +345,7 @@ struct QUICConnectionPathTests {
         #expect(connection._forTesting_getOtherPaths().isEmpty)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func swiftNetworkDetachingFlushesQueuedPacketsBeforeRemovingPath() throws {
         let connection = try self.makeConnection(role: .server)
@@ -363,7 +363,7 @@ struct QUICConnectionPathTests {
         #expect(connection._forTesting_getOtherPaths().isEmpty)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func receivePacketsCompleteFeedsEveryPath() throws {
         let connection = try self.makeConnection(role: .server)
@@ -378,7 +378,7 @@ struct QUICConnectionPathTests {
         #expect(!connection._forTesting_getOtherPaths()[0].hasQueuedInboundPackets)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func drainPacketsToSendDrainsEveryPathActiveFirst() throws {
         let connection = try self.makeConnection(role: .server)
@@ -393,7 +393,7 @@ struct QUICConnectionPathTests {
         #expect(self.writtenAddresses(transport) == [Self.pathAddress, Self.newAddress])
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func connectionRemembersOnlyTheMostRecentRetiredConnectionIDs() throws {
         let connection = try self.makeConnection(role: .server)
@@ -408,7 +408,7 @@ struct QUICConnectionPathTests {
     }
 
     /// Every path `connection` tracks, the active one first.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     private func trackedPaths(
         _ connection: SwiftNetworkQUICConnection<QUICStreamChannels>
     ) -> [QUICConnectionPath<QUICStreamChannels>] {
@@ -442,7 +442,7 @@ struct QUICConnectionPathTests {
     }
 
     /// A connection whose only path leads to `pathAddress`.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     private func makeConnection(
         role: Role,
         isConnected: Bool = true,
@@ -494,7 +494,7 @@ struct QUICConnectionPathTests {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICConnectionPath where Consumer: ~Copyable {
     /// Gets datagrams to send and sends them back, the way the stack does: with the event context
     /// held, which this fabricates by entering as the path.

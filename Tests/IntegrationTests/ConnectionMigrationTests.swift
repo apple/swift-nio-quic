@@ -23,7 +23,7 @@ import Testing
 
 @Suite(.timeLimit(.minutes(1)))
 struct ConnectionMigrationTests {
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func clientContinuesConnectionFromNewAddress() async throws {
         try await Self.withConnectedPeers { peers in
@@ -39,7 +39,7 @@ struct ConnectionMigrationTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func clientMigratesToTwoNewAddresses() async throws {
         try await Self.withConnectedPeers { peers in
@@ -53,7 +53,7 @@ struct ConnectionMigrationTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test(.enabled { await Self.isDualStackAvailable() })
     func dualStackServerFollowsClientToTwoNewAddresses() async throws {
         try await Self.withConnectedPeers(serverHost: "::") { peers in
@@ -71,7 +71,7 @@ struct ConnectionMigrationTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func clientMigratesBackToItsFirstAddress() async throws {
         try await Self.withConnectedPeers { peers in
@@ -86,7 +86,7 @@ struct ConnectionMigrationTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test func clientCloseReachesServerAfterMigration() async throws {
         try await Self.withConnectedPeers { peers in
             let newSocket = try await peers.makeClientSocket()
@@ -99,7 +99,7 @@ struct ConnectionMigrationTests {
     }
 
     /// Anyone who sees the connection's traffic can send packets to it from any address.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test(arguments: [1, 2, 100])
     func serverIgnoresUnauthenticatedPacketsFromNewAddresses(addressCount: Int) async throws {
         try await Self.withConnectedPeers { peers in
@@ -121,7 +121,7 @@ struct ConnectionMigrationTests {
     }
 
     /// The unauthenticated packet must not interrupt .
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func serverCloseReachesClientAfterUnauthenticatedPacket() async throws {
         try await Self.withConnectedPeers { peers in
@@ -151,7 +151,7 @@ struct ConnectionMigrationTests {
     }
 
     /// Connects a client to a server bound to `serverHost`, runs `body`, and tears both down.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     private static func withConnectedPeers(
         serverHost: String = ConnectionMigrationTests.host,
         _ body: (ConnectedPeers) async throws -> Void
@@ -167,7 +167,7 @@ struct ConnectionMigrationTests {
     }
 
     /// A client connected to a server over loopback, after one successful request.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     private struct ConnectedPeers {
         var eventLoopGroup: MultiThreadedEventLoopGroup
         var serverChannel: any Channel
@@ -304,7 +304,7 @@ struct ConnectionMigrationTests {
     }
 
     /// Sends a request on a new stream and returns the full response.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     private static func request(on streamCreator: NIOQUIC.QUICStreamCreator) async throws -> ByteBuffer {
         let stream = try await streamCreator.createBidirectionalStream { initializer in
             initializer.channel.eventLoop.makeCompletedFuture {
@@ -333,7 +333,7 @@ struct ConnectionMigrationTests {
 /// Sits in front of the client's `QUICHandler` and simulates its socket rebinding to other ports: datagrams
 /// leave through `currentSocket`, or the client's own socket while it is `nil`. Datagrams arriving on any
 /// other socket are dropped because that address is gone.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 private final class AddressSwitchHandler: ChannelDuplexHandler {
     typealias InboundIn = AddressedEnvelope<ByteBuffer>
     typealias OutboundIn = AddressedEnvelope<ByteBuffer>
@@ -357,7 +357,7 @@ private final class AddressSwitchHandler: ChannelDuplexHandler {
 
 /// Installed on a new socket of the client. While the client uses that socket, feeds what arrives there into
 /// the client's pipeline just past the `AddressSwitchHandler`, so the client's `QUICHandler` receives it as before.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 private final class RelayHandler: ChannelInboundHandler {
     typealias InboundIn = AddressedEnvelope<ByteBuffer>
 
@@ -389,7 +389,7 @@ private final class RelayHandler: ChannelInboundHandler {
 
 /// Sits in the client's pipeline and remembers the last short-header packet the client sent, which
 /// carries the server's connection ID.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 private final class ShortHeaderRecorder: ChannelOutboundHandler {
     typealias OutboundIn = AddressedEnvelope<ByteBuffer>
 

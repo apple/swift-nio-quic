@@ -32,7 +32,7 @@ import Musl
 /// The `QUICChannelNewFlowHandler` registered with the SwiftNetwork `QUICConnection` as a new flow handler.
 /// This object deals with creating and linking the objects describing a new flow, it creates a new `QUICChannelStreamHandler`
 /// for each new flow, registers it and keeps track of it.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 final class QUICChannelNewFlowHandler<Consumer: QUICStreamConsumer & ~Copyable>: ExternalInboundStreamFlowLinkage {
 
     internal typealias LowerProtocol = BaseStreamListenerLinkage
@@ -316,10 +316,10 @@ final class QUICChannelNewFlowHandler<Consumer: QUICStreamConsumer & ~Copyable>:
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICChannelNewFlowHandler: ProtocolInstance where Consumer: ~Copyable {}
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICChannelNewFlowHandler where Consumer: ~Copyable {
     func handleNetworkProtocolEvent(
         event: SwiftNetwork.NetworkProtocolEvent,
@@ -416,7 +416,7 @@ extension QUICChannelNewFlowHandler where Consumer: ~Copyable {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICChannelNewFlowHandler where Consumer: ~Copyable {
     /// Attaches the connection's datagram flow.
     ///

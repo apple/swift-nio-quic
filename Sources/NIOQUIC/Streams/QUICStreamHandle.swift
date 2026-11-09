@@ -141,7 +141,7 @@ typealias UIntHalf = UInt16
 #error("Unsupported pointer size")
 #endif
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICStreamHandle {
     /// The index stored by SwiftNetwork for a given handle.
     @inlinable

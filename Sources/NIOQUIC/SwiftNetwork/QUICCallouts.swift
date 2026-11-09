@@ -40,7 +40,7 @@ import NIOQUICHelpers
 ///
 /// Consumer code that runs with the token held because NIOQUIC needs its result must not call
 /// into NIOQUIC: the connection ID and stateless reset token generators.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 final class QUICCallouts {
     private var queue: Deque<QUICCallout>
 
@@ -158,7 +158,7 @@ final class QUICCallouts {
 
 /// A call into NIO or consumer code queued while the event context is held, or a framework entry
 /// point that acquires the event context itself. See ``QUICCallouts``.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 enum QUICCallout {
     /// The stream channel became active: `channelRegistered`, then `channelActive`.
     case streamActive(QUICChannelStreamHandler)
@@ -219,7 +219,7 @@ enum QUICCallout {
 }
 
 /// A call into the connection channel. See ``QUICCallout/connection(_:_:)``.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 enum QUICConnectionCallout {
     /// The handshake completed. The peer accepts datagrams up to the given size, none if it's zero.
     case handshakeCompleted(peerMaxDatagramFrameSize: Int)
@@ -237,7 +237,7 @@ enum QUICConnectionCallout {
 
 /// The connection a ``QUICConnectionCallout`` runs on. `SwiftNetworkQUICConnection` is generic over
 /// its consumer, so the queue refers to it through this.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 protocol QUICConnectionCalloutTarget: AnyObject {
     func run(_ callout: QUICConnectionCallout)
 }

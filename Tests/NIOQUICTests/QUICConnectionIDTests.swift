@@ -16,7 +16,7 @@ import XCTest
 
 @testable import NIOQUIC
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 final class ConnectionIDTests: XCTestCase {
     func testEquatable() {
         let firstConnectionID = QUICConnectionID(

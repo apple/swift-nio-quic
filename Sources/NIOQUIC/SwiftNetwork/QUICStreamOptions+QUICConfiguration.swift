@@ -16,7 +16,7 @@ import Crypto
 @_spi(Essentials) @_spi(ProtocolProvider) import SwiftNetwork
 @_spi(SwiftTLSOptions) @_spi(SwiftTLSProtocol) import SwiftTLS
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICProtocol {
     static func options(
         from config: QUICConfiguration
@@ -56,7 +56,7 @@ extension QUICProtocol {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension TLSProtocol.Options {
     static func serverOptions(
         from config: QUICConfiguration,

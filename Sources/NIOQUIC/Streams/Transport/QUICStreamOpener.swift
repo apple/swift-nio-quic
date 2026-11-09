@@ -15,7 +15,7 @@
 @_spi(Essentials) @_spi(ProtocolProvider) import SwiftNetwork
 
 /// What a stream table needs to attach a locally-opened stream to the stack.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 struct QUICStreamOpener {
     /// The connection's stream listener.
     let listener: BaseStreamListenerLinkage

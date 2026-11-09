@@ -33,7 +33,7 @@ struct QUICStreamHandleTests {
         #expect(lhs != rhs)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func pirIndexRoundTrips() {
         let maxIndex = QUICStreamHandle.Index(UIntHalf.max)

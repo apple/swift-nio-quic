@@ -12,7 +12,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 protocol QUICConnectionIDRegistrar {
     /// Associate `newID` with the connection this registrar belongs to.
     ///
@@ -37,7 +37,7 @@ protocol QUICConnectionIDRegistrar {
     func generateID() -> QUICConnectionID
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICConnectionChannel where Consumer: ~Copyable {
     enum ConnectionIDRegistrar: QUICConnectionIDRegistrar {
         case live(QUICHandler<Consumer>.RegistrarView)

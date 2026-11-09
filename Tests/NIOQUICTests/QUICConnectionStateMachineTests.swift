@@ -29,7 +29,7 @@ import Musl
 import Darwin
 #endif
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 final class QUICConnectionStateMachineTests: XCTestCase {
 
     // MARK: - Initial State Tests
@@ -500,7 +500,7 @@ final class QUICConnectionStateMachineTests: XCTestCase {
 
 // MARK: - RFC 9000 §10.2 / §10.2.2: Immediate Close & Draining (Swift Testing)
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICConnectionStateMachine {
     /// Assert the connection state machine's key state flags.
     /// Uses local variables to work around `~Copyable` + `#expect` limitation.
@@ -531,7 +531,7 @@ extension QUICConnectionStateMachine {
 
 struct QUICConnectionImmediateCloseTests {
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Immediate close full lifecycle: connected → closing → closed")
     func immediateCloseFullLifecycle() {
         var sm = QUICConnectionStateMachine()
@@ -557,7 +557,7 @@ struct QUICConnectionImmediateCloseTests {
         sm.expectState(canProcessData: false, isDraining: false, isTerminating: true, isTerminal: true)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Immediate close rejects new streams")
     func immediateCloseRejectsNewStreams() {
         var sm = QUICConnectionStateMachine()
@@ -572,7 +572,7 @@ struct QUICConnectionImmediateCloseTests {
         sm.expectState(canProcessData: false, isDraining: false, isTerminating: true, canAcceptNewStreams: false)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Duplicate initiateClose from closing returns alreadyClosing")
     func duplicateInitiateCloseFromClosing() {
         var sm = QUICConnectionStateMachine()
@@ -597,7 +597,7 @@ struct QUICConnectionImmediateCloseTests {
     /// RFC 9000 §10.2.1: When we initiated close and the peer responds with its
     /// own CONNECTION_CLOSE, we go straight to closed (not draining, since we
     /// initiated).
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Closing completes to closed on peer response")
     func closingTransitionsToClosed() {
         var sm = QUICConnectionStateMachine()
@@ -620,7 +620,7 @@ struct QUICConnectionImmediateCloseTests {
 
 struct QUICConnectionDrainingStateTests {
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Draining state: canProcessData is false, no outbound actions")
     func drainingStateMustNotSendPackets() {
         var sm = QUICConnectionStateMachine()
@@ -641,7 +641,7 @@ struct QUICConnectionDrainingStateTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Draining completes to closed")
     func drainingCompletesToClosed() {
         var sm = QUICConnectionStateMachine()
@@ -658,7 +658,7 @@ struct QUICConnectionDrainingStateTests {
         sm.expectState(canProcessData: false, isDraining: false, isTerminating: true, isTerminal: true)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Draining with peer error captures connectionError")
     func drainingWithPeerErrorCapturesError() {
         var sm = QUICConnectionStateMachine()

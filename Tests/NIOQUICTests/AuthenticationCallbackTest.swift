@@ -23,7 +23,7 @@ import X509
 
 struct AuthenticationCallbackTest {
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Verify extended key usage allows server auth")
     func callbackCreationChecksExtendedKeyUsageIfAvailable() throws {
         let (rootCert, rootKey) = try makeCertificate(commonName: "test-root")
@@ -75,7 +75,7 @@ struct AuthenticationCallbackTest {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Test externally generated certificates")
     func callbackCreationWithExternallyGeneratedCertificates() throws {
         let certStr1 = """

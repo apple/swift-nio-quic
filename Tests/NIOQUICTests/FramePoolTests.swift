@@ -19,7 +19,7 @@ import Testing
 @testable import NIOQUIC
 
 struct FramePoolTests {
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     func makeFramePool(
         smallFrameSize: Int = 100,
         maxSmallFrames: Int = 16,
@@ -35,7 +35,7 @@ struct FramePoolTests {
     }
 
     @Test
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     func empty() {
         let pool = self.makeFramePool(smallFrameSize: 100, largeFrameSize: 200)
         #expect(pool.smallFrameCount == 0)
@@ -48,7 +48,7 @@ struct FramePoolTests {
     }
 
     @Test
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     func initPreconditions() async throws {
         #if os(Android)
         try Test.cancel("Exit tests cannot be run on Android yet")
@@ -89,7 +89,7 @@ struct FramePoolTests {
             (202, 202),
         ]
     )
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     func appropriateSizeFrameIsCreated(requestedSize: Int, expectedSize: Int) {
         let pool = self.makeFramePool(smallFrameSize: 100, largeFrameSize: 200)
 
@@ -99,7 +99,7 @@ struct FramePoolTests {
     }
 
     @Test
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     func returnedFrameGoesInRightBucket() {
         let pool = self.makeFramePool(smallFrameSize: 100, largeFrameSize: 200)
 
@@ -122,7 +122,7 @@ struct FramePoolTests {
     }
 
     @Test(arguments: [true, false])
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     func capacityIsRespected(small: Bool) {
         let size = small ? 100 : 200
         let pool = self.makeFramePool(
@@ -166,7 +166,7 @@ struct FramePoolTests {
     }
 
     @Test
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     func foreignFrameIsNotStored() {
         let pool = self.makeFramePool(smallFrameSize: 100, largeFrameSize: 200)
         // Right size, wrong backing type.

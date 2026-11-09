@@ -15,7 +15,7 @@
 import NIOCore
 @_spi(ProtocolProvider) import SwiftNetwork
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension UInt8 {
     /// RFC 9000 § 17.2: The most significant bit (0x80) of byte 0 (the first byte) is set to 1 for long headers.
     fileprivate var indicatesLongHeader: Bool {
@@ -29,7 +29,7 @@ extension UInt8 {
 }
 
 /// A QUIC packet's header.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 struct QUICPacketHeader: Hashable, Sendable {
 
     /// QUIC packet header version.
@@ -190,7 +190,7 @@ struct QUICPacketHeader: Hashable, Sendable {
     var token: [UInt8]
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension NIOCore.ByteBuffer {
 
     /// A method to parse a `QUICPacketHeader` from the `ByteBuffer`, mainly to parse the destinationConnectionID only for routing.

@@ -42,7 +42,7 @@ private enum LogLevel {
 
 /// `QUICChannelStreamHandler` is the bridge between SwiftNetwork and our code on the application-side;
 /// one `QUICChannelStreamHandler` exists for each QUIC stream.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 final class QUICChannelStreamHandler: ExternalInboundStreamLinkage, @unchecked Sendable {
 
     // MARK: Channel and ChannelCore conformanace
@@ -1238,10 +1238,10 @@ final class QUICChannelStreamHandler: ExternalInboundStreamLinkage, @unchecked S
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICChannelStreamHandler: ProtocolInstance {}
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICChannelStreamHandler {
     func handleNetworkProtocolEvent(
         event: SwiftNetwork.NetworkProtocolEvent,
@@ -1274,7 +1274,7 @@ extension QUICChannelStreamHandler {
 
 // MARK: - `Channel` and `ChannelCore` conformance
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICChannelStreamHandler: Channel, ChannelCore {
     var parent: (any Channel)? {
         self.connectionChannel
@@ -1675,7 +1675,7 @@ extension QUICChannelStreamHandler: Channel, ChannelCore {
 // Once the pipeline is closed, they fire nothing: a handler may close the channel from an earlier
 // call of the same batch, such as a `channelRead`.
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICChannelStreamHandler {
     /// Queues `promise`'s completion, if there is one.
     private func complete(
@@ -1752,7 +1752,7 @@ extension QUICChannelStreamHandler {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICChannelStreamHandler {
     /// Appends bytes directly into the NIO read buffer.
     ///
@@ -1763,7 +1763,7 @@ extension QUICChannelStreamHandler {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICConnectionError {
     init?(networkError error: NetworkError) {
         let errorCode: UInt64

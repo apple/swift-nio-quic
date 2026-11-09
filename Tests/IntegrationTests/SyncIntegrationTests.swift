@@ -24,7 +24,7 @@ import XCTest
 @testable import NIOQUIC
 
 /// Waits for incoming requests, ensure they match GET /foo, then responds with success. Refuses to do this more than once
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 final class TestServerHandler: ChannelInboundHandler {
     typealias InboundIn = ByteBuffer
     typealias InboundOut = ByteBuffer
@@ -60,7 +60,7 @@ final class TestServerHandler: ChannelInboundHandler {
 }
 
 /// Waits for the channel to be active, sends a request, awaits the response and asserts that it is as expected. Then closes the channel.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 final class TestClientHandler: ChannelInboundHandler {
     typealias InboundIn = ByteBuffer
     typealias InboundOut = ByteBuffer
@@ -124,7 +124,7 @@ final class TestClientHandler: ChannelInboundHandler {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 final class ConnectionIDSideChannel: Sendable {
     let connectionID: Mutex<QUICConnectionID?>
 
@@ -141,7 +141,7 @@ final class ConnectionIDSideChannel: Sendable {
 /// install this handler on the connection channel rather than on a stream. The closures run
 /// on the connection channel's event loop and receive the `ChannelHandlerContext` so they can
 /// fire follow-up connection ID request events on the same channel.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 final class ConnectionIDEventForwarder: ChannelInboundHandler {
     typealias InboundIn = ByteBuffer
     typealias InboundOut = ByteBuffer
@@ -170,7 +170,7 @@ final class ConnectionIDEventForwarder: ChannelInboundHandler {
 }
 
 /// Waits for incoming "GET /foo" requests and answer them. Shuts down when receiving "GET /bye".
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 final class TestConnectionIDCycleServerHandler: ChannelInboundHandler {
     typealias InboundIn = ByteBuffer
     typealias InboundOut = ByteBuffer
@@ -239,7 +239,7 @@ final class TestConnectionIDCycleServerHandler: ChannelInboundHandler {
 /// Shared state for the connection ID cycle test. Holds the connection ID the client
 /// announces and whether its retirement has been observed. Written by the connection-channel
 /// ``ConnectionIDEventForwarder`` and read by the stream handler.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 final class ConnectionIDCycleDriver: Sendable {
     let connectionIDForRoundtrip: QUICConnectionID
     private let done: NIOLockedValueBox<Bool>
@@ -268,7 +268,7 @@ final class ConnectionIDCycleDriver: Sendable {
 /// 2. The connection-channel forwarder observes its association and puts it in the side channel.
 /// 3. The server requests its retirement.
 /// 4. The connection-channel forwarder observes the retirement and marks the driver done.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 final class TestConnectionIDCycleClientHandler: ChannelInboundHandler {
     typealias InboundIn = ByteBuffer
     typealias InboundOut = ByteBuffer
@@ -350,7 +350,7 @@ final class TestConnectionIDCycleClientHandler: ChannelInboundHandler {
 }
 
 /// Server handler for the protocol violation test. Just responds to requests.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 final class TestProtocolViolationServerHandler: ChannelInboundHandler {
     typealias InboundIn = ByteBuffer
     typealias InboundOut = ByteBuffer
@@ -379,7 +379,7 @@ final class TestProtocolViolationServerHandler: ChannelInboundHandler {
 /// `handleAssociateConnectionID` runs on the client side (it's triggered by the local
 /// SwiftNetwork creating the SCID), so it finds the ID in `retiredSCIDs` and triggers
 /// the protocol violation close.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 final class TestProtocolViolationClientHandler: ChannelInboundHandler {
     typealias InboundIn = ByteBuffer
     typealias InboundOut = ByteBuffer
@@ -454,7 +454,7 @@ final class TestProtocolViolationClientHandler: ChannelInboundHandler {
 
 /// Server handler for the buffered connection ID deletion test. Responds to requests
 /// and shuts down on "GET /bye".
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 final class TestBufferedDeletionServerHandler: ChannelInboundHandler {
     typealias InboundIn = ByteBuffer
     typealias InboundOut = ByteBuffer
@@ -498,7 +498,7 @@ final class TestBufferedDeletionServerHandler: ChannelInboundHandler {
 /// roundtrips) and the connection-channel ``ConnectionIDEventForwarder`` (which reacts to CID
 /// association/retirement events). The lock decides the transition; the caller performs the side
 /// effect on the appropriate channel.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 final class BufferedDeletionDriver: Sendable {
     let scidA: QUICConnectionID
     let scidB: QUICConnectionID
@@ -554,7 +554,7 @@ final class BufferedDeletionDriver: Sendable {
 /// 1. Normal retirements fire `QUICSCIDRetiredEvent` immediately
 /// 2. Retiring the last SCID is buffered (no event fired)
 /// 3. Associating a new SCID triggers the deferred `QUICSCIDRetiredEvent`
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 final class TestBufferedDeletionClientHandler: ChannelInboundHandler {
     typealias InboundIn = ByteBuffer
     typealias InboundOut = ByteBuffer
@@ -652,7 +652,7 @@ final class TestBufferedDeletionClientHandler: ChannelInboundHandler {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 final class ErrorCatchingHandler: ChannelInboundHandler, Sendable {
     typealias InboundIn = Never
     typealias OutboundIn = Never
@@ -683,7 +683,7 @@ final class ErrorCatchingHandler: ChannelInboundHandler, Sendable {
 }
 
 /// Captures a `QUICStopSendingEvent` delivered as a user inbound event and succeeds a promise.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 final class StopSendingEventHandler: ChannelInboundHandler, Sendable {
     typealias InboundIn = ByteBuffer
 
@@ -702,7 +702,7 @@ final class StopSendingEventHandler: ChannelInboundHandler, Sendable {
 }
 
 /// Collects all read data into a shared buffer and succeeds a promise when data arrives.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 final class ReadCollectorHandler: ChannelInboundHandler, Sendable {
     typealias InboundIn = ByteBuffer
 
@@ -729,7 +729,7 @@ final class ReadCollectorHandler: ChannelInboundHandler, Sendable {
 }
 
 /// Handler to track when connection becomes active
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 final class ConnectionActiveHandler: ChannelInboundHandler {
     typealias InboundIn = Never
     let activePromise: EventLoopPromise<Void>
@@ -745,7 +745,7 @@ final class ConnectionActiveHandler: ChannelInboundHandler {
 }
 
 /// Opens a stream from `channelInactive`, and completes `streamOpened` with the outcome.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 final class StreamOpeningInactiveHandler: ChannelInboundHandler {
     typealias InboundIn = Never
 
@@ -766,7 +766,7 @@ final class StreamOpeningInactiveHandler: ChannelInboundHandler {
 }
 
 /// Waits for incoming requests, ensure they match GET /foo, then responds with success. Refuses to do this more than once
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 final class StreamingServerHandler: ChannelInboundHandler {
     typealias InboundIn = ByteBuffer
     typealias InboundOut = ByteBuffer
@@ -824,7 +824,7 @@ final class StreamingServerHandler: ChannelInboundHandler {
 }
 
 /// Waits for the channel to be active, sends a request, awaits the response and asserts that it is as expected. Then closes the channel.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 final class StreamingClientHandler: ChannelInboundHandler {
     typealias InboundIn = ByteBuffer
     typealias InboundOut = ByteBuffer
@@ -889,7 +889,7 @@ final class StreamingClientHandler: ChannelInboundHandler {
 }
 
 // These integration tests use the nio interfaces rather than async ones
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 final class SyncIntegrationTests: XCTestCase {
 
     func getChannelLoggers() -> (serverLogger: Logger, clientLogger: Logger) {

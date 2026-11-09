@@ -23,7 +23,7 @@ import Testing
 
 @testable import NIOQUIC
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 private func makeChannel(
     isServer: Bool = true,
     parent: EmbeddedChannel = EmbeddedChannel(),
@@ -64,7 +64,7 @@ private func makeChannel(
 
 /// A live connection driving a channel that routes through `registrar`, with `initializer` run on
 /// the channel.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 private func makeLiveConnection(
     registrar: RecordingRegistrar,
     initializer: (any Channel) -> EventLoopFuture<Void>
@@ -106,7 +106,7 @@ private func makeLiveConnection(
 }
 
 struct QUICConnectionChannelTests {
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func getAutoRead() throws {
         let channel = try makeChannel()
@@ -118,7 +118,7 @@ struct QUICConnectionChannelTests {
         #expect(autoReadSync)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func setAutoRead() throws {
         let channel = try makeChannel()
@@ -132,7 +132,7 @@ struct QUICConnectionChannelTests {
         #expect(autoReadSync)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func getUnsupportedOption() throws {
         let channel = try makeChannel()
@@ -146,7 +146,7 @@ struct QUICConnectionChannelTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func setUnsupportedOption() throws {
         let channel = try makeChannel()
@@ -160,7 +160,7 @@ struct QUICConnectionChannelTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func address() throws {
         let local = try SocketAddress(ipAddress: "127.0.0.1", port: 1234)
@@ -172,7 +172,7 @@ struct QUICConnectionChannelTests {
         #expect(channel.remoteAddress == remote)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func newChannel() throws {
         let channel = try makeChannel()
@@ -180,7 +180,7 @@ struct QUICConnectionChannelTests {
         #expect(channel.isWritable)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func closeViaChannelAPI() throws {
         let connection = RecordingConnection()
@@ -201,7 +201,7 @@ struct QUICConnectionChannelTests {
         try channel.closeFuture.wait()
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func closeConnectionEventClosesWithApplicationError() throws {
         let connection = RecordingConnection()
@@ -226,7 +226,7 @@ struct QUICConnectionChannelTests {
         try channel.closeFuture.wait()
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func unsupportedOutboundEventFails() throws {
         let channel = try makeChannel()
@@ -239,7 +239,7 @@ struct QUICConnectionChannelTests {
 
     struct ConnectionView {
         /// Records the SCID events `ConnectionView` fires into the channel's pipeline.
-        @available(anyAppleOS 26, *)
+        @available(anyAppleOS 27, *)
         final class SCIDEventRecorder: ChannelInboundHandler, Sendable {
             typealias InboundIn = Any
 
@@ -261,7 +261,7 @@ struct QUICConnectionChannelTests {
             }
         }
 
-        @available(anyAppleOS 26, *)
+        @available(anyAppleOS 27, *)
         @Test
         func associateAndRetire() throws {
             let registrar = RecordingRegistrar()
@@ -285,7 +285,7 @@ struct QUICConnectionChannelTests {
             #expect(recorder.events == [.associated(id1), .retired(id1)])
         }
 
-        @available(anyAppleOS 26, *)
+        @available(anyAppleOS 27, *)
         @Test
         func associateFailureIsNotReportedToThePipeline() throws {
             let registrar = RecordingRegistrar()
@@ -302,7 +302,7 @@ struct QUICConnectionChannelTests {
             #expect(recorder.events.isEmpty)
         }
 
-        @available(anyAppleOS 26, *)
+        @available(anyAppleOS 27, *)
         @Test
         func retireFailureIsNotReportedToThePipeline() throws {
             let registrar = RecordingRegistrar()
@@ -321,7 +321,7 @@ struct QUICConnectionChannelTests {
             #expect(recorder.events == [.associated(id)])
         }
 
-        @available(anyAppleOS 26, *)
+        @available(anyAppleOS 27, *)
         @Test
         func generate() throws {
             var generator = QUICConnectionID.RandomGenerator()
@@ -337,7 +337,7 @@ struct QUICConnectionChannelTests {
             #expect(view.generateID() == id)
         }
 
-        @available(anyAppleOS 26, *)
+        @available(anyAppleOS 27, *)
         @Test
         func drainOutbound() throws {
             let transport = RecordingTransport()
@@ -360,7 +360,7 @@ struct QUICConnectionChannelTests {
             #expect(transport.events.isEmpty)
         }
 
-        @available(anyAppleOS 26, *)
+        @available(anyAppleOS 27, *)
         @Test
         func spontaneousConnectionCloseWithError() throws {
             let connection = RecordingConnection()
@@ -387,7 +387,7 @@ struct QUICConnectionChannelTests {
             try channel.closeFuture.wait()
         }
 
-        @available(anyAppleOS 26, *)
+        @available(anyAppleOS 27, *)
         @Test
         func closeErrorIsFiredBeforeStreamsAreClosed() throws {
             let connection = RecordingConnection()
@@ -424,7 +424,7 @@ struct QUICConnectionChannelTests {
     // MARK: Transport View
 
     struct TransportView {
-        @available(anyAppleOS 26, *)
+        @available(anyAppleOS 27, *)
         @Test
         func initializeServerChannel() throws {
             let channel = try makeChannel()
@@ -442,7 +442,7 @@ struct QUICConnectionChannelTests {
             #expect(channel.isActive)
         }
 
-        @available(anyAppleOS 26, *)
+        @available(anyAppleOS 27, *)
         @Test
         func handshakePromiseSucceedsWhenHandshakeCompletes() throws {
             let channel = try makeChannel()
@@ -461,7 +461,7 @@ struct QUICConnectionChannelTests {
             try handshakePromise.futureResult.wait()
         }
 
-        @available(anyAppleOS 26, *)
+        @available(anyAppleOS 27, *)
         @Test
         func handshakePromiseFailsIfClosedBeforeHandshakeCompletes() throws {
             let channel = try makeChannel()
@@ -484,7 +484,7 @@ struct QUICConnectionChannelTests {
             }
         }
 
-        @available(anyAppleOS 26, *)
+        @available(anyAppleOS 27, *)
         @Test
         func handshakePromiseFailsIfClosedBeforeInitializerCompletes() throws {
             let channel = try makeChannel()
@@ -511,7 +511,7 @@ struct QUICConnectionChannelTests {
             initializerPromise.succeed()
         }
 
-        @available(anyAppleOS 26, *)
+        @available(anyAppleOS 27, *)
         @Test
         func initializeClientChannel() throws {
             let channel = try makeChannel(isServer: false)
@@ -529,7 +529,7 @@ struct QUICConnectionChannelTests {
             #expect(channel.isActive)
         }
 
-        @available(anyAppleOS 26, *)
+        @available(anyAppleOS 27, *)
         @Test
         func initializeClientChannelCloseDuringInit() throws {
             let channel = try makeChannel(isServer: false)
@@ -549,7 +549,7 @@ struct QUICConnectionChannelTests {
             #expect(!channel.isActive)
         }
 
-        @available(anyAppleOS 26, *)
+        @available(anyAppleOS 27, *)
         @Test
         func initializeTwiceFails() throws {
             let channel = try makeChannel()
@@ -566,7 +566,7 @@ struct QUICConnectionChannelTests {
             }
         }
 
-        @available(anyAppleOS 26, *)
+        @available(anyAppleOS 27, *)
         @Test
         func parentChannelRead() throws {
             let connection = RecordingConnection()
@@ -598,7 +598,7 @@ struct QUICConnectionChannelTests {
             #expect(transport.events.popFirst() == .flushed)
         }
 
-        @available(anyAppleOS 26, *)
+        @available(anyAppleOS 27, *)
         @Test
         func parentChannelInactive() throws {
             let connection = RecordingConnection()
@@ -624,7 +624,7 @@ struct QUICConnectionChannelTests {
             #expect(transport.events.isEmpty)
         }
 
-        @available(anyAppleOS 26, *)
+        @available(anyAppleOS 27, *)
         @Test
         func parentChannelWritability() throws {
             final class WritabilityRecorder: ChannelInboundHandler, Sendable {
@@ -658,7 +658,7 @@ struct QUICConnectionChannelTests {
             #expect(recorder.changes == [false, true, false])
         }
 
-        @available(anyAppleOS 26, *)
+        @available(anyAppleOS 27, *)
         @Test
         func parentChannelUserInboundEvents() throws {
             enum TestEvent: Hashable, Sendable { case one, two, three }
@@ -692,7 +692,7 @@ struct QUICConnectionChannelTests {
             #expect(recorder.events == [.one, .two, .three])
         }
 
-        @available(anyAppleOS 26, *)
+        @available(anyAppleOS 27, *)
         @Test
         func shutdownGracefullyClosesConnection() throws {
             let connection = RecordingConnection()
@@ -718,7 +718,7 @@ struct QUICConnectionChannelTests {
             try channel.closeFuture.wait()
         }
 
-        @available(anyAppleOS 26, *)
+        @available(anyAppleOS 27, *)
         @Test
         func forceCloseFiresInactiveImmediately() throws {
             let connection = RecordingConnection()
@@ -740,7 +740,7 @@ struct QUICConnectionChannelTests {
             try channel.closeFuture.wait()
         }
 
-        @available(anyAppleOS 26, *)
+        @available(anyAppleOS 27, *)
         @Test
         func forceCloseWhenAlreadyClosedIsNoOp() throws {
             let recorder = LifecycleRecorder()
@@ -760,7 +760,7 @@ struct QUICConnectionChannelTests {
             #expect(recorder.inactiveCount == 1)
         }
 
-        @available(anyAppleOS 26, *)
+        @available(anyAppleOS 27, *)
         @Test
         func shutdownWhenAlreadyClosedCompletesPromise() throws {
             let channel = try makeChannel()
@@ -778,7 +778,7 @@ struct QUICConnectionChannelTests {
             try promise.futureResult.wait()
         }
 
-        @available(anyAppleOS 26, *)
+        @available(anyAppleOS 27, *)
         @Test
         func forceCloseWhileInactiveDeferredDoesNotDoubleFire() throws {
             let connection = RecordingConnection()
@@ -810,7 +810,7 @@ struct QUICConnectionChannelTests {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 final class LifecycleRecorder: ChannelInboundHandler, Sendable {
     typealias InboundIn = Any
 
@@ -858,7 +858,7 @@ final class RecordingTransport: QUICTransport {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 final class RecordingRegistrar: QUICConnectionIDRegistrar {
     enum Event: Hashable {
         case associated(QUICConnectionID)
@@ -896,7 +896,7 @@ final class RecordingRegistrar: QUICConnectionIDRegistrar {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 final class RecordingConnection: QUICConnectionProtocol {
     let localAddress: SocketAddress
     let remoteAddress: SendableAddress
@@ -977,7 +977,7 @@ final class RecordingConnection: QUICConnectionProtocol {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 struct NoOpConnection: QUICConnectionProtocol {
     let localAddress: SocketAddress
     let remoteAddress: SendableAddress
@@ -1029,7 +1029,7 @@ extension SocketAddress {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICConnectionChannel<QUICStreamChannels> {
     fileprivate var embeddedEventLoop: EmbeddedEventLoop {
         self.eventLoop as! EmbeddedEventLoop

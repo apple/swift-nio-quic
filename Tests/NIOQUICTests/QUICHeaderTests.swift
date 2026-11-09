@@ -18,7 +18,7 @@ import Testing
 @testable import NIOQUIC
 
 final class HeaderIDTests {
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test(
         "short header"
     )
@@ -42,7 +42,7 @@ final class HeaderIDTests {
         try #require(header?.destinationConnectionID == connectionID)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test(
         "version negotiation"
     )
@@ -66,7 +66,7 @@ final class HeaderIDTests {
         try #require(header?.sourceConnectionID == connectionID)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test(
         "initial",
         arguments: [1]  // SwiftNetwork only supports QUIC version 1
@@ -99,7 +99,7 @@ final class HeaderIDTests {
         try #require(header?.token == [])
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test(
         "zeroRTT",
         arguments: [1]  // SwiftNetwork only supports QUIC version 1
@@ -124,7 +124,7 @@ final class HeaderIDTests {
         try #require(header?.sourceConnectionID == connectionID)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test(
         "handshake",
         arguments: [1]  // SwiftNetwork only supports QUIC version 1
@@ -149,7 +149,7 @@ final class HeaderIDTests {
         try #require(header?.sourceConnectionID == connectionID)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test(
         "retry",
         arguments: [1]  // SwiftNetwork only supports QUIC version 1
@@ -181,7 +181,7 @@ final class HeaderIDTests {
         try #require(header?.token == token)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test(
         "dcid"
     )
@@ -210,7 +210,7 @@ final class HeaderIDTests {
 
     // MARK: - Zero-length connection ID tests (RFC 9000 Section 5.1)
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test(
         "initial with zero-length SCID",
         arguments: [1]  // SwiftNetwork only supports QUIC version 1
@@ -248,7 +248,7 @@ final class HeaderIDTests {
         try #require(header?.token == [])
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test(
         "initial with zero-length DCID and SCID",
         arguments: [1]  // SwiftNetwork only supports QUIC version 1
@@ -278,7 +278,7 @@ final class HeaderIDTests {
         #expect(parsedDCID == parsedSCID)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test(
         "short header with zero-length DCID"
     )
@@ -301,7 +301,7 @@ final class HeaderIDTests {
 
     // MARK: - Undersized datagrams
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test(
         "short header too small to contain the destination connection ID"
     )
@@ -323,7 +323,7 @@ final class HeaderIDTests {
         #expect(header == nil)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test(
         "long header too small to contain the destination connection ID"
     )
@@ -348,7 +348,7 @@ final class HeaderIDTests {
         #expect(header == nil)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test(
         "long header too small to contain the source connection ID"
     )

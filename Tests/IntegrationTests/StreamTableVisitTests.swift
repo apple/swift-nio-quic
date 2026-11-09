@@ -21,7 +21,7 @@ import Testing
 
 @Suite(.timeLimit(.minutes(5)))
 struct StreamTableVisitTests {
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     struct SkipFirstDrainConsumer: QUICStreamConsumer {
         typealias StreamState = ByteBuffer
 
@@ -52,7 +52,7 @@ struct StreamTableVisitTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func unpulledStreamIsPresentedAgainWithItsEvents() async throws {
         let recording = StreamRecording()
@@ -92,7 +92,7 @@ struct StreamTableVisitTests {
         #expect(failures.withLockedValue { $0 }.isEmpty)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func finishHandsBackTheStateAndInvalidatesTheHandle() async throws {
         let statePromise = makePromise(of: (ByteBuffer, QUICStreamHandle).self, timeout: .seconds(5))
@@ -144,7 +144,7 @@ struct StreamTableVisitTests {
         #expect(failures.withLockedValue { $0 }.isEmpty)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func streamCanBeOpenedFromInsideAVisit() async throws {
         let recording = StreamRecording()
@@ -176,7 +176,7 @@ struct StreamTableVisitTests {
         #expect(failures.withLockedValue { $0 }.isEmpty)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func writingFromOffTheEventLoopReachesThePeer() async throws {
         let recording = StreamRecording()

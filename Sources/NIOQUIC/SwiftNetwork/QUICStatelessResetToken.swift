@@ -17,7 +17,7 @@
 /// A QUIC stateless reset token (RFC 9000 § 10.3.2).
 ///
 /// A token has exactly 16 bytes. This wraps the respective SwiftNetwork type.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 public struct QUICStatelessResetToken: Equatable, Sendable, CustomStringConvertible {
 
     // Wrapped type from SwiftNetwork.

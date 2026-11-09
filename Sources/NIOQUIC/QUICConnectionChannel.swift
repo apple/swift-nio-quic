@@ -20,7 +20,7 @@ import Synchronization
 import struct NIOConcurrencyHelpers.NIOLockedValueBox
 
 /// A channel for a QUIC connection.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 final class QUICConnectionChannel<Consumer: QUICStreamConsumer & ~Copyable>: @unchecked Sendable {
     // @unchecked because of the IUO ChannelPipeline, which is never mutated after `init`.
     // The `ChannelPipeline` breaks the retain cycle between it and this channel.
@@ -178,7 +178,7 @@ final class QUICConnectionChannel<Consumer: QUICStreamConsumer & ~Copyable>: @un
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 enum QUICInboundStreamInitializer {
     /// Hand new streams to a multiplexer continuation. Used by the typed-output
     /// `QUICConnection<Output>` path.
@@ -189,7 +189,7 @@ enum QUICInboundStreamInitializer {
 
 // MARK: Channel conformance
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICConnectionChannel: Channel where Consumer: ~Copyable {
     var closeFuture: EventLoopFuture<Void> {
         self.closePromise.futureResult
@@ -286,7 +286,7 @@ extension QUICConnectionChannel: Channel where Consumer: ~Copyable {
 
 // MARK: ChannelCore conformance
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICConnectionChannel: ChannelCore where Consumer: ~Copyable {
     func localAddress0() throws -> SocketAddress {
         self.eventLoop.assertInEventLoop()
@@ -395,7 +395,7 @@ extension QUICConnectionChannel: ChannelCore where Consumer: ~Copyable {
 
 // MARK: - Connection view
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICConnectionChannel where Consumer: ~Copyable {
     /// A view of the channel used by the underlying connection.
     ///
@@ -420,11 +420,11 @@ extension QUICConnectionChannel where Consumer: ~Copyable {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 @available(*, unavailable)
 extension QUICConnectionChannel.ConnectionView: Sendable where Consumer: ~Copyable {}
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICConnectionChannel.ConnectionView where Consumer: ~Copyable {
     /// The connection associated a new ID with itself, update the routing table so that the new
     /// ID is routed to this connection.
@@ -523,7 +523,7 @@ extension QUICConnectionChannel.ConnectionView where Consumer: ~Copyable {
 
 // MARK: - Transport view
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICConnectionChannel where Consumer: ~Copyable {
     /// A view of the channel used by the transport (i.e. UDP channel).
     struct TransportView {
@@ -540,15 +540,15 @@ extension QUICConnectionChannel where Consumer: ~Copyable {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 @available(*, unavailable)
 extension QUICConnectionChannel.TransportView: Sendable where Consumer: ~Copyable {}
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICConnectionChannel.TransportView: QUICConnectionRegistryView
 where Consumer: ~Copyable {}
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICConnectionChannel.TransportView where Consumer: ~Copyable {
     /// Configure the pipeline, then complete `promise`.
     ///
@@ -652,7 +652,7 @@ extension QUICConnectionChannel.TransportView where Consumer: ~Copyable {
 
 // MARK: - Close & inactive
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICConnectionChannel where Consumer: ~Copyable {
     private func _connectionActivated(peerMaxDatagramFrameSize: Int) {
         self.eventLoop.assertInEventLoop()
@@ -886,7 +886,7 @@ extension QUICConnectionChannel where Consumer: ~Copyable {
 
 // MARK: - Parent channel events
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICConnectionChannel where Consumer: ~Copyable {
     func setConsumer(_ consumer: consuming Consumer) {
         self.eventLoop.assertInEventLoop()
@@ -906,7 +906,7 @@ extension QUICConnectionChannel where Consumer: ~Copyable {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICConnectionChannel where Consumer: ~Copyable {
     fileprivate func drainStreamTable() {
         self.eventLoop.assertInEventLoop()
@@ -1038,7 +1038,7 @@ extension QUICConnectionChannel where Consumer: ~Copyable {
 
 // MARK: - Outbound streams
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICConnectionChannel where Consumer: ~Copyable {
     fileprivate func _createOutboundStream(
         type: QUICStreamType,
@@ -1103,7 +1103,7 @@ extension QUICConnectionChannel where Consumer: ~Copyable {
 
 // MARK: - Streams
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICConnectionChannel where Consumer: ~Copyable {
     func setInboundStreamInitializer(_ initializer: QUICInboundStreamInitializer) {
         self.eventLoop.assertInEventLoop()
@@ -1159,7 +1159,7 @@ extension QUICConnectionChannel where Consumer: ~Copyable {
 
 // MARK: - Datagrams
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICConnectionChannel where Consumer: ~Copyable {
     /// Writes a datagram, applying the current negotiation state.
     func _writeDatagram(_ datagram: ByteBuffer, promise: EventLoopPromise<Void>?) {

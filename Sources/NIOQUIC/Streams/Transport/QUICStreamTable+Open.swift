@@ -15,7 +15,7 @@
 import NIOQUICHelpers
 @_spi(Essentials) @_spi(ProtocolProvider) import SwiftNetwork
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICStreamTable where Consumer: ~Copyable {
     /// Opens a stream, attaching it to the stack and connecting it.
     ///

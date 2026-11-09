@@ -16,7 +16,7 @@ public import DequeModule
 public import NIOQUICHelpers
 @_spi(Essentials) @_spi(ProtocolProvider) import SwiftNetwork
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 @usableFromInline
 final class QUICStreamTable<Consumer: QUICStreamConsumer & ~Copyable> {
     /// The transport state for each stream.
@@ -160,7 +160,7 @@ final class QUICStreamTable<Consumer: QUICStreamConsumer & ~Copyable> {
 
 // MARK: - Bookkeeping
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICStreamTable where Consumer: ~Copyable {
     /// Marks the stream for the given handle as ready, enqueueing it if it isn't already enqueued.
     @inlinable
@@ -349,7 +349,7 @@ extension QUICStreamTable where Consumer: ~Copyable {
 
 // MARK: - Stack events
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICStreamTable where Consumer: ~Copyable {
     /// The stack assigned the stream its ID.
     func streamConnected(_ handle: QUICStreamHandle, in eventContext: inout NetworkContext.EventContext) {
@@ -411,7 +411,7 @@ extension QUICStreamTable where Consumer: ~Copyable {
 
 // MARK: - Draining
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICStreamTable where Consumer: ~Copyable {
     /// Hand each ready stream to the consumer.
     ///
@@ -554,7 +554,7 @@ extension QUICStreamTable where Consumer: ~Copyable {
 
 // MARK: - Slot teardown
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICStreamTable where Consumer: ~Copyable {
     /// Closes and vacates a slot, without a visit.
     ///
@@ -670,7 +670,7 @@ extension QUICStreamTable where Consumer: ~Copyable {
 
 // MARK: - Event context
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICStreamTable where Consumer: ~Copyable {
     /// Runs `body` with the connection's event context, entering the stack as the table's anchor.
     ///
@@ -694,7 +694,7 @@ extension QUICStreamTable where Consumer: ~Copyable {
 
 /// `QUICStream`'s operations that reach the stack. Each acquires the event context only while it
 /// needs the stack: `read` for each pull from it, the others for the whole call.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICStreamTable where Consumer: ~Copyable {
     /// Reads from the stream `transport` belongs to.
     ///
@@ -748,7 +748,7 @@ extension QUICStreamTable where Consumer: ~Copyable {
 
 /// A slot's event manager, moved out of the slot to be unregistered: see
 /// `QUICStreamTable.unregisterEventManager(of:in:)`.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 private struct SlotRegistration: ProtocolInstance, ~Copyable {
     let context: NetworkContext
     var identifier: InstanceIdentifier

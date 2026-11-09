@@ -16,7 +16,7 @@ public import Logging
 public import NIOCore
 import X509
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 private enum MultiplexerContinuation<Consumer: QUICStreamConsumer & ~Copyable> {
     case connectionMultiplexerContinuation(
         any ConnectionMultiplexerContinuation<QUICConnectionChannel<Consumer>>
@@ -71,7 +71,7 @@ private enum MultiplexerContinuation<Consumer: QUICStreamConsumer & ~Copyable> {
 /// }.get()
 /// ```
 ///
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
     private enum State {
         case accepting
@@ -406,7 +406,7 @@ extension QUICHandler: Sendable where Consumer: ~Copyable {}
 ///
 /// Streams are surfaced as child channels rather than to a ``QUICStreamConsumer``, so these
 /// entry points are only available when the handler's consumer is ``QUICStreamChannels``.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICHandler where Consumer == QUICStreamChannels {
     /// Creates a new ``QUICHandler`` and a ``QUICHandler/ConnectionMultiplexer``.
     ///
@@ -622,7 +622,7 @@ extension QUICHandler where Consumer == QUICStreamChannels {
 }
 
 /// The ``QUICStreamConsumer`` based stream API.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICHandler where Consumer: ~Copyable {
     /// Initialises a new ``QUICHandler`` whose streams are serviced by a consumer.
     ///
@@ -705,7 +705,7 @@ extension QUICHandler where Consumer: ~Copyable {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
     public typealias InboundIn = AddressedEnvelope<ByteBuffer>
     public typealias OutboundOut = AddressedEnvelope<ByteBuffer>
@@ -1105,7 +1105,7 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 public struct QUICHandlerHandle: Sendable {
     private let _shutdownGracefully: NIOLoopBound<(NIODeadline) -> EventLoopFuture<Void>>
 
@@ -1131,14 +1131,14 @@ public struct QUICHandlerHandle: Sendable {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICHandler where Consumer: ~Copyable {
     public func makeHandle() -> QUICHandlerHandle {
         QUICHandlerHandle(wrapping: self, eventLoop: self.eventLoop)
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICHandler where Consumer: ~Copyable {
     internal func writeDatagram(
         _ envelope: AddressedEnvelope<ByteBuffer>,
@@ -1177,7 +1177,7 @@ extension QUICHandler where Consumer: ~Copyable {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICHandler where Consumer: ~Copyable {
     struct ChildView: QUICTransport {
         private let handler: QUICHandler
@@ -1204,11 +1204,11 @@ extension QUICHandler where Consumer: ~Copyable {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 @available(*, unavailable)
 extension QUICHandler.ChildView: Sendable where Consumer: ~Copyable {}
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICHandler where Consumer: ~Copyable {
     struct RegistrarView: QUICConnectionIDRegistrar {
         private let handler: QUICHandler
@@ -1234,11 +1234,11 @@ extension QUICHandler where Consumer: ~Copyable {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 @available(*, unavailable)
 extension QUICHandler.RegistrarView: Sendable where Consumer: ~Copyable {}
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICHandler where Consumer: ~Copyable {
     private func makeQUICConnectionChannel(
         quicConnection: SwiftNetworkQUICConnection<Consumer>,
@@ -1287,7 +1287,7 @@ struct ConnectionHandle: Hashable, Sendable {
 }
 
 /// Create a connection admission control for the given connection limits.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 private func makeConnectionAdmissionController(
     for connectionLimits: QUICConnectionLimits,
     logger: Logger,

@@ -27,7 +27,7 @@ struct SocketAddress_EndpointTests {
     // Packets are matched to paths by `addressEndpointType`, SwiftNetwork's events by the `Endpoint` a path was
     // attached with: both have to agree. SwiftNetwork names an IPv4-mapped address by its IPv4 address, but not the
     // other IPv6 addresses that embed one.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test(arguments: [
         testIPv4Address, "192.0.2.17", testIPv6Address, "2001:db8::1:2", "::ffff:192.0.2.17", "::192.0.2.1",
         "64:ff9b::192.0.2.1", "ffff::ffff:192.0.2.1", "::1:0:ffff:192.0.2.1",
@@ -37,7 +37,7 @@ struct SocketAddress_EndpointTests {
         #expect(address.addressEndpointType == address.toAddressEndpoint().type)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test(
         "Convert a IPv4 SocketAddress to an Endpoint"
     )
@@ -59,7 +59,7 @@ struct SocketAddress_EndpointTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test(
         "Convert a IPv6 SocketAddress to an Endpoint"
     )
@@ -81,7 +81,7 @@ struct SocketAddress_EndpointTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test(
         "Convert a Unix domain SocketAddress to an Endpoint",
         .disabled("Requirement: Implement conversion to address type")

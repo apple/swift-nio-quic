@@ -17,7 +17,7 @@
 
 /// Groups an ordered burst of outbound datagrams for one peer into runs which can be sent to the
 /// kernel as a single UDP Generic Segmentation Offload write.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 struct GSOCoalescer: ~Copyable {
     /// The maximum number of segments to coalesce.
     var maxSegments: Int

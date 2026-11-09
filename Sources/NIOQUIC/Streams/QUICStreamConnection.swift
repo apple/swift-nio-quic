@@ -19,7 +19,7 @@ public import NIOCore
 /// Use this to reach the connection's streams out-of-band, rather than in a visit. Inside a visit,
 /// use ``QUICStreamVisit/streams`` instead. Open outbound streams with
 /// ``QUICStreams/open(_:state:)``.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 public struct QUICStreamConnection<Consumer: QUICStreamConsumer & ~Copyable>: @unchecked Sendable {
     // @unchecked because all methods hop to the right event loop.
 
@@ -66,7 +66,7 @@ public struct QUICStreamConnection<Consumer: QUICStreamConsumer & ~Copyable>: @u
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICStreamConnection where Consumer: ~Copyable {
     /// A view over the connection which is isolated to its concurrency domain.
     public struct Isolated {
@@ -97,6 +97,6 @@ extension QUICStreamConnection where Consumer: ~Copyable {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 @available(*, unavailable)
 extension QUICStreamConnection.Isolated: Sendable where Consumer: ~Copyable {}

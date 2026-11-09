@@ -27,7 +27,7 @@ enum TestingMode {
     case testing(eventLoop: NIOAsyncTestingEventLoop)
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 func makeClientAndServerPair(
     testMode: TestingMode = .network(
         eventLoopGroup: MultiThreadedEventLoopGroup.singleton,
@@ -91,7 +91,7 @@ func makeClientAndServerPair(
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 func makeMockClientAndServerPair(
     testingEventLoop: NIOAsyncTestingEventLoop,
     publicKeyPath: String,
@@ -184,7 +184,7 @@ func makeMockClientAndServerPair(
     )
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 func makeNetworkClientAndServerPair(
     eventLoopGroup: any EventLoopGroup,
     host: String,
@@ -236,7 +236,7 @@ func makeNetworkClientAndServerPair(
     )
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 private func setUpClientConnectionMultiplexer(
     eventLoopGroup: any EventLoopGroup,
     host: String,
@@ -291,7 +291,7 @@ private func setUpClientConnectionMultiplexer(
     return (channel, multiplexer)
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 private func setUpServerChannelAndConnectionMultiplexer(
     eventLoopGroup: any EventLoopGroup,
     host: String,

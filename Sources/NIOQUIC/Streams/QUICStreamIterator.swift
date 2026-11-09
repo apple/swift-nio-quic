@@ -19,7 +19,7 @@ import NIOQUICHelpers
 /// Pulling a stream from the iterator with ``next()`` means its events are considered consumed and
 /// won't be presented again. If a stream _isn't_ pulled from the iterator then it (and its events)
 /// will be included in the next visit.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 public struct QUICStreamIterator<Consumer: QUICStreamConsumer & ~Copyable>: ~Copyable, ~Escapable {
     /// The handle and events that the last call to `next()` returned.
     @usableFromInline
@@ -96,6 +96,6 @@ public struct QUICStreamIterator<Consumer: QUICStreamConsumer & ~Copyable>: ~Cop
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 @available(*, unavailable)
 extension QUICStreamIterator: Sendable where Consumer: ~Copyable {}
