@@ -1447,7 +1447,7 @@ struct SwiftNetworkStreamHandleTests {
     @available(anyAppleOS 26, *)
     @Test("init(linkage:) is attached")
     func initWithLinkageIsAttached() {
-        let handle = SwiftNetworkStreamHandle(linkage: OutboundStreamLinkage(reference: .init()))
+        let handle = SwiftNetworkStreamHandle(linkage: BaseOutboundStreamLinkage())
 
         let isAttached = handle.isAttached
         #expect(isAttached)

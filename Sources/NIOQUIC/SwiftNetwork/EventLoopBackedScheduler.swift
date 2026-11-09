@@ -53,6 +53,9 @@ final class EventLoopBackedScheduler: NetworkContext.Scheduler {
 
     private var wakeups: [TimerReference: Wakeup] = [:]
     private let eventLoop: any EventLoop
+    /// The connection's queued callouts. The stack acquires the event context itself only inside the
+    /// tasks it schedules here, so they run after each one.
+    private let callouts: QUICCallouts
 
     var now: NetworkClock.Instant {
         .zero + .nanoseconds(self.eventLoop.now.uptimeNanoseconds)
@@ -63,8 +66,9 @@ final class EventLoopBackedScheduler: NetworkContext.Scheduler {
         self.now
     }
 
-    internal init(eventLoop: any EventLoop) {
+    internal init(eventLoop: any EventLoop, callouts: QUICCallouts) {
         self.eventLoop = eventLoop
+        self.callouts = callouts
     }
 
     private struct UnsafeTransfer<Wrapped>: @unchecked Sendable {
@@ -75,11 +79,13 @@ final class EventLoopBackedScheduler: NetworkContext.Scheduler {
     }
 
     func runImmediate(_ task: @escaping (() -> Void)) {
+        let callouts = self.callouts
+        let stackTask = { callouts.runStackTask(task) }
         if self.eventLoop.inEventLoop {
-            self.eventLoop.assumeIsolatedUnsafeUnchecked().execute(task)
+            self.eventLoop.assumeIsolatedUnsafeUnchecked().execute(stackTask)
         } else {
             // Remove once this has landed: https://github.com/apple/swift-network-evolution/pull/36
-            let transfer = UnsafeTransfer(task)
+            let transfer = UnsafeTransfer(stackTask)
             self.eventLoop.execute {
                 let value = transfer.wrappedValue
                 value()
@@ -168,7 +174,7 @@ final class EventLoopBackedScheduler: NetworkContext.Scheduler {
         } else {
             // Deadline has been passed: run the task.
             let (_, wakeup) = self.wakeups.remove(at: index)
-            wakeup.task()
+            self.callouts.runStackTask(wakeup.task)
         }
     }
 

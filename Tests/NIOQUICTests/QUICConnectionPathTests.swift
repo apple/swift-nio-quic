@@ -23,6 +23,9 @@ import Testing
 
 struct QUICConnectionPathTests {
     /// Runs `body` with a new path.
+    ///
+    /// The path registers as it's created. Nothing above it releases it, as a QUIC instance would,
+    /// so this unregisters it afterwards: its event manager traps on deinit otherwise.
     @available(anyAppleOS 26, *)
     private func withPath(
         isValidated: Bool = false,
@@ -30,9 +33,10 @@ struct QUICConnectionPathTests {
         _ body: (QUICConnectionPath<QUICStreamChannels>) throws -> Void
     ) rethrows {
         let eventLoop = EmbeddedEventLoop()
+        let callouts = QUICCallouts()
         let context = NetworkContext(
             identifier: "test-context",
-            externalScheduler: EventLoopBackedScheduler(eventLoop: eventLoop)
+            externalScheduler: EventLoopBackedScheduler(eventLoop: eventLoop, callouts: callouts)
         )
         let path = QUICConnectionPath<QUICStreamChannels>(
             role: .server,
@@ -44,6 +48,11 @@ struct QUICConnectionPathTests {
             bufferPoolCapacity: 8,
             logger: Logger(label: "test")
         )
+        defer {
+            callouts.enter(as: path) { eventContext in
+                path.teardown(in: &eventContext)
+            }
+        }
         try body(path)
     }
 
@@ -499,19 +508,25 @@ struct QUICConnectionPathTests {
 
 @available(anyAppleOS 26, *)
 extension QUICConnectionPath where Consumer: ~Copyable {
-    /// Gets datagrams to send and sends them back, the way the stack does.
+    /// Gets datagrams to send and sends them back, the way the stack does: with the event context
+    /// held, which this fabricates by entering as the path.
     fileprivate func sendDatagramsFromStack(maximumDatagramCount: Int, minimumDatagramSize: Int) throws {
-        if let datagrams = try self.getDatagramsToSend(
-            .init(),
-            maximumDatagramCount: maximumDatagramCount,
-            minimumDatagramSize: minimumDatagramSize
-        ) {
-            try self.sendDatagrams(.init(), datagrams: datagrams)
+        try self.fromExternal { eventContext throws(NetworkError) in
+            if let datagrams = try self.getDatagramsToSend(
+                maximumDatagramCount: maximumDatagramCount,
+                minimumDatagramSize: minimumDatagramSize,
+                for: InstanceIdentifier(),
+                in: &eventContext
+            ) {
+                try self.sendDatagrams(datagrams, from: InstanceIdentifier(), in: &eventContext)
+            }
         }
     }
 
-    /// Detaches the path the way the stack does.
+    /// Detaches the path the way the stack does, with the event context held.
     fileprivate func detachFromStack() throws {
-        try self.detach(.init())
+        try self.fromExternal { eventContext throws(NetworkError) in
+            try self.detach(for: InstanceIdentifier(), in: &eventContext)
+        }
     }
 }

@@ -13,6 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 import NIOCore
+@_spi(Essentials) import SwiftNetwork
 
 /// The datagram transport interface `SwiftNetworkQUICConnection` writes to and reads from.
 ///
@@ -35,10 +36,10 @@ protocol QUICDatagramProtocol<Connection> {
     func write(datagram: ByteBuffer) -> Bool
 
     /// Sends any datagrams buffered since the last `flush()`.
-    func flush()
+    func flush(in eventContext: inout NetworkContext.EventContext)
 
     /// Detaches the underlying flow and clears the current reader.
-    func close()
+    func close(in eventContext: inout NetworkContext.EventContext)
 
     /// Sets the connection which receives datagrams and errors from this transport.
     func setReader(connection: Connection)
@@ -66,21 +67,21 @@ extension SwiftNetworkQUICConnection.DatagramTransport: QUICDatagramProtocol whe
         }
     }
 
-    func flush() {
+    func flush(in eventContext: inout NetworkContext.EventContext) {
         switch self {
         case .live(let transport):
-            transport.flush()
+            transport.flush(in: &eventContext)
         case .test(let transport):
-            transport.flush()
+            transport.flush(in: &eventContext)
         }
     }
 
-    func close() {
+    func close(in eventContext: inout NetworkContext.EventContext) {
         switch self {
         case .live(let transport):
-            transport.close()
+            transport.close(in: &eventContext)
         case .test(let transport):
-            transport.close()
+            transport.close(in: &eventContext)
         }
     }
 

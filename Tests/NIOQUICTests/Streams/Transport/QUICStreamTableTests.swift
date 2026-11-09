@@ -13,11 +13,12 @@
 //===----------------------------------------------------------------------===//
 
 import NIOCore
+import NIOEmbedded
 import NIOQUICHelpers
 @_spi(Essentials) @_spi(ProtocolProvider) import SwiftNetwork
 import Testing
 
-@testable import NIOQUIC
+@_spi(Essentials) @_spi(ProtocolProvider) @testable import NIOQUIC
 
 @available(anyAppleOS 26, *)
 private struct TestConsumer: QUICStreamConsumer {
@@ -121,6 +122,7 @@ struct QUICStreamTableTests {
     @Test
     func insertWithIDIsIndexedByID() {
         let table = Self.makeTable()
+        defer { table.retireAnchor() }
         let handle = table.insertSlot(id: 4, state: 1)
         #expect(table.handle(forID: 4) == handle)
         #expect(table.count == 1)
@@ -130,6 +132,7 @@ struct QUICStreamTableTests {
     @Test
     func insertWithoutIDIsNotIndexedUntilAssigned() {
         let table = Self.makeTable()
+        defer { table.retireAnchor() }
         let handle = table.insertSlot(id: nil, state: 1)
         #expect(table.handle(forID: 4) == nil)
 
@@ -144,6 +147,7 @@ struct QUICStreamTableTests {
     @Test
     func idLookupFailsOnceTheSlotIsVacated() {
         let table = Self.makeTable()
+        defer { table.retireAnchor() }
         let handle = table.insertSlot(id: 4, state: 1)
         table.vacateSlot(handle)
         #expect(table.handle(forID: 4) == nil)
@@ -154,6 +158,7 @@ struct QUICStreamTableTests {
     @Test
     func assignIDToVacatedSlotIsIgnored() {
         let table = Self.makeTable()
+        defer { table.retireAnchor() }
         let handle = table.insertSlot(id: nil, state: 1)
         table.vacateSlot(handle)
         table.assignID(4, to: handle)
@@ -166,6 +171,7 @@ struct QUICStreamTableTests {
     @Test
     func eventsForARecycledSlotAreDroppedForTheStaleHandle() {
         let table = Self.makeTable()
+        defer { table.retireAnchor() }
         let stale = table.insertSlot(id: nil, state: 1)
         table.vacateSlot(stale)
 
@@ -185,6 +191,7 @@ struct QUICStreamTableTests {
     @Test
     func repeatedMarkReadyEnqueuesOnceAndUnionsEvents() {
         let table = Self.makeTable()
+        defer { table.retireAnchor() }
         let handle = table.insertSlot(id: nil, state: 1)
 
         table.markReady(handle: handle, events: .readable)
@@ -198,6 +205,7 @@ struct QUICStreamTableTests {
     @Test
     func markReadyWithNoEventsDoesNotEnqueue() {
         let table = Self.makeTable()
+        defer { table.retireAnchor() }
         let handle = table.insertSlot(id: nil, state: 1)
         table.markReady(handle: handle, events: [])
         #expect(!table.hasPendingWork)
@@ -207,6 +215,7 @@ struct QUICStreamTableTests {
     @Test
     func markReadyOnAVacatedSlotIsIgnored() {
         let table = Self.makeTable()
+        defer { table.retireAnchor() }
         let handle = table.insertSlot(id: nil, state: 1)
 
         table.vacateSlot(handle)
@@ -221,6 +230,7 @@ struct QUICStreamTableTests {
     @Test
     func slotWithoutStateIsNotVisited() {
         let table = Self.makeTable()
+        defer { table.retireAnchor() }
         let handle = table.insertSlot(id: nil, state: nil)
         #expect(table.withStream(handle: handle) { _, state in state } == nil)
     }
@@ -229,6 +239,7 @@ struct QUICStreamTableTests {
     @Test
     func stateMutationsPersistBetweenVisits() {
         let table = Self.makeTable()
+        defer { table.retireAnchor() }
         let handle = table.insertSlot(id: nil, state: 1)
         table.withStream(handle: handle) { _, state in state += 1 }
         #expect(table.withStream(handle: handle) { _, state in state } == 2)
@@ -258,6 +269,7 @@ struct QUICStreamTableTests {
     @Test
     func clearOutputPendingReportsOnce() {
         let table = Self.makeTable()
+        defer { table.retireAnchor() }
         table.markOutputPending()
 
         #expect(table.clearOutputPending())
@@ -268,6 +280,7 @@ struct QUICStreamTableTests {
     @Test
     func writeDoesNotMarkPendingOutput() {
         let table = Self.makeTable()
+        defer { table.retireAnchor() }
         let handle = table.insertSlot(id: nil, state: 1)
         table.withStream(handle: handle) { stream, _ in
             stream.write(ByteBuffer(string: "hello"))
@@ -281,6 +294,7 @@ struct QUICStreamTableTests {
     @Test
     func readyStreamIsVisitedOnceAndNotAgain() {
         let table = Self.makeRecordingTable()
+        defer { table.retireAnchor() }
         var consumer = RecordingConsumer()
         let handle = table.insertSlot(id: 0, state: nil)
         table.markReady(handle: handle, events: .readable)
@@ -298,6 +312,7 @@ struct QUICStreamTableTests {
     @Test
     func visitedOncePerTick() {
         let table = Self.makeRecordingTable()
+        defer { table.retireAnchor() }
         var consumer = RecordingConsumer()
         let handle = table.insertSlot(id: 0, state: nil)
         table.markReady(handle: handle, events: .readable)
@@ -312,6 +327,7 @@ struct QUICStreamTableTests {
     @Test
     func ignoredVisitIsOfferedAgain() {
         let table = Self.makeRecordingTable()
+        defer { table.retireAnchor() }
         var consumer = RecordingConsumer()
 
         // Don't pull any streams.
@@ -334,6 +350,7 @@ struct QUICStreamTableTests {
     @Test
     func lastVisitIsFinishedWhenTheConsumerNeverSeesNil() {
         let table = Self.makeRecordingTable()
+        defer { table.retireAnchor() }
         var consumer = RecordingConsumer(pullLimit: 1)
         let handle = table.insertSlot(id: 0, state: nil)
         table.markReady(handle: handle, events: .readable)
@@ -349,6 +366,7 @@ struct QUICStreamTableTests {
     @Test
     func makeStreamStateIsCalledOncePerStream() {
         let table = Self.makeRecordingTable()
+        defer { table.retireAnchor() }
         var consumer = RecordingConsumer()
         let handle = table.insertSlot(id: 0, state: nil)
 
@@ -365,6 +383,7 @@ struct QUICStreamTableTests {
     @Test
     func slotInsertedWithStateIsNotOfferedToTheConsumer() {
         let table = Self.makeRecordingTable()
+        defer { table.retireAnchor() }
         var consumer = RecordingConsumer()
         let handle = table.insertSlot(id: 0, state: RecordingConsumer.StreamState(madeAt: 42))
         table.markReady(handle: handle, events: [.opened, .readable])
@@ -378,6 +397,7 @@ struct QUICStreamTableTests {
     @Test
     func nestedAccessToAnotherStreamFromInsideAVisit() {
         let table = Self.makeRecordingTable()
+        defer { table.retireAnchor() }
         var consumer = RecordingConsumer()
         let first = table.insertSlot(id: 0, state: nil)
         let second = table.insertSlot(id: 4, state: nil)
@@ -409,6 +429,7 @@ struct QUICStreamTableTests {
     @Test
     func withStreamHandsOverTheStreamAndItsStateTogether() {
         let table = Self.makeRecordingTable()
+        defer { table.retireAnchor() }
         var consumer = RecordingConsumer()
         consumer.onVisit = { visit in
             var visit = consume visit
@@ -435,6 +456,7 @@ struct QUICStreamTableTests {
     @Test
     func closedIsDeliveredOnceAndRecyclesTheSlot() {
         let table = Self.makeRecordingTable()
+        defer { table.retireAnchor() }
         var consumer = RecordingConsumer()
         let handle = table.insertSlot(id: 0, state: nil)
 
@@ -507,6 +529,7 @@ struct QUICStreamTableTests {
     )
     func openRejectsAStreamTypeThisRoleCannotInitiate(role: Role, type: QUICStreamType) {
         let table = Self.makeRecordingTable(role: role)
+        defer { table.retireAnchor() }
 
         #expect(throws: QUICError.invalidStreamTypeForRole) {
             _ = try table.open(type, state: .init(madeAt: 1))
@@ -518,11 +541,27 @@ struct QUICStreamTableTests {
     @Test
     func openWithoutAConnectionBehindTheTableThrows() {
         let table = Self.makeRecordingTable(role: .client)
+        defer { table.retireAnchor() }
 
         #expect(throws: QUICError.invalidStreamState) {
             _ = try table.open(.clientInitiatedBidirectional, state: .init(madeAt: 1))
         }
         #expect(table.count == 0)
+    }
+
+    @available(anyAppleOS 26, *)
+    @Test
+    func openAfterCloseAllThrowsAndAddsNothing() {
+        let table = Self.makeRecordingTable(role: .client)
+        table.opener = .unreachable(context: table.context)
+        var consumer = RecordingConsumer()
+        table.closeAll(error: nil, disconnect: nil, into: &consumer)
+
+        #expect(throws: QUICError.invalidStreamState) {
+            _ = try table.open(.clientInitiatedBidirectional, state: .init(madeAt: 1))
+        }
+        #expect(table.count == 0)
+        #expect(table._pendingAttachIdentifier.isNone)
     }
 
     // MARK: - Stack events
@@ -534,18 +573,42 @@ struct QUICStreamTableTests {
         var consumer = RecordingConsumer()
         let handle = table.insertSlot(id: 0, state: nil)
 
-        let proxy = QUICStreamProxy(table: table, handle: handle)
-        proxy.handleOutboundRoomAvailableEvent(table.reference(for: handle))
+        // The stack resolves a stream's events by the identifier of its flow. There's no flow here,
+        // so key the stream's own registered identifier in its place.
+        let identifier = table.registerIdentifier(for: handle)
+        table._byFlowIdentifier[identifier] = handle
+        table.withEventContext { eventContext in
+            table.handleOutboundRoomAvailableEvent(for: identifier, in: &eventContext)
+        }
 
         table.drain(into: &consumer)
         #expect(consumer.sightings.count == 1)
         #expect(consumer.sightings[0].events == .writable)
+
+        // The slot registered with the stack, so it must be removed before the table is released.
+        table.closeAll(error: nil, disconnect: nil, into: &consumer)
     }
 }
 
 @available(anyAppleOS 26, *)
 extension QUICStreamTable {
+    /// Builds a table on an event-loop-backed context: acquiring the default scheduler's context
+    /// traps off its queue. Its anchor must be retired, or the table closed, before it's released.
     convenience init(role: Role) {
-        self.init(role: role, context: Parameters().context)
+        let callouts = QUICCallouts()
+        let context = NetworkContext(
+            identifier: "QUICStreamTableTests",
+            externalScheduler: EventLoopBackedScheduler(eventLoop: EmbeddedEventLoop(), callouts: callouts)
+        )
+        self.init(role: role, context: context, callouts: callouts)
+    }
+}
+
+@available(anyAppleOS 26, *)
+extension QUICStreamOpener {
+    /// An opener with no QUIC connection behind it, so that `open` gets past its opener check.
+    /// Attaching through it traps, so `open` must refuse before it gets here.
+    static func unreachable(context: NetworkContext) -> Self {
+        QUICStreamOpener(listener: BaseStreamListenerLinkage(), connection: InstanceIdentifier(), context: context)
     }
 }

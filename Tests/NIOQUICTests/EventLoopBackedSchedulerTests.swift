@@ -81,7 +81,7 @@ struct EventLoopBackedSchedulerTests {
     @available(anyAppleOS 26, *)
     @Test func timerFiresAtItsDeadline() {
         let loop = EmbeddedEventLoop()
-        let scheduler = EventLoopBackedScheduler(eventLoop: loop)
+        let scheduler = EventLoopBackedScheduler(eventLoop: loop, callouts: QUICCallouts())
         let fires = Fires()
         let reference = SwiftNetwork.TimerReference()
 
@@ -103,7 +103,7 @@ struct EventLoopBackedSchedulerTests {
     @available(anyAppleOS 26, *)
     @Test func rescheduleFurtherOutFiresAtTheNewDeadline() {
         let loop = EmbeddedEventLoop()
-        let scheduler = EventLoopBackedScheduler(eventLoop: loop)
+        let scheduler = EventLoopBackedScheduler(eventLoop: loop, callouts: QUICCallouts())
         let fires = Fires()
         let reference = SwiftNetwork.TimerReference()
 
@@ -123,7 +123,7 @@ struct EventLoopBackedSchedulerTests {
     @available(anyAppleOS 26, *)
     @Test func rescheduleEarlierFiresAtTheEarlierDeadline() {
         let loop = EmbeddedEventLoop()
-        let scheduler = EventLoopBackedScheduler(eventLoop: loop)
+        let scheduler = EventLoopBackedScheduler(eventLoop: loop, callouts: QUICCallouts())
         let fires = Fires()
         let reference = SwiftNetwork.TimerReference()
 
@@ -141,7 +141,7 @@ struct EventLoopBackedSchedulerTests {
     @available(anyAppleOS 26, *)
     @Test func unscheduledTimerNeverFires() {
         let loop = EmbeddedEventLoop()
-        let scheduler = EventLoopBackedScheduler(eventLoop: loop)
+        let scheduler = EventLoopBackedScheduler(eventLoop: loop, callouts: QUICCallouts())
         let fires = Fires()
         let reference = SwiftNetwork.TimerReference()
 
@@ -160,7 +160,7 @@ struct EventLoopBackedSchedulerTests {
     @available(anyAppleOS 26, *)
     @Test func unscheduleAfterPushingTheDeadlineOutNeverFires() {
         let loop = EmbeddedEventLoop()
-        let scheduler = EventLoopBackedScheduler(eventLoop: loop)
+        let scheduler = EventLoopBackedScheduler(eventLoop: loop, callouts: QUICCallouts())
         let fires = Fires()
         let reference = SwiftNetwork.TimerReference()
 
@@ -177,7 +177,7 @@ struct EventLoopBackedSchedulerTests {
     @available(anyAppleOS 26, *)
     @Test func taskWhichReschedulesItselfRunsAgain() {
         let loop = EmbeddedEventLoop()
-        let scheduler = EventLoopBackedScheduler(eventLoop: loop)
+        let scheduler = EventLoopBackedScheduler(eventLoop: loop, callouts: QUICCallouts())
         let fires = Fires()
         let reference = SwiftNetwork.TimerReference()
 
@@ -211,7 +211,7 @@ struct EventLoopBackedSchedulerTests {
     @available(anyAppleOS 26, *)
     @Test func timersAreIndependentPerReference() {
         let loop = EmbeddedEventLoop()
-        let scheduler = EventLoopBackedScheduler(eventLoop: loop)
+        let scheduler = EventLoopBackedScheduler(eventLoop: loop, callouts: QUICCallouts())
         let first = Fires()
         let second = Fires()
         let firstReference = SwiftNetwork.TimerReference()
@@ -236,7 +236,7 @@ struct EventLoopBackedSchedulerTests {
     @available(anyAppleOS 26, *)
     @Test func pushingTheDeadlineOutDoesNotArmTheLoopAgain() {
         let loop = CountingScheduler()
-        let scheduler = EventLoopBackedScheduler(eventLoop: loop)
+        let scheduler = EventLoopBackedScheduler(eventLoop: loop, callouts: QUICCallouts())
         let fires = Fires()
         let reference = SwiftNetwork.TimerReference()
 

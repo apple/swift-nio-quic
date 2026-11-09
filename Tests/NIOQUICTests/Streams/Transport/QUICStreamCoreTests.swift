@@ -15,11 +15,12 @@
 #if DEBUG  // These tests rely on debug only API.
 
 import NIOCore
+import NIOEmbedded
 import NIOQUICHelpers
 @_spi(Essentials) @_spi(ProtocolProvider) import SwiftNetwork
 import Testing
 
-@testable import NIOQUIC
+@_spi(Essentials) @_spi(ProtocolProvider) @testable import NIOQUIC
 
 @available(anyAppleOS 26, *)
 extension QUICStreamCore {
@@ -39,12 +40,40 @@ extension QUICStreamCore {
 
     fileprivate mutating func expectFlushRefused(fin: Bool) {
         do {
-            try self.flush(fin: fin)
+            try withTestEventContext { eventContext in try self.flush(fin: fin, in: &eventContext) }
             Issue.record("Expected flush to be refused")
         } catch {
             ()  // Refused, as expected.
         }
     }
+
+    /// Reads, acquiring an event context for each pull from the stack.
+    fileprivate mutating func read(
+        minContiguous: Int,
+        _ body: (_ span: borrowing RawSpan) -> Int
+    ) -> QUICStreamReadOutcome {
+        self.read(minContiguous: minContiguous, withEventContext: { pull in withTestEventContext(pull) }, body)
+    }
+
+    fileprivate mutating func close(error: NetworkError?) {
+        withTestEventContext { eventContext in self.close(error: error, in: &eventContext) }
+    }
+}
+
+/// Runs `body` with an event context, entering the stack as an anchor on a fresh event-loop-backed
+/// context. These cores never attach, so nothing reaches the stack through it.
+@available(anyAppleOS 26, *)
+private func withTestEventContext<R, E: Error>(
+    _ body: (inout NetworkContext.EventContext) throws(E) -> R
+) throws(E) -> R {
+    let callouts = QUICCallouts()
+    let context = NetworkContext(
+        identifier: "QUICStreamCoreTests",
+        externalScheduler: EventLoopBackedScheduler(eventLoop: EmbeddedEventLoop(), callouts: callouts)
+    )
+    let anchor = EventContextAnchor(context: context)
+    defer { anchor.retire(through: callouts) }
+    return try callouts.enter(as: anchor, body)
 }
 
 @available(anyAppleOS 26, *)

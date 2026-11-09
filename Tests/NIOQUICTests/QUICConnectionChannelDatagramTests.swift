@@ -17,6 +17,7 @@ import Logging
 import NIOConcurrencyHelpers
 import NIOCore
 import NIOEmbedded
+@_spi(Essentials) import SwiftNetwork
 import Synchronization
 import Testing
 
@@ -212,12 +213,30 @@ struct QUICConnectionChannelDatagramTests {
     // MARK: - Connection to transport
 
     @available(anyAppleOS 26, *)
-    @Test("The connection refuses datagram writes until a transport is attached")
-    func connectionWithoutTransportRefusesWrites() throws {
+    @Test("The connection accepts datagram writes from start, which attaches its transport")
+    func connectionAcceptsWritesFromStart() throws {
         try Self.withLiveConnection { connection, _, _ in
-            #expect(!connection.writeDatagram(ByteBuffer(string: "datagram")))
-            // Flushing without a transport is a no-op rather than a trap.
+            // The transport `start` attached buffers the write, although the handshake hasn't run.
+            #expect(connection.writeDatagram(ByteBuffer(string: "datagram")))
+            // Flushing before the flow is connected is a no-op rather than a trap.
             connection.flushDatagrams()
+        }
+    }
+
+    @available(anyAppleOS 26, *)
+    @Test("Installing a datagram transport closes the one it replaces")
+    func installingATransportClosesTheReplacedOne() throws {
+        try Self.withLiveConnection { connection, transport, _ in
+            guard case .live(let attached)? = connection._forTesting_getDatagramTransport() else {
+                Issue.record("Expected the transport `start` attached")
+                return
+            }
+            #expect(!attached.identifier.isNone)
+
+            connection.setDatagramTransport(.test(transport))
+
+            // Closing it detached its flow and unregistered it.
+            #expect(attached.identifier.isNone)
         }
     }
 
@@ -420,11 +439,11 @@ final class DatagramTestTransport: QUICDatagramProtocol {
         return true
     }
 
-    func flush() {
+    func flush(in eventContext: inout NetworkContext.EventContext) {
         self.flushCount += 1
     }
 
-    func close() {
+    func close(in eventContext: inout NetworkContext.EventContext) {
         self.closeCount += 1
         // Mirror the production transport: dropping the reader breaks the connection <-> transport
         // cycle.
@@ -435,14 +454,15 @@ final class DatagramTestTransport: QUICDatagramProtocol {
         self.reader = connection
     }
 
-    /// Test-only: simulate an inbound datagram arriving from the peer.
+    /// Test-only: simulate an inbound datagram arriving from the peer, as the production transport
+    /// hands it to the connection once the event context is released.
     func deliverInbound(_ datagram: ByteBuffer) {
-        self.reader?.read(datagram: datagram)
+        self.reader?.run(.datagramRead(datagram))
     }
 
     /// Test-only: simulate the transport reporting an error.
     func deliverError(_ error: any Error) {
-        self.reader?.error(error)
+        self.reader?.run(.datagramError(error))
     }
 }
 
