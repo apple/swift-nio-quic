@@ -12,9 +12,9 @@ jobs:
     name: Soundness
     uses: swiftlang/github-workflows/.github/workflows/soundness.yml@0.0.11
     with:
+      api_breakage_check_container_image: "swift:6.4"
       license_header_check_project_name: "SwiftNIO"
       docs_check_container_image: "swift:6.4"
-      api_breakage_check_enabled: false
       format_check_container_image: "swift:6.4"
 
   unit-tests:
