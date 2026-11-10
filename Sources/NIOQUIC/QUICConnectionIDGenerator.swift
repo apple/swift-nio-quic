@@ -12,7 +12,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICConnectionID {
 
     /// A type that generates QUIC connection IDs.
@@ -26,7 +26,7 @@ extension QUICConnectionID {
     /// - Warning: NIOQUIC may call a generator while SwiftNetwork is handling the
     /// connection's events, so a generator must not call back into NIOQUIC as a call
     /// that reaches SwiftNetwork traps.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     public protocol Generator: Sendable {
         /// The length of connection IDs produced by this generator (0-20).
         ///
@@ -55,7 +55,7 @@ extension QUICConnectionID {
     }
 
     /// Generates random connection IDs using a `RandomNumberGenerator`.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     public struct RandomGenerator: Generator {
         @usableFromInline
         var randomNumberGenerator: any RandomNumberGenerator & Sendable

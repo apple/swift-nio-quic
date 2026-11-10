@@ -25,7 +25,7 @@ import XCTest
 
 @testable import NIOQUIC
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 final class QUICProtocolStackTests: XCTestCase {
 
     private func buildClientChannel(
@@ -1489,7 +1489,7 @@ final class QUICProtocolStackTests: XCTestCase {
 }
 
 /// Records when it is removed from its `ChannelPipeline`.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 private final class HandlerRemovalRecorder: ChannelInboundHandler, Sendable {
     typealias InboundIn = ByteBuffer
 

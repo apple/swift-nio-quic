@@ -42,7 +42,7 @@ private enum LogLevel {
 
 /// `QUICChannelStreamHandler` is the bridge between SwiftNetwork and our code on the application-side;
 /// one `QUICChannelStreamHandler` exists for each QUIC stream.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 final class QUICChannelStreamHandler: ExternalInboundStreamLinkage, @unchecked Sendable {
 
     // MARK: Channel and ChannelCore conformanace
@@ -374,10 +374,6 @@ final class QUICChannelStreamHandler: ExternalInboundStreamLinkage, @unchecked S
             )
 
         case .surfaceReset(let code):
-            #if compiler(<6.4)
-            self.surfaceReceivedReset(applicationErrorCode: code, in: &eventContext)
-            #else
-
             if self.pipelineStateMachine.isInitialized {
                 self.log("surfaceReset", metadata: ["applicationErrorCode": "\(code)"])
                 // yields buffered data and then surfaces the reset
@@ -387,7 +383,6 @@ final class QUICChannelStreamHandler: ExternalInboundStreamLinkage, @unchecked S
                 // will surface it via `completeRead()`.
                 self.log("surfaceReset: pipeline not yet initialized, will surface on next read")
             }
-            #endif
 
         case .doNothing(let reason):
             switch reason {
@@ -398,27 +393,6 @@ final class QUICChannelStreamHandler: ExternalInboundStreamLinkage, @unchecked S
             }
         }
     }
-
-    #if compiler(<6.4)
-    // Extracted from `handleReceivedResetStream` to keep that method's SIL
-    // small enough to avoid the same `CopyPropagation` `-O` crash on
-    // Swift 6.3.
-    @inline(never)
-    private func surfaceReceivedReset(
-        applicationErrorCode code: QUICApplicationErrorCode,
-        in eventContext: inout NetworkContext.EventContext
-    ) {
-        if self.pipelineStateMachine.isInitialized {
-            self.log("surfaceReset", metadata: ["applicationErrorCode": "\(code)"])
-            // yields buffered data and then surfaces the reset
-            self.streamRead(in: &eventContext)
-        } else {
-            // SM has captured the reset; the post-init `streamRead()`
-            // will surface it via `completeRead()`.
-            self.log("surfaceReset: pipeline not yet initialized, will surface on next read")
-        }
-    }
-    #endif
 
     // Event that signals that STOP_SENDING was received
     internal func handleOutboundAbortedEvent(
@@ -1238,10 +1212,10 @@ final class QUICChannelStreamHandler: ExternalInboundStreamLinkage, @unchecked S
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICChannelStreamHandler: ProtocolInstance {}
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICChannelStreamHandler {
     func handleNetworkProtocolEvent(
         event: SwiftNetwork.NetworkProtocolEvent,
@@ -1274,7 +1248,7 @@ extension QUICChannelStreamHandler {
 
 // MARK: - `Channel` and `ChannelCore` conformance
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICChannelStreamHandler: Channel, ChannelCore {
     var parent: (any Channel)? {
         self.connectionChannel
@@ -1675,7 +1649,7 @@ extension QUICChannelStreamHandler: Channel, ChannelCore {
 // Once the pipeline is closed, they fire nothing: a handler may close the channel from an earlier
 // call of the same batch, such as a `channelRead`.
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICChannelStreamHandler {
     /// Queues `promise`'s completion, if there is one.
     private func complete(
@@ -1752,7 +1726,7 @@ extension QUICChannelStreamHandler {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICChannelStreamHandler {
     /// Appends bytes directly into the NIO read buffer.
     ///
@@ -1763,7 +1737,7 @@ extension QUICChannelStreamHandler {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICConnectionError {
     init?(networkError error: NetworkError) {
         let errorCode: UInt64

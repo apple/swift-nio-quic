@@ -26,7 +26,7 @@ import Testing
 
 @Suite
 struct QUICChannelStreamHandlerTests {
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("autoRead can be configured on stream channel")
     func testConfigureAutoReadOnStreamChannel() throws {
         try Self.withServerStream { streamChannel in
@@ -49,7 +49,7 @@ struct QUICChannelStreamHandlerTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Calling read twice is idempotent and does not double-deliver")
     func callingReadTwiceIsIdempotent() throws {
         try Self.withServerStream { streamChannel in
@@ -75,7 +75,7 @@ struct QUICChannelStreamHandlerTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("read called before inbound data arrives", arguments: [true, false])
     func readCalledBeforeInboundDataArrives(autoRead: Bool) throws {
         try Self.withServerStream { streamChannel in
@@ -127,7 +127,7 @@ struct QUICChannelStreamHandlerTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("read called after inbound data arrives", arguments: [true, false])
     func readCalledAfterInboundDataArrives(autoRead: Bool) throws {
         try Self.withServerStream { streamChannel in
@@ -181,7 +181,7 @@ struct QUICChannelStreamHandlerTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Interleaved read requests and inbound data arrival", arguments: [true, false])
     func interleavedReadRequestsAndInboundDataArrival(autoRead: Bool) throws {
         try Self.withServerStream { streamChannel in
@@ -269,7 +269,7 @@ struct QUICChannelStreamHandlerTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("FIN-only packet fires channelReadComplete with no data")
     func finOnlyFiresChannelReadComplete() throws {
         try Self.withServerStream { streamChannel in
@@ -289,7 +289,7 @@ struct QUICChannelStreamHandlerTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Packet with FIN delivered to a pending read request")
     func finPacketDeliveredToPendingReadRequest() throws {
         try Self.withServerStream { streamChannel in
@@ -327,7 +327,7 @@ struct QUICChannelStreamHandlerTests {
 
     /// A flush with only empty buffers must not build frames it never sends; dropping an unfinalized
     /// `Frame` traps in its deinit.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Flushing an empty buffer does not trap")
     func flushingEmptyBufferDoesNotTrap() throws {
         try Self.withServerStream { streamChannel in
@@ -342,7 +342,7 @@ struct QUICChannelStreamHandlerTests {
 
     /// `handleDisconnectedEvent` can fire on an already-detached stream (e.g. connection-level close);
     /// we shouldn't leak the close promise.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("handleDisconnectedEvent still resolves closeFuture when linkage is already detached")
     func handleDisconnectedEventResolvesCloseFutureWhenLinkageAlreadyDetached() throws {
         try Self.withServerStream { streamChannel in
@@ -385,7 +385,7 @@ struct QUICChannelStreamHandlerTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("A disconnected event flips _isActive before its entry returns")
     func disconnectedEventFlipsIsActiveBeforeItsEntryReturns() throws {
         try Self.withServerStream { streamChannel in
@@ -414,7 +414,7 @@ struct QUICChannelStreamHandlerTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("A disconnect closes the stream with its error, unless it's an idle timeout", arguments: [true, false])
     func disconnectErrorReachesThePipelineUnlessItsAnIdleTimeout(idleTimeout: Bool) throws {
         try Self.withServerStream { streamChannel in
@@ -436,7 +436,7 @@ struct QUICChannelStreamHandlerTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("The close promise completes when the channel is already inactive")
     func closePromiseCompletesWithTheChannelInactive() throws {
         try Self.withServerStream { streamChannel in
@@ -454,7 +454,7 @@ struct QUICChannelStreamHandlerTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Several data events in one batch make one read burst, even with a read issued before it's delivered")
     func severalDataEventsInOneBatchMakeOneReadBurst() throws {
         try Self.withServerStream(autoRead: false) { streamChannel in
@@ -482,7 +482,7 @@ struct QUICChannelStreamHandlerTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("A stream closed from channelRead sees nothing more of that batch")
     func aStreamClosedFromChannelReadSeesNothingMoreOfThatBatch() throws {
         try Self.withServerStream { streamChannel in
@@ -505,7 +505,7 @@ struct QUICChannelStreamHandlerTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("isActive follows the delivered events", arguments: [false, true])
     func isActiveFollowsTheDeliveredEvents(closedFirst: Bool) throws {
         try Self.withServerStream { streamChannel in
@@ -529,7 +529,7 @@ struct QUICChannelStreamHandlerTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("A stream closed while attached unregisters only once its flow's disconnect detaches it")
     func closedStreamUnregistersOnceDetached() throws {
         try Self.withServerStream { streamChannel in
@@ -546,7 +546,7 @@ struct QUICChannelStreamHandlerTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("A stream closed while attached unregisters once stop detaches it")
     func closedStreamUnregistersOnceStopDetachesIt() throws {
         try Self.withServerStream { streamChannel in
@@ -561,7 +561,7 @@ struct QUICChannelStreamHandlerTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("closeAllStreams resolves the close future of a stream", arguments: [true, false])
     func closeAllStreamsResolvesCloseFuture(active: Bool) throws {
         try Self.withServerConnectionAndStream { connection, streamChannel in
@@ -594,7 +594,7 @@ struct QUICChannelStreamHandlerTests {
 
     /// `invoke*` wrappers must release their borrow on `swiftNetworkStreamHandle` before the linkage call;
     /// SwiftNetwork's synchronous drain otherwise re-enters `invokeDetach` on a live read borrow and traps.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("invoke* wrappers release the borrow on swiftNetworkStreamHandle before returning")
     func invokeWrappersReleaseBorrowBeforeReturning() throws {
         try Self.withServerStream { streamChannel in
@@ -627,7 +627,7 @@ struct QUICChannelStreamHandlerTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("an existing stream reports the remote address of the connection's active path")
     func remoteAddressFollowsActivePath() throws {
         try Self.withServerConnectionAndStream { connection, streamChannel in
@@ -645,7 +645,7 @@ struct QUICChannelStreamHandlerTests {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICChannelStreamHandler {
     /// Delivers the stack's inbound-data-available event the way the stack does: with the event
     /// context held, which this fabricates by entering as the handler, and the callouts it queues
@@ -664,7 +664,7 @@ extension QUICChannelStreamHandler {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICChannelStreamHandlerTests {
     static func withServerStream(
         streamID: UInt64 = 0,
@@ -741,7 +741,7 @@ extension QUICChannelStreamHandlerTests {
 extension QUICChannelStreamHandlerTests {
     /// A no-op registrar for stream-handler tests, which never exercise connection-ID
     /// association/retirement. Satisfies the `QUICConnectionChannel` init only.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     private struct NoOpConnectionIDRegistrar: QUICConnectionIDRegistrar {
         func associate(_ newID: NIOQUIC.QUICConnectionID) -> Bool { true }
         func retire(_ connectionID: NIOQUIC.QUICConnectionID) -> Bool { true }
@@ -875,7 +875,7 @@ extension QUICChannelStreamHandlerTests {
 
 @Suite("NetworkError to QUIC error conversion")
 struct NetworkErrorConversionTests {
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func applicationErrorCodeConverts() throws {
         let error = try #require(NetworkError(quicApplicationError: UInt64(261), reason: "no headers"))
@@ -885,7 +885,7 @@ struct NetworkErrorConversionTests {
         #expect(converted.reason == error.description)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func transportErrorCodeConverts() throws {
         let error = try #require(NetworkError(quicTransportError: UInt64(10), reason: "protocol violation"))
@@ -895,7 +895,7 @@ struct NetworkErrorConversionTests {
         #expect(converted.reason == error.description)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func errorWithoutQUICCodeDoesNotConvert() {
         // The caller keeps such errors as-is; there is no QUIC-level equivalent to convert to.

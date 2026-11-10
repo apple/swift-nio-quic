@@ -17,10 +17,10 @@ import Testing
 @testable import NIOQUIC
 
 struct QUICConnectionChannelLifecycleTests {
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     typealias StateTag = QUICConnectionChannelLifecycle.StateTag
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func initializeFromIdle() {
         var lifecycle = QUICConnectionChannelLifecycle(.idle)
@@ -28,7 +28,7 @@ struct QUICConnectionChannelLifecycleTests {
         #expect(lifecycle.state.tag == .initializing)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test(arguments: [StateTag.initializing, .initialized, .activated, .closing, .closed])
     func initializeFromOtherStatesIsRejected(initialState: StateTag) {
         var lifecycle = QUICConnectionChannelLifecycle(initialState)
@@ -36,7 +36,7 @@ struct QUICConnectionChannelLifecycleTests {
         #expect(lifecycle.state.tag == initialState)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func initializedFromInitializing() {
         var lifecycle = QUICConnectionChannelLifecycle(.initializing)
@@ -44,7 +44,7 @@ struct QUICConnectionChannelLifecycleTests {
         #expect(lifecycle.state.tag == .initialized)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test(arguments: [StateTag.closing, .closed])
     func initializedFromCloseStatesIsNoOp(initialState: StateTag) {
         var lifecycle = QUICConnectionChannelLifecycle(initialState)
@@ -52,7 +52,7 @@ struct QUICConnectionChannelLifecycleTests {
         #expect(lifecycle.state.tag == initialState)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test(arguments: [StateTag.idle, .initializing, .initialized, .activated])
     func beginClosingFromOpenStates(initialState: StateTag) {
         var lifecycle = QUICConnectionChannelLifecycle(initialState)
@@ -60,7 +60,7 @@ struct QUICConnectionChannelLifecycleTests {
         #expect(lifecycle.state.tag == .closing)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func beginClosingFromClosingIsAlreadyClosing() {
         var lifecycle = QUICConnectionChannelLifecycle(.closing)
@@ -68,7 +68,7 @@ struct QUICConnectionChannelLifecycleTests {
         #expect(lifecycle.state.tag == .closing)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func beginClosingFromClosedIsAlreadyClosed() {
         var lifecycle = QUICConnectionChannelLifecycle(.closed)
@@ -76,7 +76,7 @@ struct QUICConnectionChannelLifecycleTests {
         #expect(lifecycle.state.tag == .closed)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test(arguments: [StateTag.idle, .initializing, .initialized, .activated, .closing])
     func closedFromAnyOpenState(initialState: StateTag) {
         var lifecycle = QUICConnectionChannelLifecycle(initialState)
@@ -84,7 +84,7 @@ struct QUICConnectionChannelLifecycleTests {
         #expect(lifecycle.state.tag == .closed)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func closedFromClosedIsIdempotent() {
         var lifecycle = QUICConnectionChannelLifecycle(.closed)
@@ -92,7 +92,7 @@ struct QUICConnectionChannelLifecycleTests {
         #expect(lifecycle.state.tag == .closed)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func happyPath() {
         var lifecycle = QUICConnectionChannelLifecycle(.idle)
@@ -108,14 +108,14 @@ struct QUICConnectionChannelLifecycleTests {
 
     // MARK: - reconcile()
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func reconcileWithNothingPending() {
         var lifecycle = QUICConnectionChannelLifecycle(.idle)
         #expect(lifecycle.reconcile() == nil)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func activationPendingUntilInitialized() {
         var lifecycle = QUICConnectionChannelLifecycle(.idle)
@@ -132,7 +132,7 @@ struct QUICConnectionChannelLifecycleTests {
         #expect(lifecycle.reconcile() == nil)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func activationThenCloseFireInOrder() {
         var lifecycle = QUICConnectionChannelLifecycle(.idle)
@@ -147,7 +147,7 @@ struct QUICConnectionChannelLifecycleTests {
         #expect(lifecycle.reconcile() == nil)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func closeErrorIsCarriedThrough() {
         struct Boom: Error {}
@@ -163,7 +163,7 @@ struct QUICConnectionChannelLifecycleTests {
 
     // MARK: - Inactive defer
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func driveFiresInactiveWhenNoInitializersInFlight() {
         var lifecycle = QUICConnectionChannelLifecycle(.idle)
@@ -171,7 +171,7 @@ struct QUICConnectionChannelLifecycleTests {
         #expect(lifecycle.reconcile().isFireInactive)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func driveInactiveIsIdempotent() {
         var lifecycle = QUICConnectionChannelLifecycle(.idle)
@@ -180,7 +180,7 @@ struct QUICConnectionChannelLifecycleTests {
         #expect(lifecycle.reconcile() == nil)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func inactiveDefersUntilInitializersDrain() {
         var lifecycle = QUICConnectionChannelLifecycle(.idle)
@@ -197,7 +197,7 @@ struct QUICConnectionChannelLifecycleTests {
         #expect(lifecycle.reconcile().isFireInactive)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func deferredInactiveCarriesError() {
         struct Boom: Error {}
@@ -215,7 +215,7 @@ struct QUICConnectionChannelLifecycleTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func beginClosingErrorIsCarriedThrough() {
         struct Boom: Error {}
@@ -229,7 +229,7 @@ struct QUICConnectionChannelLifecycleTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func beginClosingMovesToClosingAndDriveFires() {
         // A close from an active channel lands on `.closing`, then reconcile fires inactive.
@@ -239,7 +239,7 @@ struct QUICConnectionChannelLifecycleTests {
         #expect(lifecycle.reconcile().isFireInactive)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func driveAfterClosedIsNoOp() {
         var lifecycle = QUICConnectionChannelLifecycle(.closed)
@@ -250,7 +250,7 @@ struct QUICConnectionChannelLifecycleTests {
 
     // MARK: - forceClosing()
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test(arguments: [StateTag.idle, .initializing, .initialized, .activated])
     func forceClosingFromOpenStatesForcesThroughNow(initialState: StateTag) {
         var lifecycle = QUICConnectionChannelLifecycle(initialState)
@@ -258,7 +258,7 @@ struct QUICConnectionChannelLifecycleTests {
         #expect(lifecycle.state.tag == .closing)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func forceClosingFromClosingWithoutInactiveCommittedForcesThroughNow() {
         var lifecycle = QUICConnectionChannelLifecycle(.closing)
@@ -266,7 +266,7 @@ struct QUICConnectionChannelLifecycleTests {
         #expect(lifecycle.state.tag == .closing)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func forceClosingWhileInactiveDeferredForcesThroughNow() {
         var lifecycle = QUICConnectionChannelLifecycle(.idle)
@@ -276,7 +276,7 @@ struct QUICConnectionChannelLifecycleTests {
         #expect(lifecycle.forceClosing() == .forceThroughNow)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func forceClosingAfterDeferredInactiveFiredDoesNotReCommit() {
         var lifecycle = QUICConnectionChannelLifecycle(.idle)
@@ -289,7 +289,7 @@ struct QUICConnectionChannelLifecycleTests {
         #expect(lifecycle.forceClosing() == .alreadyCommitted)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func forceClosingAfterInactiveFiredDoesNotReCommit() {
         var lifecycle = QUICConnectionChannelLifecycle(.activated)
@@ -300,7 +300,7 @@ struct QUICConnectionChannelLifecycleTests {
         #expect(lifecycle.state.tag == .closing)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func forceClosingFromClosedIsAlreadyClosed() {
         var lifecycle = QUICConnectionChannelLifecycle(.closed)
@@ -308,7 +308,7 @@ struct QUICConnectionChannelLifecycleTests {
         #expect(lifecycle.state.tag == .closed)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func forceClosingSetsInactiveFiredSoASecondForceIsAlreadyCommitted() {
         var lifecycle = QUICConnectionChannelLifecycle(.activated)
@@ -317,7 +317,7 @@ struct QUICConnectionChannelLifecycleTests {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICConnectionChannelLifecycle {
     // Like Lifecycle.State, but without associated data. Allows tests to do
     // equality checks on the tag (associated data only includes errors).
@@ -357,7 +357,7 @@ extension QUICConnectionChannelLifecycle {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICConnectionChannelLifecycle.State {
     fileprivate var tag: QUICConnectionChannelLifecycle.StateTag {
         switch self {
@@ -377,7 +377,7 @@ extension QUICConnectionChannelLifecycle.State {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICConnectionChannelLifecycle.Action? {
     fileprivate var isFireActive: Bool {
         switch self {

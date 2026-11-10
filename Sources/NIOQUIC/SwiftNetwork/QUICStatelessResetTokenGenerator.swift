@@ -16,7 +16,7 @@ import Crypto
 import NIOCore
 @_spi(ProtocolProvider) import SwiftNetwork
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICStatelessResetToken {
 
     /// Derives the stateless reset tokens for the connection IDs this endpoint issues.
@@ -27,7 +27,7 @@ extension QUICStatelessResetToken {
     /// - Warning: NIOQUIC may call a generator while SwiftNetwork is handling the
     /// connection's events, so a generator must not call back into NIOQUIC as a call
     /// that reaches SwiftNetwork traps.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     public protocol Generator: Sendable {
         /// The stateless reset token for `connectionID`.
         ///
@@ -37,7 +37,7 @@ extension QUICStatelessResetToken {
 
     /// A default implementation of ``QUICStatelessResetToken.Generator`` that
     /// uses `HMAC<SHA256>` to generate tokens.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     public struct HMACSHA256Generator: Generator {
         /// The length of a stateless reset token in bytes (RFC 9000 § 10.3).
         static var tokenLength: Int { 16 }
@@ -83,7 +83,7 @@ extension QUICStatelessResetToken {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICStatelessResetToken.Generator {
     /// Builds a stateless reset datagram for `connectionID`.
     ///
@@ -121,7 +121,7 @@ extension QUICStatelessResetToken.Generator {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICStatelessResetToken.Generator where Self == QUICStatelessResetToken.HMACSHA256Generator {
 
     /// A default implementation for the ``QUICStatelessResetToken.Generator`` that uses `HMAC<SHA256>`

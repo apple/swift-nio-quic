@@ -17,7 +17,7 @@ public import NIOQUICHelpers
 @_spi(Essentials) @_spi(ProtocolProvider) import SwiftNetwork
 
 /// The transport state for a stream.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 @usableFromInline
 struct QUICStreamCore: ~Copyable {
     /// The ID of the stream assigned by `SwiftNetwork`, `nil` if it hasn't been assigned yet
@@ -119,7 +119,7 @@ struct QUICStreamCore: ~Copyable {
 
 // MARK: - Peer events
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICStreamCore {
     /// Records the peer's RESET\_STREAM.
     ///
@@ -185,7 +185,7 @@ extension QUICStreamCore {
 
 // MARK: - Reading
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICStreamCore {
     /// Hands the stream's inbound bytes to `body`.
     ///
@@ -485,7 +485,7 @@ extension QUICStreamCore {
 
 // MARK: - Writing
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICStreamCore {
     /// How many bytes the stack will take right now, which is advisory: a write past it is buffered
     /// rather than refused.
@@ -651,7 +651,7 @@ extension QUICStreamCore {
 
 // MARK: - Closing
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICStreamCore {
     /// Resets the send side of the stream.
     ///
@@ -776,7 +776,7 @@ extension QUICStreamCore {
 }
 
 #if DEBUG
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICStreamCore {
     /// Adds `frames` to the undelivered reads, as though the stack had just handed them over.
     mutating func _forTesting_addUndeliveredReads(_ frames: consuming FrameArray) {
@@ -795,7 +795,7 @@ extension QUICStreamCore {
 }
 #endif  // DEBUG
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension NetworkError {
     fileprivate init(streamStateViolation reason: String, operation: String) {
         self.init(

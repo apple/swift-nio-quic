@@ -22,7 +22,7 @@ import Testing
 
 @_spi(Essentials) @_spi(ProtocolProvider) @testable import NIOQUIC
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICStreamCore {
     fileprivate mutating func hold(_ chunks: [String]) {
         var frames = FrameArray()
@@ -62,7 +62,7 @@ extension QUICStreamCore {
 
 /// Runs `body` with an event context, entering the stack as an anchor on a fresh event-loop-backed
 /// context. These cores never attach, so nothing reaches the stack through it.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 private func withTestEventContext<R, E: Error>(
     _ body: (inout NetworkContext.EventContext) throws(E) -> R
 ) throws(E) -> R {
@@ -76,7 +76,7 @@ private func withTestEventContext<R, E: Error>(
     return try callouts.enter(as: anchor, body)
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension RawSpan {
     fileprivate var utf8String: String {
         self.withUnsafeBytes { String(decoding: $0, as: UTF8.self) }
@@ -86,7 +86,7 @@ extension RawSpan {
 @Suite
 struct QUICStreamCoreTests {
     @Test
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     func partialReadResumesAtOffset() {
         var core = QUICStreamCore(id: nil)
         core.hold(["abcdef"])
@@ -104,7 +104,7 @@ struct QUICStreamCoreTests {
     }
 
     @Test
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     func declinedBytesAreHeldForTheNextRead() {
         var core = QUICStreamCore(id: nil)
         core.hold(["ab", "cd", "ef"])
@@ -135,7 +135,7 @@ struct QUICStreamCoreTests {
     }
 
     @Test
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     func coalescesAcrossFrames() {
         var core = QUICStreamCore(id: nil)
         core.hold(["ab", "cd", "ef"])
@@ -163,7 +163,7 @@ struct QUICStreamCoreTests {
     }
 
     @Test
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     func readWithNothingHeld() {
         var core = QUICStreamCore(id: nil)
 
@@ -178,7 +178,7 @@ struct QUICStreamCoreTests {
     }
 
     @Test
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     func closeFinalizesHeldFrames() {
         var core = QUICStreamCore(id: nil)
         core.hold(["ab", "cd"])
@@ -189,7 +189,7 @@ struct QUICStreamCoreTests {
     }
 
     @Test(arguments: [true, false])
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     func flushOnStreamWIthoutIDIsRefused(fin: Bool) {
         var core = QUICStreamCore(id: nil)
         core.write(ByteBuffer(string: "hello"))

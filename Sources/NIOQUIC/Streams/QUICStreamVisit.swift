@@ -22,7 +22,7 @@ public import NIOQUICHelpers
 ///
 /// You can also access and modify the consumer state for the stream via ``state``. Note that if
 /// you require simulatenous access to ``stream`` and ``state`` you can use ``withStream(execute:)``.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 public struct QUICStreamVisit<Consumer: QUICStreamConsumer & ~Copyable>: ~Copyable, ~Escapable {
     @usableFromInline
     let _table: QUICStreamTable<Consumer>
@@ -177,6 +177,6 @@ public struct QUICStreamVisit<Consumer: QUICStreamConsumer & ~Copyable>: ~Copyab
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 @available(*, unavailable)
 extension QUICStreamVisit: Sendable where Consumer: ~Copyable {}

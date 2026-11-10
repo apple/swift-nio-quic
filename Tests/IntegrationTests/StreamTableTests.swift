@@ -28,7 +28,7 @@ private let flowIDReuse: Comment = "Flow ID reuse, fixed by apple/swift-network-
 
 @Suite(.timeLimit(.minutes(5)))
 struct StreamTableTests {
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func testHTTP09Requests() async throws {
         let requestCount = 8
@@ -62,7 +62,7 @@ struct StreamTableTests {
         #expect(failures.withLockedValue { $0 }.isEmpty)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func testManyHTTP09RequestStreams() async throws {
         let streamCount = 2000
@@ -92,7 +92,7 @@ struct StreamTableTests {
         #expect(failures.withLockedValue { $0 }.isEmpty)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func testHTTP09Streaming() async throws {
         let requestCount = 4
@@ -121,7 +121,7 @@ struct StreamTableTests {
         #expect(failures.withLockedValue { $0 }.isEmpty)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func testHTTP09ManyStreamsStreaming() async throws {
         let requestCount = 2000
@@ -153,7 +153,7 @@ struct StreamTableTests {
         #expect(failures.withLockedValue { $0 }.isEmpty)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func testConnectionError() async throws {
         let recording = StreamRecording()
@@ -191,7 +191,7 @@ struct StreamTableTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func testResetStream() async throws {
         let code = QUICApplicationErrorCode(42)!
@@ -219,7 +219,7 @@ struct StreamTableTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func testResetStreamRaceCondition() async throws {
         let recording = StreamRecording()
@@ -247,7 +247,7 @@ struct StreamTableTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func testStopSending() async throws {
         let code = QUICApplicationErrorCode(10)!
@@ -275,7 +275,7 @@ struct StreamTableTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func testClientInitiatedUnidirectionalStreamStopSending() async throws {
         let code = QUICApplicationErrorCode(10)!
@@ -304,7 +304,7 @@ struct StreamTableTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func testServerInitiatedUnidirectionalStreamStopSending() async throws {
         let code = QUICApplicationErrorCode(10)!
@@ -346,7 +346,7 @@ struct StreamTableTests {
         #expect(failures.withLockedValue { $0 }.isEmpty)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func testStopSendingOnlyHalfClosesInput() async throws {
         let serverRecording = StreamRecording()
@@ -379,7 +379,7 @@ struct StreamTableTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func testResetStreamOnlyHalfClosesOutput() async throws {
         let recording = StreamRecording()
@@ -419,7 +419,7 @@ struct StreamTableTests {
         #expect(failures.withLockedValue { $0 }.isEmpty)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func testReceivedStopSendingHalfClosesOutput() async throws {
         let code = QUICApplicationErrorCode(10)!
@@ -451,7 +451,7 @@ struct StreamTableTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func testShutdownForcefully() async throws {
         final class CountedState {
@@ -510,7 +510,7 @@ struct StreamTableTests {
         #expect(counter.load() == 0)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func testCloseInput() async throws {
         /// The server's per-stream state: the request so far, and whether it has responded.
@@ -601,7 +601,7 @@ struct StreamTableTests {
 
     // MARK: - Table specific tests
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func manyConcurrentStreamsKeepTheirOwnState() async throws {
         let streamCount = 2000
@@ -630,7 +630,7 @@ struct StreamTableTests {
         #expect(failures.withLockedValue { $0 }.isEmpty)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func inboundStreamReachesTheConsumer() async throws {
         let recording = StreamRecording()
@@ -668,7 +668,7 @@ struct StreamTableTests {
         #expect(failures.withLockedValue { $0 }.isEmpty)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func unidirectionalStreamIsSendOnlyAtTheOpener() async throws {
         let clientRecording = StreamRecording()
@@ -700,7 +700,7 @@ struct StreamTableTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func clientCannotOpenAServerInitiatedStream() async throws {
         try await withConsumerPair(
@@ -721,7 +721,7 @@ struct StreamTableTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func largePayloadArrives() async throws {
         let recording = StreamRecording()
@@ -744,7 +744,7 @@ struct StreamTableTests {
         #expect(failures.withLockedValue { $0 }.isEmpty)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func closedConnectionCannotOpenStreams() async throws {
         try await withConsumerPair(
@@ -767,7 +767,7 @@ struct StreamTableTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func forceCloseClosesEveryStream() async throws {
         let recording = StreamRecording()
@@ -803,7 +803,7 @@ struct StreamTableTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func creditBlockedStreamIsOpenedOnlyOnceItHasAnID() async throws {
         let recording = StreamRecording()
@@ -869,7 +869,7 @@ struct StreamTableTests {
         #expect(failures.withLockedValue { $0 }.isEmpty)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func idleTimeoutClosesEveryStream() async throws {
         let streamCount = 2
@@ -896,7 +896,7 @@ struct StreamTableTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test
     func localConnectionCloseReachesThePeersConsumer() async throws {
         /// Records every visit and reports the one which reads the request.

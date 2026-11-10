@@ -30,14 +30,14 @@ enum CertificateVerificationResult {
     case invalid(reason: String)
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 struct CallbackVerificationInput {
     var verificationInfo: VerificationInfo
     var hostname: String
 }
 
 /// Asynchronously perform certificate validation during the TLS handshake
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 public final class AsyncVerifier: Sendable {
     private let stream: AsyncStream<CallbackVerificationInput>
     private let continuation: AsyncStream<CallbackVerificationInput>.Continuation

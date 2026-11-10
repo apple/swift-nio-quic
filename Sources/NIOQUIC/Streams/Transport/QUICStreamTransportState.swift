@@ -16,7 +16,7 @@ public import NIOQUICHelpers
 @_spi(Essentials) @_spi(ProtocolProvider) import SwiftNetwork
 
 /// The state of a stream recorded by the transport.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 @usableFromInline
 struct QUICStreamTransportState: ~Copyable {
     /// Events which have occurred on the stream since the last visit.

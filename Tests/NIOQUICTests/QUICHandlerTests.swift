@@ -22,7 +22,7 @@ import XCTest
 
 @testable import NIOQUIC
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 final class QUICHandlerTests: XCTestCase {
     private static let statelessResetKey = [UInt8](repeating: 0x5A, count: 32)
 
@@ -818,7 +818,7 @@ final class QUICHandlerTests: XCTestCase {
 }
 
 /// A consumer for connections whose streams a test never touches.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 private struct IdleConsumer: QUICStreamConsumer {
     typealias StreamState = Void
 

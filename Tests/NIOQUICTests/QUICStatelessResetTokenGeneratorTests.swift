@@ -21,12 +21,12 @@ struct QUICStatelessResetTokenGeneratorTests {
     private static let key = [UInt8](repeating: 0xAB, count: 32)
     private static let otherKey = [UInt8](repeating: 0xCD, count: 32)
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     private func makeConnectionID(_ byte: UInt8) -> QUICConnectionID {
         QUICConnectionID(bytes: InlineArray<20, UInt8>(repeating: byte), length: 8)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test func tokenIsStableForTheSameKeyAndConnectionID() {
         let connectionID = self.makeConnectionID(1)
         let generator = QUICStatelessResetToken.HMACSHA256Generator(key: Self.key)
@@ -37,14 +37,14 @@ struct QUICStatelessResetTokenGeneratorTests {
         #expect(generator.token(for: connectionID) == other.token(for: connectionID))
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test func tokenDiffersPerConnectionID() {
         let generator = QUICStatelessResetToken.HMACSHA256Generator(key: Self.key)
 
         #expect(generator.token(for: self.makeConnectionID(1)) != generator.token(for: self.makeConnectionID(2)))
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test func tokenDiffersPerKey() {
         let connectionID = self.makeConnectionID(1)
 
@@ -54,7 +54,7 @@ struct QUICStatelessResetTokenGeneratorTests {
         )
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test func keyIsGeneratedWhenNoneIsConfigured() {
         let connectionID = self.makeConnectionID(1)
 
@@ -64,7 +64,7 @@ struct QUICStatelessResetTokenGeneratorTests {
         )
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test func resetPacketEndsWithTheTokenAndLooksLikeAShortHeader() throws {
         let connectionID = self.makeConnectionID(1)
         let generator = QUICStatelessResetToken.HMACSHA256Generator(key: Self.key)
@@ -85,7 +85,7 @@ struct QUICStatelessResetTokenGeneratorTests {
         #expect(packet.readableBytes >= 21)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test func resetPacketIsSmallerThanThePacketThatTriggeredIt() throws {
         let generator = QUICStatelessResetToken.HMACSHA256Generator(key: Self.key)
 
@@ -103,7 +103,7 @@ struct QUICStatelessResetTokenGeneratorTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test func noResetPacketAsLargeAsItsTrigger() {
         let generator = QUICStatelessResetToken.HMACSHA256Generator(key: Self.key)
 
@@ -117,7 +117,7 @@ struct QUICStatelessResetTokenGeneratorTests {
         #expect((packet?.readableBytes ?? 0) < 38)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test func noResetPacketWhenTheTriggerIsTooSmall() {
         let generator = QUICStatelessResetToken.HMACSHA256Generator(key: Self.key)
 

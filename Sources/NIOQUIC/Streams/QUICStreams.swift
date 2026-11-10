@@ -15,7 +15,7 @@
 public import NIOQUICHelpers
 
 /// Access to the streams of a connection.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 public struct QUICStreams<Consumer: QUICStreamConsumer & ~Copyable>: ~Copyable, ~Escapable {
     @usableFromInline
     let _table: QUICStreamTable<Consumer>
@@ -71,6 +71,6 @@ public struct QUICStreams<Consumer: QUICStreamConsumer & ~Copyable>: ~Copyable, 
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 @available(*, unavailable)
 extension QUICStreams: Sendable where Consumer: ~Copyable {}

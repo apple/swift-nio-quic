@@ -31,7 +31,7 @@ import Musl
 /// Conforms to SwiftNetwork's `ExternalInboundDatagramLinkage` to receive inbound datagram events
 /// and be addressable as a protocol instance; the connection which owns it talks to it only
 /// through `QUICDatagramProtocol`.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 final class QUICDatagramTransport<Consumer: QUICStreamConsumer & ~Copyable>: ExternalInboundDatagramLinkage {
 
     internal var identifier: InstanceIdentifier
@@ -72,10 +72,10 @@ final class QUICDatagramTransport<Consumer: QUICStreamConsumer & ~Copyable>: Ext
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICDatagramTransport: ProtocolInstance where Consumer: ~Copyable {}
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICDatagramTransport: QUICDatagramProtocol where Consumer: ~Copyable {
     /// Buffers `datagram` for the next `flush()`, always returning `true`.
     ///
@@ -141,7 +141,7 @@ extension QUICDatagramTransport: QUICDatagramProtocol where Consumer: ~Copyable 
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICDatagramTransport where Consumer: ~Copyable {
     /// Drains all datagrams currently available on the flow and forwards each to the reader.
     /// Does nothing if no reader has been set.
@@ -182,7 +182,7 @@ extension QUICDatagramTransport where Consumer: ~Copyable {
 }
 
 // Connection events are already handled by the `QUICChannelNewFlowHandler`.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICDatagramTransport where Consumer: ~Copyable {
     /// Receives the datagram flow's linkage, delivered synchronously from inside
     /// `attachDatagramFlow`'s call to `invokeAttachUpperProtocolToNewFlow`,

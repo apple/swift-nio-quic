@@ -78,7 +78,7 @@ private final class CountingScheduler: EventLoop, @unchecked Sendable {
 
 @Suite
 struct EventLoopBackedSchedulerTests {
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test func timerFiresAtItsDeadline() {
         let loop = EmbeddedEventLoop()
         let scheduler = EventLoopBackedScheduler(eventLoop: loop, callouts: QUICCallouts())
@@ -100,7 +100,7 @@ struct EventLoopBackedSchedulerTests {
 
     /// The reschedule the loss recovery timer makes on nearly every packet, which pushes the deadline
     /// further out and must not fire at the deadline it replaced.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test func rescheduleFurtherOutFiresAtTheNewDeadline() {
         let loop = EmbeddedEventLoop()
         let scheduler = EventLoopBackedScheduler(eventLoop: loop, callouts: QUICCallouts())
@@ -120,7 +120,7 @@ struct EventLoopBackedSchedulerTests {
         #expect(fires.count == 1)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test func rescheduleEarlierFiresAtTheEarlierDeadline() {
         let loop = EmbeddedEventLoop()
         let scheduler = EventLoopBackedScheduler(eventLoop: loop, callouts: QUICCallouts())
@@ -138,7 +138,7 @@ struct EventLoopBackedSchedulerTests {
         #expect(fires.count == 1)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test func unscheduledTimerNeverFires() {
         let loop = EmbeddedEventLoop()
         let scheduler = EventLoopBackedScheduler(eventLoop: loop, callouts: QUICCallouts())
@@ -157,7 +157,7 @@ struct EventLoopBackedSchedulerTests {
 
     /// A timer pushed out and then unscheduled leaves a wakeup armed for the deadline it no longer
     /// has, which must find nothing to run rather than running the task early.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test func unscheduleAfterPushingTheDeadlineOutNeverFires() {
         let loop = EmbeddedEventLoop()
         let scheduler = EventLoopBackedScheduler(eventLoop: loop, callouts: QUICCallouts())
@@ -174,7 +174,7 @@ struct EventLoopBackedSchedulerTests {
 
     /// The stack schedules the next timer from inside the one which just fired, which is the ordering
     /// the one-shot bookkeeping has to survive.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test func taskWhichReschedulesItselfRunsAgain() {
         let loop = EmbeddedEventLoop()
         let scheduler = EventLoopBackedScheduler(eventLoop: loop, callouts: QUICCallouts())
@@ -208,7 +208,7 @@ struct EventLoopBackedSchedulerTests {
         #expect(fires.count == 3)
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test func timersAreIndependentPerReference() {
         let loop = EmbeddedEventLoop()
         let scheduler = EventLoopBackedScheduler(eventLoop: loop, callouts: QUICCallouts())
@@ -233,7 +233,7 @@ struct EventLoopBackedSchedulerTests {
 
     /// The point of the whole thing: rescheduling a timer further out costs nothing on the event loop,
     /// so the loss recovery timer's per-packet reset stops arming and cancelling a wakeup each time.
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test func pushingTheDeadlineOutDoesNotArmTheLoopAgain() {
         let loop = CountingScheduler()
         let scheduler = EventLoopBackedScheduler(eventLoop: loop, callouts: QUICCallouts())

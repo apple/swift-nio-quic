@@ -14,7 +14,7 @@
 
 @_spi(Essentials) @_spi(ProtocolProvider) import SwiftNetwork
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension NIOQUIC.QUICConnectionID {
     /// Creates a NIOQUIC connection ID from a SwiftNetwork connection ID.
     init(_ connectionID: SwiftNetwork.QUICConnectionID) {
@@ -25,7 +25,7 @@ extension NIOQUIC.QUICConnectionID {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension SwiftNetwork.QUICConnectionID {
     /// Creates a SwiftNetwork connection ID from a NIOQUIC connection ID.
     init(_ connectionID: NIOQUIC.QUICConnectionID) {

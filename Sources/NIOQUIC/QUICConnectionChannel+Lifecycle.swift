@@ -20,7 +20,7 @@
 ///   is draining the connection.)
 /// - ``inFlightInitializers``: the number of stream initializers in flight, used
 ///   to (potentially) hold up channel inactive.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 struct QUICConnectionChannelLifecycle {
     enum State {
         case idle

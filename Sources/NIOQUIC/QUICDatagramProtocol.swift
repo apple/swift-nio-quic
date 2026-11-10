@@ -20,7 +20,7 @@ import NIOCore
 /// This exists so the connection does not depend on the SwiftNetwork-backed
 /// `QUICDatagramTransport` directly: production code is backed by `QUICDatagramTransport`, while
 /// tests can install a test double.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 protocol QUICDatagramProtocol<Connection> {
     associatedtype Connection: AnyObject
 
@@ -46,7 +46,7 @@ protocol QUICDatagramProtocol<Connection> {
 
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
     /// The connection's datagram transport, either the real SwiftNetwork-backed flow
     /// (statically dispatched) or an existential test conformance.
@@ -56,7 +56,7 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension SwiftNetworkQUICConnection.DatagramTransport: QUICDatagramProtocol where Consumer: ~Copyable {
     func write(datagram: ByteBuffer) -> Bool {
         switch self {

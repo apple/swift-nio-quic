@@ -26,7 +26,7 @@ import NIOQUICHelpers
 /// (referenced from `@inlinable` code elsewhere in this module), and a member satisfying a
 /// requirement of a public/`@_spi` protocol from another module must be at least as visible as
 /// the conforming type.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 @_spi(ProtocolProvider)
 extension QUICStreamTable: ExternalInboundStreamLinkage where Consumer: ~Copyable {
     @usableFromInline

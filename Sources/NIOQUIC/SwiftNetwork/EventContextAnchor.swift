@@ -16,7 +16,7 @@
 
 /// A protocol instance that exists only to enter the stack on behalf of code with no instance of its
 /// own: the stream table's operations, which act for streams that aren't `ProtocolInstance`s.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 final class EventContextAnchor: ProtocolInstance {
     let context: NetworkContext
     var identifier: InstanceIdentifier

@@ -16,7 +16,7 @@ package import NIOConcurrencyHelpers
 
 /// This event informs of new source connection IDs associated with the connection.
 /// It only captures connection IDs created after the initial IDs during connection establishment.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 struct QUICSCIDAssociatedEvent: Sendable {
 
     /// The newly associated source connection ID.
@@ -29,7 +29,7 @@ struct QUICSCIDAssociatedEvent: Sendable {
 }
 
 /// This event informs of retired source connection IDs in this connection.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 struct QUICSCIDRetiredEvent: Sendable {
 
     /// The retired source connection ID.
@@ -45,7 +45,7 @@ struct QUICSCIDRetiredEvent: Sendable {
 /// ID that can be used to contact us.
 ///
 /// This event will be handled by the stream state machine.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 struct QUICRequestAssociateSCIDEvent: Sendable {
 
     /// The source connection ID to associate.
@@ -60,7 +60,7 @@ struct QUICRequestAssociateSCIDEvent: Sendable {
 /// (and our peer) that we will no longer use this `dcid` to contact them.
 ///
 /// This event will be handled by the stream state machine.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 struct QUICRequestRetireDCIDEvent: Sendable {
 
     /// The destination connection ID to retire.
@@ -74,7 +74,7 @@ struct QUICRequestRetireDCIDEvent: Sendable {
 /// Test-only event: Injects a connection ID into the retired SCID set.
 /// This allows triggering the protocol violation path when the peer reissues this ID.
 /// This event will be handled by the stream state machine.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 internal struct _QUICForTestingPoisonRetiredSCIDEvent: Sendable {
     internal var scid: QUICConnectionID
 
@@ -87,7 +87,7 @@ internal struct _QUICForTestingPoisonRetiredSCIDEvent: Sendable {
 /// The result is written into the provided locked box. This allows tests to discover
 /// the initial SCID (which doesn't generate an association event).
 /// This event will be handled by the stream state machine.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 package struct _QUICForTestingGetActiveSCIDsEvent: Sendable {
     package var result: NIOLockedValueBox<[QUICConnectionID]>
 
@@ -102,7 +102,7 @@ package struct _QUICForTestingGetActiveSCIDsEvent: Sendable {
 /// the packet routing path intact. Mirrors the buffering logic: if this is the last
 /// active SCID, it is stored in `scidPendingDeletion` instead of removed.
 /// This event will be handled by the stream state machine.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 package struct _QUICForTestingRemoveActiveSCIDEvent: Sendable {
     package var scid: QUICConnectionID
 

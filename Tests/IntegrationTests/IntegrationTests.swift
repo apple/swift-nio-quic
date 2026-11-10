@@ -25,7 +25,7 @@ import XCTest
 
 @testable import NIOQUIC
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 final class IntegrationTests: XCTestCase {
     func testHTTP09Requests() async throws {
         // To open more streams you will need to plumb this through on the QUIC stream options. Max is 8.
@@ -745,7 +745,7 @@ final class IntegrationTests: XCTestCase {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 final class PacketHeaderRecorderHandler: ChannelInboundHandler, Sendable {
     typealias InboundIn = AddressedEnvelope<ByteBuffer>
     typealias InboundOut = AddressedEnvelope<ByteBuffer>
@@ -768,7 +768,7 @@ final class PacketHeaderRecorderHandler: ChannelInboundHandler, Sendable {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 final class ClientApplicationCloseHandler: ChannelInboundHandler, Sendable {
     typealias InboundIn = Never
 

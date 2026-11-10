@@ -16,7 +16,7 @@ public import NIOCore
 public import NIOQUICHelpers
 
 /// A view over a QUIC stream as presented to a ``QUICStreamConsumer``.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 public struct QUICStream<Consumer: QUICStreamConsumer & ~Copyable>: ~Copyable, ~Escapable {
     /// The table this stream's slot belongs to.
     @usableFromInline
@@ -69,7 +69,7 @@ public struct QUICStream<Consumer: QUICStreamConsumer & ~Copyable>: ~Copyable, ~
 
 // MARK: - Reading
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICStream where Consumer: ~Copyable {
     /// Hands the stream's inbound bytes to `body`, one chunk of contiguous bytes at a time.
     ///
@@ -112,7 +112,7 @@ extension QUICStream where Consumer: ~Copyable {
 
 // MARK: - Writing
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICStream where Consumer: ~Copyable {
     /// How many bytes the stream will accept right now.
     ///
@@ -158,7 +158,7 @@ extension QUICStream where Consumer: ~Copyable {
 
 // MARK: - Closing
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICStream where Consumer: ~Copyable {
     /// Resets the send side, telling the peer to discard what it has of this stream.
     ///
@@ -179,6 +179,6 @@ extension QUICStream where Consumer: ~Copyable {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 @available(*, unavailable)
 extension QUICStream: Sendable where Consumer: ~Copyable {}

@@ -23,7 +23,7 @@ import Musl
 #endif
 
 /// A QUIC connection ID.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 public struct QUICConnectionID: CustomStringConvertible, Sendable {
     /// The maximum length of a connection ID.
     public static let maxLength = UInt8(20)
@@ -167,7 +167,7 @@ public struct QUICConnectionID: CustomStringConvertible, Sendable {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICConnectionID: Equatable {
     public static func == (lhs: QUICConnectionID, rhs: QUICConnectionID) -> Bool {
         guard lhs.length == rhs.length else {
@@ -188,7 +188,7 @@ extension QUICConnectionID: Equatable {
     }
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICConnectionID: Hashable {
     public func hash(into hasher: inout Hasher) {
         self.withUnsafeBufferPointer {

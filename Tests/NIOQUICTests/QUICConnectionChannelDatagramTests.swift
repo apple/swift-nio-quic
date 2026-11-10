@@ -31,7 +31,7 @@ struct QUICConnectionChannelDatagramTests {
 
     // MARK: - Buffering before the peer advertisement
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Writes buffered before the peer advertisement flush once the peer accepts")
     func bufferedWritesFlushWhenPeerAccepts() throws {
         try Self.withChannel { channel, connection, _ in
@@ -53,7 +53,7 @@ struct QUICConnectionChannelDatagramTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Writes buffered before the peer advertisement fail when the peer advertises 0")
     func bufferedWritesFailWhenPeerRejects() throws {
         try Self.withChannel { channel, connection, _ in
@@ -66,7 +66,7 @@ struct QUICConnectionChannelDatagramTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("A buffered write larger than the advertised limit fails as datagramTooLarge")
     func bufferedOversizedWriteFailsAsTooLarge() throws {
         try Self.withChannel { channel, connection, _ in
@@ -81,7 +81,7 @@ struct QUICConnectionChannelDatagramTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("A buffered write exactly at the advertised limit is accepted")
     func bufferedWriteAtExactLimitSucceeds() throws {
         try Self.withChannel { channel, connection, _ in
@@ -97,7 +97,7 @@ struct QUICConnectionChannelDatagramTests {
 
     // MARK: - Steady-state writes (peer advertisement already known)
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("A write within the advertised limit is handed to the connection and succeeds")
     func writeWithinLimitSucceeds() throws {
         try Self.withChannel { channel, connection, _ in
@@ -110,7 +110,7 @@ struct QUICConnectionChannelDatagramTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("A write larger than the advertised limit fails as datagramTooLarge and is not sent")
     func oversizedWriteFailsAsTooLarge() throws {
         try Self.withChannel { channel, connection, _ in
@@ -122,7 +122,7 @@ struct QUICConnectionChannelDatagramTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("A write exactly at the advertised limit is accepted")
     func writeAtExactLimitSucceeds() throws {
         try Self.withChannel { channel, connection, _ in
@@ -136,7 +136,7 @@ struct QUICConnectionChannelDatagramTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("A within-limit write the connection rejects fails as datagramWriteFailed")
     func connectionRejectionFails() throws {
         try Self.withChannel { channel, connection, _ in
@@ -149,7 +149,7 @@ struct QUICConnectionChannelDatagramTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("A write fails as peerDoesNotAcceptDatagrams when the peer advertised 0")
     func writeFailsWhenPeerRejects() throws {
         try Self.withChannel { channel, connection, _ in
@@ -161,7 +161,7 @@ struct QUICConnectionChannelDatagramTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("A channel flush propagates to the connection")
     func flushPropagatesToConnection() throws {
         try Self.withChannel { channel, connection, _ in
@@ -175,7 +175,7 @@ struct QUICConnectionChannelDatagramTests {
 
     // MARK: - Inbound
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("An inbound datagram from the connection is fired as a channelRead")
     func inboundDatagramIsDeliveredAsChannelRead() throws {
         try Self.withChannel { channel, _, recorder in
@@ -185,7 +185,7 @@ struct QUICConnectionChannelDatagramTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("A datagram flow error is fired as an errorCaught")
     func datagramErrorIsFiredAsErrorCaught() throws {
         try Self.withChannel { channel, _, recorder in
@@ -197,7 +197,7 @@ struct QUICConnectionChannelDatagramTests {
 
     // MARK: - Teardown
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Closing the channel while still waiting fails buffered writes")
     func closeFailsBufferedWrites() throws {
         try Self.withChannel { channel, _, _ in
@@ -212,7 +212,7 @@ struct QUICConnectionChannelDatagramTests {
 
     // MARK: - Connection to transport
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("The connection accepts datagram writes from start, which attaches its transport")
     func connectionAcceptsWritesFromStart() throws {
         try Self.withLiveConnection { connection, _, _ in
@@ -223,7 +223,7 @@ struct QUICConnectionChannelDatagramTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Installing a datagram transport closes the one it replaces")
     func installingATransportClosesTheReplacedOne() throws {
         try Self.withLiveConnection { connection, transport, _ in
@@ -240,7 +240,7 @@ struct QUICConnectionChannelDatagramTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("The connection forwards writes and flushes to its datagram transport")
     func connectionForwardsWritesToTransport() throws {
         try Self.withLiveConnection { connection, transport, _ in
@@ -256,7 +256,7 @@ struct QUICConnectionChannelDatagramTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("A datagram the transport receives is fired as a channelRead on the connection channel")
     func transportInboundDatagramReachesThePipeline() throws {
         try Self.withLiveConnection { connection, transport, recorder in
@@ -268,7 +268,7 @@ struct QUICConnectionChannelDatagramTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("An error the transport reports is fired as an errorCaught on the connection channel")
     func transportErrorReachesThePipeline() throws {
         try Self.withLiveConnection { connection, transport, recorder in
@@ -280,7 +280,7 @@ struct QUICConnectionChannelDatagramTests {
         }
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test("Closing the connection closes its datagram transport")
     func connectionCloseClosesTransport() throws {
         try Self.withLiveConnection { connection, transport, _ in
@@ -303,7 +303,7 @@ struct QUICConnectionChannelDatagramTests {
 
 // MARK: - Test harness
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 extension QUICConnectionChannelDatagramTests {
     /// Builds an initialized (but not yet active) server connection channel over a
     /// `RecordingConnection`, with a `DatagramRecorder` in its pipeline.
@@ -427,7 +427,7 @@ extension QUICConnectionChannelDatagramTests {
 
 /// A `QUICDatagramProtocol` test double: records outbound datagrams and lets tests inject inbound
 /// datagrams and errors back through the reader the connection installs.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 final class DatagramTestTransport: QUICDatagramProtocol {
     private(set) var writtenDatagrams: [ByteBuffer] = []
     private(set) var flushCount = 0
@@ -470,7 +470,7 @@ final class DatagramTestTransport: QUICDatagramProtocol {
 ///
 /// The recorded state is held under a lock so the recorder can be captured by the `@Sendable`
 /// pipeline-initializer closure and read back from the test body.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 final class DatagramRecorder: ChannelInboundHandler, Sendable {
     typealias InboundIn = ByteBuffer
 

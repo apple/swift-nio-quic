@@ -26,7 +26,7 @@ enum TaskTypes {
     case testing
 }
 
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 final class AsyncVerifierTests: XCTestCase {
 
     // MARK: Related tests

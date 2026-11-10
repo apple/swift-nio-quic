@@ -17,7 +17,7 @@ import Testing
 @testable import NIOQUIC
 
 struct QUICStreamEventsTests {
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test func distinctFlagsCombine() {
         var events = QUICStreamEvents.readable
         events.formUnion(.writable)
@@ -26,7 +26,7 @@ struct QUICStreamEventsTests {
         #expect(!events.contains(.closed))
     }
 
-    @available(anyAppleOS 26, *)
+    @available(anyAppleOS 27, *)
     @Test func streamReadyEventsHaveDistinctBits() {
         let all: [QUICStreamEvents] = [
             .opened, .readable, .writable, .reset, .stopSending, .closed,

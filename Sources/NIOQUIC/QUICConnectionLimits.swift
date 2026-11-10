@@ -18,7 +18,7 @@
 /// 1,000 new connections per second. Each handler enforces its limits on its own, so a server
 /// with several handlers (for example one per UDP socket) admits that many per handler. Use
 /// ``unlimited`` to admit every connection.
-@available(anyAppleOS 26, *)
+@available(anyAppleOS 27, *)
 public struct QUICConnectionLimits: Sendable {
 
     enum Mode {
