@@ -198,6 +198,17 @@ public final class AsyncVerifier: Sendable {
             return
         }
 
+        // RFC 5280, Section 4.2.1.12.: "If the extension is present, then the certificate MUST only be used for one
+        // of the purposes indicated." We authenticate a server, so if the leaf has an extended key usage extension,
+        // it must contain serverAuth unless the CA specified "anyExtendedKeyUsage". The Security framework backend
+        // enforces this via the SSL policy, but swift-certificates' RFC5280Policy does not check key usages.
+        if let extendedKeyUsage = try? leaf.extensions.extendedKeyUsage, !extendedKeyUsage.contains(.any) {
+            guard extendedKeyUsage.contains(.serverAuth) else {
+                deliverResult?(.invalid(reason: "certificate does not allow server authentication"))
+                return
+            }
+        }
+
         let verificationResult: CertificateVerificationResult
         if self.useSecurityFrameworkVerifier {
             #if canImport(Darwin)

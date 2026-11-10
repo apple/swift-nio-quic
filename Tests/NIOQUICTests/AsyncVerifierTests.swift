@@ -579,6 +579,70 @@ final class AsyncVerifierTests: XCTestCase {
         }
     }
 
+    func testAsyncAuthenticatorRejectsClientAuthOnlyExtendedKeyUsage() async throws {
+        let (rootCert, rootKey) = try makeCertificate(commonName: "test-root")
+        let (intermediateCert, intermediateKey) = try makeCertificate(
+            commonName: "test-intermediate",
+            issuer: (rootCert, rootKey),
+            canSign: true
+        )
+        let (leafCert, leafKey) = try makeCertificate(
+            commonName: "test-leaf",
+            issuer: (intermediateCert, intermediateKey),
+            canSign: false,
+            extendedKeyUsages: [.clientAuth]  // <-- not usable as a server certificate
+        )
+
+        let trustStore = [rootCert]
+        let clientCertificates = [
+            try Data(leafCert.serializeAsPEM().derBytes),
+            try Data(intermediateCert.serializeAsPEM().derBytes),
+        ]
+
+        // Produce signature data.
+        let signatureAlgorithm = leafKey.supportedSignatureAlgorithms.first!
+        let transcriptHashData = Data(repeating: 14, count: 20)
+        let signatureData = try leafKey.sign(bytes: transcriptHashData, signatureAlgorithm: signatureAlgorithm)
+
+        let verifier = try AsyncVerifier(trustRoots: trustStore)
+
+        await withTaskGroup(of: TaskTypes.self) { group in
+            group.addTask {
+                await verifier.run()
+                return .authentication
+            }
+            group.addTask {
+                let callback = verifier.makeCallback(hostname: "test-leaf")
+                let result = await withCheckedContinuation { continuation in
+                    var verificationInfo = VerificationInfo(
+                        certificates: CertificateList(type: .x509, entries: clientCertificates),
+                        signatureAlgorithm: try! signatureAlgorithm.rfc8446SignatureSchemeValue,
+                        signature: Data(signatureData.rawRepresentation),
+                        transcriptHash: transcriptHashData
+                    )
+                    verificationInfo.deliverResult = { result in
+                        continuation.resume(returning: result)
+                    }
+                    let status = callback(verificationInfo)
+                    XCTAssertEqual(status, .waiting)
+                }
+                switch result {
+                case .waiting:
+                    XCTFail("deliverResult cannot return .waiting.")
+                case .invalid:
+                    // Yes. The extended key usage does not allow server authentication.
+                    break
+                case .valid:
+                    XCTFail("A certificate with only clientAuth extended key usage must not authenticate a server.")
+                }
+                return .testing
+            }
+            let taskType = await group.next()  // Result from test
+            XCTAssertEqual(taskType, .testing)
+            group.cancelAll()
+        }
+    }
+
     // MARK: Additional trust roots
 
     func testAdditionalTrustRootsHappyPath() async throws {
