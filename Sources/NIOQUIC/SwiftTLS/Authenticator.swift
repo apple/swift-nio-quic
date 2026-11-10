@@ -65,7 +65,7 @@ public final class Authenticator: Sendable {
         }
 
         // RFC 8446, Section 4.4.2.2.: "the digitalSignature bit MUST be set if the Key Usage extension is present"
-        if let keyUsage = try? leaf.extensions.keyUsage {
+        if let keyUsage = try leaf.extensions.keyUsage {
             guard keyUsage.digitalSignature else {
                 throw QUICError.certificateNotSuitableForAuthentication
             }
