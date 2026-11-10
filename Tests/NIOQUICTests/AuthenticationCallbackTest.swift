@@ -73,6 +73,18 @@ struct AuthenticationCallbackTest {
         #expect(throws: Never.self) {
             _ = try Authenticator(certificates: [leafCertClientAuthAny], privateKey: leafKeyClientAuthAny)
         }
+
+        // extended key usage: client auth twice, which swift-certificates refuses to decode
+        let (leafCertDuplicateClientAuth, leafKeyDuplicateClientAuth) = try makeCertificate(
+            commonName: "test-leaf",
+            issuer: (intermediateCert, intermediateKey),
+            canSign: false,
+            extendedKeyUsages: [.clientAuth, .clientAuth]
+        )
+        let error = try #require(throws: CertificateError.self) {
+            _ = try Authenticator(certificates: [leafCertDuplicateClientAuth], privateKey: leafKeyDuplicateClientAuth)
+        }
+        #expect(error.code == .duplicateOID)
     }
 
     @available(anyAppleOS 27, *)

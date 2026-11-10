@@ -58,14 +58,14 @@ public final class Authenticator: Sendable {
         // "If a CA includes extended key usages to satisfy such applications, but does not wish to restrict usages of the key, the CA can include the special KeyPurposeId anyExtendedKeyUsage in addition to the particular key purposes required by the applications."
         //
         // It would be RFC conformant to require a specific extended key usage to be present ("Certificate using applications MAY require that the extended key usage extension be present and that a particular purpose be indicated in order for the certificate to be acceptable to that application."), but I'm not sure if we should.
-        if let keyUsageExtension = try? leaf.extensions.extendedKeyUsage, !keyUsageExtension.contains(.any) {
+        if let keyUsageExtension = try leaf.extensions.extendedKeyUsage, !keyUsageExtension.contains(.any) {
             guard keyUsageExtension.contains(.serverAuth) else {
                 throw QUICError.certificateNotSuitableForAuthentication
             }
         }
 
         // RFC 8446, Section 4.4.2.2.: "the digitalSignature bit MUST be set if the Key Usage extension is present"
-        if let keyUsage = try? leaf.extensions.keyUsage {
+        if let keyUsage = try leaf.extensions.keyUsage {
             guard keyUsage.digitalSignature else {
                 throw QUICError.certificateNotSuitableForAuthentication
             }

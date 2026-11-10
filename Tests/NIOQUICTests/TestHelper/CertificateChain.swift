@@ -34,6 +34,16 @@ func makeCertificate(
             CommonName(cn)
         }
         let issuerName = issuerCert.subject
+        // Encoded by hand, because `ExtendedKeyUsage` refuses duplicate usages and tests need to produce them.
+        let extendedKeyUsage = try extendedKeyUsages.map { usages in
+            var serializer = DER.Serializer()
+            try serializer.serializeSequenceOf(usages.map { ASN1ObjectIdentifier($0) })
+            return Certificate.Extension(
+                oid: .X509ExtensionID.extendedKeyUsage,
+                critical: false,
+                value: serializer.serializedBytes[...]
+            )
+        }
         // Configure extensions for intermediate CA
         let extensions: Certificate.Extensions
         if canSign {
@@ -51,19 +61,15 @@ func makeCertificate(
                     keyIdentifier: issuerCert.extensions.subjectKeyIdentifier?
                         .keyIdentifier
                 )
-                if let extendedKeyUsages {
-                    try ExtendedKeyUsage(
-                        extendedKeyUsages
-                    )
+                if let extendedKeyUsage {
+                    extendedKeyUsage
                 }
             }
         } else {
             extensions = try Certificate.Extensions {
                 BasicConstraints.notCertificateAuthority
-                if let extendedKeyUsages {
-                    try ExtendedKeyUsage(
-                        extendedKeyUsages
-                    )
+                if let extendedKeyUsage {
+                    extendedKeyUsage
                 }
                 SubjectAlternativeNames([
                     .dnsName(cn),
