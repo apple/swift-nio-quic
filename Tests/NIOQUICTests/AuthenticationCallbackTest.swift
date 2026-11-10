@@ -81,9 +81,10 @@ struct AuthenticationCallbackTest {
             canSign: false,
             extendedKeyUsages: [.clientAuth, .clientAuth]
         )
-        #expect(throws: (any Error).self) {
+        let error = try #require(throws: CertificateError.self) {
             _ = try Authenticator(certificates: [leafCertDuplicateClientAuth], privateKey: leafKeyDuplicateClientAuth)
         }
+        #expect(error.code == .duplicateOID)
     }
 
     @available(anyAppleOS 26, *)
