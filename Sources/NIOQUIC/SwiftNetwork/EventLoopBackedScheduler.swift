@@ -84,7 +84,8 @@ final class EventLoopBackedScheduler: NetworkContext.Scheduler {
         if self.eventLoop.inEventLoop {
             self.eventLoop.assumeIsolatedUnsafeUnchecked().execute(stackTask)
         } else {
-            // Remove once this has landed: https://github.com/apple/swift-network-evolution/pull/36
+            // `Scheduler.runImmediate` hands over a non-Sendable task. It only runs on the event loop, like all
+            // other stack work; SwiftNetwork's own scheduler rests on the same guarantee.
             let transfer = UnsafeTransfer(stackTask)
             self.eventLoop.execute {
                 let value = transfer.wrappedValue
