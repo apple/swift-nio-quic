@@ -97,19 +97,24 @@ public struct InitialPacketSize: Sendable, Hashable {
         Self(kind: .matchingClientInitial(maximum: maximum))
     }
 
+    /// The smallest maximum datagram size RFC 9000 allows (Section 14).
+    private static let minimumSize = 1200
+
     /// The packet size to configure a connection with.
+    ///
+    /// At least ``minimumSize``: SwiftNetwork applies smaller values to every path but the first.
     ///
     /// - Parameter clientInitialSize: The size of the datagram that carried the client's first
     ///   Initial packet, or `nil` on the client.
     func size(forClientInitial clientInitialSize: Int?) -> Int {
         switch self.kind {
         case .fixed(let size):
-            return size
+            return max(size, Self.minimumSize)
         case .matchingClientInitial(let maximum):
             if let clientInitialSize {
-                return min(clientInitialSize, maximum)
+                return max(min(clientInitialSize, maximum), Self.minimumSize)
             }
-            return 1200
+            return Self.minimumSize
         }
     }
 }
