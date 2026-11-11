@@ -1132,8 +1132,6 @@ final class QUICChannelStreamHandler: ExternalInboundStreamLinkage, @unchecked S
         return readDataCount
     }
 
-    // TODO: Workaround compiler crash while evaluating request ExecuteSILPipelineRequest
-    @_optimize(none)
     func shutdownStream(
         direction: StreamShutdownDirection,
         applicationErrorCode: QUICApplicationErrorCode?,
