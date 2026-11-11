@@ -177,7 +177,6 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
         // to do an explicit drain anyway so no need for an out-of-band write.
         self.setOutboundBatching(false)
         self.inReadLoop = false
-        self.streamTable?.inReadLoop = false
     }
 
     internal func setOutboundBatching(_ enabled: Bool) {
