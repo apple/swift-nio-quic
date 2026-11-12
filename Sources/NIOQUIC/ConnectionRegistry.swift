@@ -33,6 +33,9 @@ struct ConnectionRegistry<Value> {
     /// can't be specialized, and routing a datagram would hash twice.
     private var connections: [Value]
     /// The handle of the connection in each slot.
+    ///
+    /// Not stored with the connections: an array of `(handle, value)` tuples would need the tuple's
+    /// metadata, looked up at run time, for every access.
     private var handles: [ConnectionHandle]
     /// The slot of each connection, by handle.
     private var slots: [ConnectionHandle: Int]
@@ -209,7 +212,7 @@ extension ConnectionRegistry where Value: QUICConnectionRegistryView {
         }
 
         let allCompleteFuture = EventLoopFuture.andAllComplete(futures, on: eventLoop)
-        let connectionsSnapshot = Array(self.values)
+        let connectionsSnapshot = self.values
         let race = ShutdownRace()
 
         // Start a timeout which races with the connections closing before the deadline.

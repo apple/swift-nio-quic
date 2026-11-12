@@ -250,8 +250,10 @@ struct ConnectionRegistryTests {
         #expect(registry[ids[3]] == "third")
         #expect(registry.retire(ids[3], from: third) == true)
         #expect(registry[ids[3]] == nil)
+        // Now "second" moves into the first slot.
         #expect(registry.remove(third) == "third")
         #expect(registry[ids[2]] == nil)
+        #expect(registry[ids[1]] == "second")
         #expect(registry.values == ["second"])
     }
 }
