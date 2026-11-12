@@ -30,3 +30,33 @@ extension P256.Signing.PublicKey {
         return try .init(derRepresentation: Array(data))
     }
 }
+
+/// The keys a configuration's `.rawPublicKeys` settings name, read from their DER files.
+@available(anyAppleOS 27, *)
+struct RawPublicKeys: Sendable {
+    /// A server's public key, as DER, and its private key, from `authenticationConfiguration`.
+    var server: (publicKey: [UInt8], privateKey: [UInt8])?
+
+    /// The server public key a client trusts, as DER, from `verificationConfiguration`.
+    var trustedByClient: [UInt8]?
+
+    /// Reads the key files `configuration` names. Configurations without raw public keys read nothing.
+    init(configuration: QUICConfiguration) throws {
+        switch configuration.authenticationConfiguration {
+        case .rawPublicKeys(let publicKeyFilePath, let privateKeyFilePath):
+            self.server = (
+                publicKey: Array(try P256.Signing.PublicKey.fromDERFile(publicKeyFilePath).derRepresentation),
+                privateKey: Array(try P256.Signing.PrivateKey.fromDERFile(privateKeyFilePath).rawRepresentation)
+            )
+        case .x509Certificates, nil:
+            self.server = nil
+        }
+
+        switch configuration.verificationConfiguration {
+        case .rawPublicKeys(let publicKeyFilePath):
+            self.trustedByClient = Array(try P256.Signing.PublicKey.fromDERFile(publicKeyFilePath).derRepresentation)
+        case .x509Certificates, nil:
+            self.trustedByClient = nil
+        }
+    }
+}

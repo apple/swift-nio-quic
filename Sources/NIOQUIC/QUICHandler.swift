@@ -120,6 +120,8 @@ public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
     private var asyncVerifierRunner: AsyncVerifierRunner?
     /// Provide certificates and signature to authenticate.
     private var authenticator: Authenticator?
+    /// The keys of the configuration's raw public key settings, once a connection has read them.
+    private var rawPublicKeys: RawPublicKeys?
     /// Makes a consumer for a given connection, `nil` if stream channels are used.
     private let makeConsumer: ((QUICStreamConnection<Consumer>) -> Consumer)?
 
@@ -127,6 +129,17 @@ public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
         let handle = self.connectionHandle
         self.connectionHandle.formNext()
         return handle
+    }
+
+    /// The keys of the configuration's raw public key settings. Read from disk once: until a read
+    /// succeeds, each new connection tries again.
+    private func loadRawPublicKeys() throws -> RawPublicKeys {
+        if let rawPublicKeys = self.rawPublicKeys {
+            return rawPublicKeys
+        }
+        let rawPublicKeys = try RawPublicKeys(configuration: self.quicConfiguration)
+        self.rawPublicKeys = rawPublicKeys
+        return rawPublicKeys
     }
 
     /// Initialises a new QUIC handler.
@@ -162,6 +175,7 @@ public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
             self.asyncVerifierRunner = .init(asyncVerifier: asyncVerifier)
         }
         self.authenticator = authenticator
+        self.rawPublicKeys = nil
         self.connectionHandle = .initial
         self.connectionRegistry = ConnectionRegistry()
         self.makeConsumer = makeConsumer
@@ -255,6 +269,7 @@ public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
                 statelessResetTokenGenerator: self.statelessResetTokenGenerator,
                 serverName: serverName,
                 asyncVerifier: asyncVerifierRunner?.asyncVerifier,
+                rawPublicKeys: self.loadRawPublicKeys(),
                 localAddress: localAddress,
                 remoteAddress: remoteAddress,
                 eventLoop: self.context!.eventLoop,
@@ -966,6 +981,7 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
                 sourceConnectionID: newSourceConnectionID,
                 statelessResetTokenGenerator: self.statelessResetTokenGenerator,
                 authenticator: self.authenticator,
+                rawPublicKeys: self.loadRawPublicKeys(),
                 localAddress: localAddress,
                 remoteAddress: addressedEnvelope.remoteAddress,
                 logger: connectionLogger,

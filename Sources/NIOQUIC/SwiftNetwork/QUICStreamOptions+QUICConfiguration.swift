@@ -12,7 +12,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-import Crypto
 @_spi(Essentials) @_spi(ProtocolProvider) import SwiftNetwork
 @_spi(SwiftTLSOptions) @_spi(SwiftTLSProtocol) import SwiftTLS
 
@@ -62,6 +61,7 @@ extension TLSProtocol.Options {
         from config: QUICConfiguration,
         authConfig: AuthenticationConfiguration,
         authenticator: Authenticator?,
+        rawPublicKeys: RawPublicKeys,
         serverName: String
     ) throws -> Self {
         var options = SwiftTLSProtocol.Options()
@@ -80,12 +80,12 @@ extension TLSProtocol.Options {
                 signTranscriptHash: authenticator.provideSignature(info:)
             )
 
-        case .rawPublicKeys(let publicKeyFilePath, let privateKeyFilePath):
-            let publicKey = try P256.Signing.PublicKey.fromDERFile(publicKeyFilePath)
-            options.trustedRawPublicKeyCertificates = [Array(publicKey.derRepresentation)]
-
-            let privateKey = try P256.Signing.PrivateKey.fromDERFile(privateKeyFilePath)
-            options.rawPrivateKey = Array(privateKey.rawRepresentation)
+        case .rawPublicKeys:
+            guard let keys = rawPublicKeys.server else {
+                throw QUICError.tlsConfigurationIncomplete
+            }
+            options.trustedRawPublicKeyCertificates = [keys.publicKey]
+            options.rawPrivateKey = keys.privateKey
         }
 
         return options
@@ -94,6 +94,7 @@ extension TLSProtocol.Options {
     static func clientOptions(
         from config: QUICConfiguration,
         asyncVerifier: AsyncVerifier?,
+        rawPublicKeys: RawPublicKeys,
         serverName: String
     ) throws -> Self {
         var options = SwiftTLSProtocol.Options()
@@ -103,9 +104,11 @@ extension TLSProtocol.Options {
 
         if let verificationConfiguration = config.verificationConfiguration {
             switch verificationConfiguration {
-            case .rawPublicKeys(let publicKeyFilePath):
-                let publicKey = try P256.Signing.PublicKey.fromDERFile(publicKeyFilePath)
-                options.trustedRawPublicKeyCertificates = [Array(publicKey.derRepresentation)]
+            case .rawPublicKeys:
+                guard let publicKey = rawPublicKeys.trustedByClient else {
+                    throw QUICError.tlsConfigurationIncomplete
+                }
+                options.trustedRawPublicKeyCertificates = [publicKey]
 
             case .x509Certificates:
                 if let asyncVerifier {

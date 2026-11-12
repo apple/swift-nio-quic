@@ -781,8 +781,8 @@ final class QUICHandlerTests: XCTestCase {
     }
 
     func testChannelRead_whenConnectionCreationFails_releasesItsAdmissionSlots() throws {
-        // The server reads its key files for every new connection, so while they're missing,
-        // creating a connection fails after it has already been admitted.
+        // Until the server has read its key files, it reads them for every new connection. So while
+        // they're missing, creating a connection fails after it has already been admitted.
         let keyDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: keyDirectory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: keyDirectory) }
@@ -814,6 +814,41 @@ final class QUICHandlerTests: XCTestCase {
         let accepted = QUICConnectionID.random(using: &self.randomNumberGenerator)
         try self.fireInitial(accepted, on: channel)
         XCTAssertTrue(try self.isRoutable(accepted, on: channel))
+    }
+
+    func testChannelRead_readsTheKeyFilesOnce() throws {
+        let keyDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: keyDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: keyDirectory) }
+        let publicKeyPath = keyDirectory.appendingPathComponent("publicKey.der").path
+        let privateKeyPath = keyDirectory.appendingPathComponent("privateKey.der").path
+        try FileManager.default.copyItem(atPath: Self.testPublicKeyPath, toPath: publicKeyPath)
+        try FileManager.default.copyItem(atPath: Self.testPrivateKeyPath, toPath: privateKeyPath)
+
+        let eventLoop = EmbeddedEventLoop()
+        let channel = EmbeddedChannel(loop: eventLoop)
+        channel.localAddress = try SocketAddress(ipAddress: "127.0.0.0", port: 1234)
+        let handler = try Self.makeHandler(
+            channel: channel,
+            channelHandler: NIOLoopBound(MockChannelHandler(), eventLoop: eventLoop),
+            connectionIDLength: Int(QUICConnectionID.randomIDLength),
+            publicKeyPath: publicKeyPath,
+            privateKeyPath: privateKeyPath
+        )
+        try channel.pipeline.syncOperations.addHandler(handler)
+        defer { _ = try? channel.finish() }
+
+        let first = QUICConnectionID.random(using: &self.randomNumberGenerator)
+        try self.fireInitial(first, on: channel)
+        XCTAssertTrue(try self.isRoutable(first, on: channel))
+
+        // The second connection uses the keys the first one read.
+        try FileManager.default.removeItem(atPath: publicKeyPath)
+        try FileManager.default.removeItem(atPath: privateKeyPath)
+
+        let second = QUICConnectionID.random(using: &self.randomNumberGenerator)
+        try self.fireInitial(second, on: channel)
+        XCTAssertTrue(try self.isRoutable(second, on: channel))
     }
 }
 

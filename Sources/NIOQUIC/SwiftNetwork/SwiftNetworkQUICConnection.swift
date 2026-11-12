@@ -244,6 +244,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
     ///         sent along with new connection IDs.
     ///     - serverName: The server name of the peer used to verify the peer's certificate.
     ///     - asyncVerifier: Verifies the server identity when using X509-based auth.
+    ///     - rawPublicKeys: The keys of `configuration`'s raw public key settings.
     ///     - localAddress: The socket address we are sending from.
     ///     - remoteAddress: The socket address of the peer.
     ///     - eventLoop:  EventLoop to schedule events on inside of SwiftQUIC
@@ -254,6 +255,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
         statelessResetTokenGenerator: any QUICStatelessResetToken.Generator,
         serverName: String?,
         asyncVerifier: AsyncVerifier?,
+        rawPublicKeys: RawPublicKeys,
         localAddress: SocketAddress,
         remoteAddress: SocketAddress,
         eventLoop: any EventLoop,
@@ -275,6 +277,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
             remoteAddress: remoteAddress,
             eventLoop: eventLoop,
             mode: .client(asyncVerifier),
+            rawPublicKeys: rawPublicKeys,
             logger: logger,
             usesStreamTable: usesStreamTable
         )
@@ -292,6 +295,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
     ///     - statelessResetTokenGenerator: Generator for stateless reset tokens that will
     ///         sent along with new connection IDs.
     ///     - authenticator: Authenticates the server when using X509 certificates.
+    ///     - rawPublicKeys: The keys of `configuration`'s raw public key settings.
     ///     - localAddress: The remote socket address of the peer
     ///     - remoteAddress: The socket address of the peer.
     ///     - logger: Logger to log events
@@ -301,6 +305,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
         sourceConnectionID: QUICConnectionID,
         statelessResetTokenGenerator: any QUICStatelessResetToken.Generator,
         authenticator: Authenticator?,
+        rawPublicKeys: RawPublicKeys,
         localAddress: SocketAddress,
         remoteAddress: SocketAddress,
         logger: Logger,
@@ -320,6 +325,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
             remoteAddress: remoteAddress,
             eventLoop: eventLoop,
             mode: .server(authenticator),
+            rawPublicKeys: rawPublicKeys,
             logger: logger,
             usesStreamTable: usesStreamTable
         )
@@ -339,6 +345,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
         remoteAddress: SocketAddress,
         eventLoop: any EventLoop,
         mode: Mode,
+        rawPublicKeys: RawPublicKeys,
         logger: Logger,
         usesStreamTable: Bool
     ) throws {
@@ -376,6 +383,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
             quicOptions.tlsOptions = try .clientOptions(
                 from: configuration,
                 asyncVerifier: asyncVerifier,
+                rawPublicKeys: rawPublicKeys,
                 serverName: serverName
             )
 
@@ -390,6 +398,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
                 from: configuration,
                 authConfig: authConfig,
                 authenticator: authenticator,
+                rawPublicKeys: rawPublicKeys,
                 serverName: serverName
             )
         }
