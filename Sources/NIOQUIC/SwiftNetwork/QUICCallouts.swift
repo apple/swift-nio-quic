@@ -131,6 +131,7 @@ final class QUICCallouts {
     func run() {
         #if DEBUG
         assert(!self.isInsideStack, "Queued callouts run only once the event context is released")
+        assert(self.hasQueued == !self.queue.isEmpty, "hasQueued drifted from the queue")
         #endif
         if self.hasQueued {
             self.runQueued()
