@@ -252,8 +252,9 @@ extension QUICStreamTable where Consumer: ~Copyable {
         guard let transport = self._transportStates.pointer(for: handle) else {
             preconditionFailure("slot for \(handle) was recycled while its flow was attaching")
         }
+        assert(!transport.pointee.handlesStackEvents, "A stream attaches to one flow, once")
         transport.pointee.core.attach(identifier: identifier, linkage: linkage)
-        transport.pointee.isAttached = true
+        transport.pointee.handlesStackEvents = true
     }
 
     /// Records the ID the stack assigned, indexes it, and connects the stream's state machine.
@@ -341,7 +342,7 @@ extension QUICStreamTable where Consumer: ~Copyable {
 extension QUICStreamTable where Consumer: ~Copyable {
     /// The transport state of `handle`'s stream, if the stack's events for it are handled.
     private func attachedTransport(for handle: QUICStreamHandle) -> UnsafeMutablePointer<QUICStreamTransportState>? {
-        if let transport = self._transportStates.pointer(for: handle), transport.pointee.isAttached {
+        if let transport = self._transportStates.pointer(for: handle), transport.pointee.handlesStackEvents {
             return transport
         } else {
             return nil
@@ -612,7 +613,7 @@ extension QUICStreamTable where Consumer: ~Copyable {
 
         // Before closing: closing can deliver the stream's events synchronously, and they must
         // find nothing.
-        transport.pointee.isAttached = false
+        transport.pointee.handlesStackEvents = false
 
         // Close in case it isn't already (close is idempotent).
         let error = transport.pointee.disconnectError
@@ -651,7 +652,7 @@ extension QUICStreamTable where Consumer: ~Copyable {
         // other streams', and they must find nothing.
         var index = QUICStreamHandle.Index.first
         while index.rawValue < self._transportStates.allocated {
-            self._transportStates.pointer(at: index)?.pointee.isAttached = false
+            self._transportStates.pointer(at: index)?.pointee.handlesStackEvents = false
             index.advance()
         }
 

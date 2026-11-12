@@ -721,7 +721,9 @@ struct QUICStreamTableTests {
     }
 
     /// A consumer may stop pulling, so `closeAll` tears the streams it didn't pull down all at once.
-    /// Events the stack delivers meanwhile must find nothing.
+    /// Events the stack delivers meanwhile must find nothing. This covers a stream's own disconnect,
+    /// which reads the slot store while the teardown runs, so it must not trap; the next test covers
+    /// events for another stream.
     @available(anyAppleOS 27, *)
     @Test
     func eventsDeliveredWhileAllSlotsAreTornDownAreDropped() {

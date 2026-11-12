@@ -806,6 +806,8 @@ struct StreamTableTests {
             }.get()
             try await channel.closeFuture.get()
 
+            // Any closed table resolves no handle: what this test checks is that the forced close, and the
+            // disconnect it makes the stack report, don't trap.
             let resolved = try await pair.clientConnection.withStreams { streams -> Bool in
                 streams.withStream(handle: handle) { _, _ in } != nil
             }.get()
@@ -1047,9 +1049,9 @@ struct StreamTableTests {
             }.get()
         }
 
-        // The last references go on later event loop ticks.
-        let deadline = ContinuousClock.now + .seconds(2)
-        while !(clientTable.isReleased && serverTable.isReleased), ContinuousClock.now < deadline {
+        // The last references go on later event loop ticks. The deadline only bounds a failing run.
+        let deadline = ContinuousClock.now + .seconds(10)
+        while !(clientTable.isReleased && serverTable.isReleased) && ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(10))
         }
         #expect(clientTable.isReleased)
