@@ -116,9 +116,10 @@ final class QUICChannelStreamHandler: ExternalInboundStreamLinkage, @unchecked S
     private var pendingRead: Bool = false
 
     /// Whether the stack may hold something for a read to pull or surface: inbound bytes, or a FIN or a reset not
-    /// yet reported. Every event that can bring either sets it, and a pull that finds the stack empty clears it.
+    /// yet reported. Every event that can bring either sets it, as does connecting, which replays a FIN that came
+    /// before the stream's ID, and a pull that finds the stack empty clears it.
     /// While it's clear, a read has nothing to pull, and the next such event serves the pending read.
-    private var mayHaveInput: Bool = true
+    private var stackMayHaveInput: Bool = true
 
     /// Whether the `autoRead` channel option is enabled. This value is inherited from the parent connection channel.
     /// When `true`, `self.pipeline.read()` is called after every `channelReadComplete` to keep data flowing.
@@ -337,7 +338,7 @@ final class QUICChannelStreamHandler: ExternalInboundStreamLinkage, @unchecked S
         for instance: InstanceIdentifier,
         in eventContext: inout NetworkContext.EventContext
     ) {
-        self.mayHaveInput = true
+        self.stackMayHaveInput = true
         if let error, let applicationErrorCode = error.quicApplicationError, applicationErrorCode >= 0 {
             self.log("Received reset stream error", metadata: ["applicationErrorCode": "\(applicationErrorCode)"])
             // applicationErrorCode comes from the wire as a QUIC variable-length
@@ -710,7 +711,7 @@ final class QUICChannelStreamHandler: ExternalInboundStreamLinkage, @unchecked S
         in eventContext: inout NetworkContext.EventContext
     ) {
         self.log("handleDisconnectedEvent error: \(String(describing: error))")
-        self.mayHaveInput = true
+        self.stackMayHaveInput = true
         switch self.swiftNetworkStreamHandle.invokeDetach() {
         case .proceed(let linkage, let identifier):
             do throws(NetworkError) {
@@ -767,15 +768,14 @@ final class QUICChannelStreamHandler: ExternalInboundStreamLinkage, @unchecked S
 
         // Pull the latest bytes out of SwiftNetwork into `self.bufferedReadData`, until a pull finds nothing: then
         // the next read knows there's nothing to pull until another event.
+        // One pull takes everything today, but nothing promises it.
         var bytesRead = 0
-        while true {
-            let pulled = self.read(in: &eventContext)
-            if pulled == 0 {
-                break
-            }
+        var pulled = 0
+        repeat {
+            pulled = self.read(in: &eventContext)
             bytesRead += pulled
-        }
-        self.mayHaveInput = false
+        } while pulled > 0
+        self.stackMayHaveInput = false
         if bytesRead > 0 {
             self.log("buffered \(bytesRead) bytes from inbound data available event")
         }
@@ -790,7 +790,7 @@ final class QUICChannelStreamHandler: ExternalInboundStreamLinkage, @unchecked S
         for instance: InstanceIdentifier,
         in eventContext: inout NetworkContext.EventContext
     ) {
-        self.mayHaveInput = true
+        self.stackMayHaveInput = true
         switch self.streamStateMachine.inboundDataAvailable() {
         case .readData:
             self.log("received input room available")
@@ -886,6 +886,7 @@ final class QUICChannelStreamHandler: ExternalInboundStreamLinkage, @unchecked S
     ) {
         self.eventLoop.preconditionInEventLoop()
         log("connected")
+        self.stackMayHaveInput = true
 
         guard let metadata: ProtocolMetadata<QUICProtocol> = self.getStreamMetadata(in: &eventContext) else {
             self.logger.error("connected stream does not have access to metadata")
@@ -1438,7 +1439,7 @@ extension QUICChannelStreamHandler: Channel, ChannelCore {
         self.pendingRead = true
         // Entering the stack would find nothing: the event that brings something serves the read instead. This
         // spares the read that auto-read issues right after a delivery, which already pulled everything.
-        if !self.mayHaveInput && self.bufferedReadData.readableBytes == 0 {
+        if !self.stackMayHaveInput && self.bufferedReadData.readableBytes == 0 {
             return
         }
         // Try to satisfy the read immediately if there is data already buffered in SwiftNetwork.
