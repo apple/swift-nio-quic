@@ -51,6 +51,9 @@ final class QUICCallouts {
     #if DEBUG
     /// How many of ``enter(as:_:)``, ``callFramework(_:)`` and scheduler tasks are running.
     private var stackDepth: Int
+
+    /// How many times the stack was entered, for tests.
+    private(set) var _forTesting_entryCount: Int
     #endif
 
     init() {
@@ -58,6 +61,7 @@ final class QUICCallouts {
         self.hasQueued = false
         #if DEBUG
         self.stackDepth = 0
+        self._forTesting_entryCount = 0
         #endif
     }
 
@@ -160,6 +164,7 @@ final class QUICCallouts {
         assert(!self.isInsideStack, "Entering the stack while it may hold the event context")
         assert(self.queue.isEmpty, "Callouts left queued by an earlier stretch inside the stack")
         self.stackDepth += 1
+        self._forTesting_entryCount += 1
         #endif
     }
 

@@ -128,6 +128,26 @@ struct QUICChannelStreamHandlerTests {
     }
 
     @available(anyAppleOS 27, *)
+    @Test("The read auto-read issues after a delivery doesn't enter the stack")
+    func autoReadAfterADeliveryDoesNotEnterTheStack() throws {
+        try Self.withServerStream { streamChannel in
+            let recorder = RecordingHandler()
+            try streamChannel.pipeline.syncOperations.addHandler(recorder)
+            streamChannel.pipeline.read()
+
+            let testData = ByteBuffer(string: "test")
+            streamChannel._testOnly_appendToBufferedReadData(testData)
+            let entriesBefore = streamChannel.callouts._forTesting_entryCount
+            streamChannel.deliverInboundDataAvailableEvent()
+
+            #expect(recorder.events == [.read, .channelRead(testData), .channelReadComplete, .read])
+            // The data event's own entry only: the delivery pulled everything, so the read that follows has
+            // nothing to pull until another event.
+            #expect(streamChannel.callouts._forTesting_entryCount == entriesBefore + 1)
+        }
+    }
+
+    @available(anyAppleOS 27, *)
     @Test("read called after inbound data arrives", arguments: [true, false])
     func readCalledAfterInboundDataArrives(autoRead: Bool) throws {
         try Self.withServerStream { streamChannel in
