@@ -104,6 +104,43 @@ private struct RecordingConsumer: QUICStreamConsumer {
 
 private struct Boom: Error {}
 
+/// Counts how many ``CountedState``s have been released.
+private final class ReleaseCounter {
+    var released = 0
+}
+
+/// A consumer state that reports its release, so tests can see a leak or a double release.
+private final class CountedState {
+    let counter: ReleaseCounter
+
+    init(counter: ReleaseCounter) {
+        self.counter = counter
+    }
+
+    deinit {
+        self.counter.released += 1
+    }
+}
+
+/// Finishes the closed streams it visits, if `finishes` is set, and drops the state it takes.
+@available(anyAppleOS 27, *)
+private struct FinishingConsumer: QUICStreamConsumer {
+    let counter: ReleaseCounter
+    var finishes: Bool
+
+    func makeStreamState(_ stream: inout NIOQUIC.QUICStream<Self>) -> CountedState {
+        CountedState(counter: self.counter)
+    }
+
+    mutating func processStreams(_ streams: inout QUICStreamIterator<Self>) {
+        while let visit = streams.next() {
+            if self.finishes {
+                _ = visit.finish()
+            }
+        }
+    }
+}
+
 @Suite
 struct QUICStreamTableTests {
     @available(anyAppleOS 27, *)
@@ -514,6 +551,33 @@ struct QUICStreamTableTests {
         table.closeAll(error: Boom(), disconnect: nil, into: &consumer)
         #expect(consumer.sightings.count == 1)
         #expect(table.count == 0)
+    }
+
+    @available(anyAppleOS 27, *)
+    @Test
+    func everyStateIsReleasedOnceWhetherFinishedVacatedOrClosed() {
+        let counter = ReleaseCounter()
+        let table = QUICStreamTable<FinishingConsumer>(role: .client)
+        var consumer = FinishingConsumer(counter: counter, finishes: true)
+
+        // The consumer finishes the first stream and drops its state.
+        let first = table.insertSlot(id: 0, state: nil)
+        table.markReady(handle: first, events: [.readable, .closed])
+        table.drain(into: &consumer)
+        #expect(counter.released == 1)
+
+        // The second stream reuses the slot, and its state is released when the slot is vacated.
+        consumer.finishes = false
+        let second = table.insertSlot(id: 4, state: CountedState(counter: counter))
+        #expect(second.index == first.index)
+        table.markReady(handle: second, events: .closed)
+        table.drain(into: &consumer)
+        #expect(counter.released == 2)
+
+        // The third stream's state goes with the table's close.
+        _ = table.insertSlot(id: 8, state: CountedState(counter: counter))
+        table.closeAll(error: nil, disconnect: nil, into: &consumer)
+        #expect(counter.released == 3)
     }
 
     // MARK: - Opening

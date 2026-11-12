@@ -171,9 +171,7 @@ public struct QUICStreamVisit<Consumer: QUICStreamConsumer & ~Copyable>: ~Copyab
         // The visit is finished but its slot and its handle are still valid. Mark it as not having
         // state so that the stream isn't handed out on another path, for example
         // `QUICStreams.withStream(handle:body:)`.
-        self._transport.pointee.hasState = false
-
-        return self._table._consumerStates.move(at: self.handle.index)
+        return self._table.moveState(of: self._transport, at: self.handle.index)
     }
 }
 

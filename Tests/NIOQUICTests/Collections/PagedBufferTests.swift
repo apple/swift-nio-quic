@@ -139,43 +139,4 @@ struct PagedBufferTests {
             }
         }
     }
-
-    @Test
-    func appendingNilInitializesWholePages() {
-        var buffer = PagedBuffer<Int?>()
-        for _ in 0...200 {
-            buffer.appendNil()
-        }
-
-        // Whole-page operations rely on every slot of an allocated page holding a value, including
-        // the ones past the end which were never handed out.
-        for page in 0..<buffer.pageCount {
-            let base = buffer.basePointer(ofPage: page)
-            for offset in 0..<Page.capacity(ofPage: page) {
-                #expect(base[offset] == nil, "page \(page), slot \(offset)")
-            }
-        }
-
-        buffer.pointer(at: 200).pointee = 7
-        buffer.setAllToNil()
-        #expect(buffer.pointer(at: 200).pointee == nil)
-
-        buffer.deinitializeAll()
-    }
-
-    @Test
-    func appendingNilDoesNotClobberEarlierSlots() {
-        var buffer = PagedBuffer<Int?>()
-        for index in 0..<10 {
-            buffer.appendNil().pointee = index
-        }
-
-        // Slot 3 shares a page with slots the later appends nil-initialized around it.
-        for index in 0..<10 {
-            #expect(buffer.pointer(at: index).pointee == index)
-        }
-
-        #expect(buffer.count == 10)
-        buffer.deinitializeAll()
-    }
 }

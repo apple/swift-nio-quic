@@ -582,8 +582,10 @@ extension QUICStreamTable where Consumer: ~Copyable {
     /// As ``vacateSlot(_:in:)``, but acquires the event context itself, and releases the consumer's
     /// state for the stream only once that acquisition has ended.
     func vacateSlot(_ handle: QUICStreamHandle) {
-        if self._transportStates.containsValue(for: handle) && self._consumerStates.holdsState(at: handle.index) {
-            let state = self._consumerStates.move(at: handle.index)
+        // Two branches rather than one with an optional state: in this unspecialized code, an
+        // optional state would look up its metadata at run time.
+        if let transport = self._transportStates.pointer(for: handle), transport.pointee.hasState {
+            let state = self.moveState(of: transport, at: handle.index)
             self.withEventContext { eventContext in
                 self._remove(handle: handle, in: &eventContext)
             }
@@ -594,6 +596,17 @@ extension QUICStreamTable where Consumer: ~Copyable {
                 self._remove(handle: handle, in: &eventContext)
             }
         }
+    }
+
+    /// Moves the consumer's state out of the slot `transport` belongs to, which must hold one, and
+    /// marks the slot as holding none.
+    @usableFromInline
+    func moveState(
+        of transport: UnsafeMutablePointer<QUICStreamTransportState>,
+        at index: QUICStreamHandle.Index
+    ) -> Consumer.StreamState {
+        transport.pointee.hasState = false
+        return self._consumerStates.move(at: index)
     }
 
     /// Closes a slot's stream core and vacates the slot.

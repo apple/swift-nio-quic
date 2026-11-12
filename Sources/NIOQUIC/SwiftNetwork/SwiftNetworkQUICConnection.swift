@@ -1227,6 +1227,10 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
     @inlinable
     func drainPacketsToSend(to transport: some QUICTransport) {
         self.activePath.drainPacketsToSend(to: transport)
+        // As in `receivePacketsComplete()`: iterating the array looks up its element type's metadata.
+        if !self.hasOtherPaths {
+            return
+        }
         for path in self.otherPaths {
             path.drainPacketsToSend(to: transport)
             if path.isDetachedBySwiftNetwork {

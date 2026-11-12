@@ -61,7 +61,8 @@ struct QUICStreamConsumerStates<State: ~Copyable>: ~Copyable {
     /// Stores `state` at `index`, which must have been reserved and hold no state.
     @inlinable
     mutating func initialize(at index: QUICStreamHandle.Index, to state: consuming State) {
-        assert(!self._holdsState[index.rawValue], "slot \(index.rawValue) already holds a state")
+        // Initializing over a state would leak it.
+        precondition(!self._holdsState[index.rawValue], "slot \(index.rawValue) already holds a state")
         self._storage.pointer(at: index.rawValue).initialize(to: state)
         self._holdsState[index.rawValue] = true
     }
@@ -69,14 +70,16 @@ struct QUICStreamConsumerStates<State: ~Copyable>: ~Copyable {
     /// The state at `index`, which must hold one.
     @inlinable
     func pointer(at index: QUICStreamHandle.Index) -> UnsafeMutablePointer<State> {
-        assert(self._holdsState[index.rawValue], "slot \(index.rawValue) holds no state")
+        // A slot without a state is uninitialized memory.
+        precondition(self._holdsState[index.rawValue], "slot \(index.rawValue) holds no state")
         return self._storage.pointer(at: index.rawValue)
     }
 
     /// Moves the state out of `index`, which must hold one.
     @inlinable
     mutating func move(at index: QUICStreamHandle.Index) -> State {
-        assert(self._holdsState[index.rawValue], "slot \(index.rawValue) holds no state")
+        // A slot without a state is uninitialized memory.
+        precondition(self._holdsState[index.rawValue], "slot \(index.rawValue) holds no state")
         self._holdsState[index.rawValue] = false
         return self._storage.pointer(at: index.rawValue).move()
     }

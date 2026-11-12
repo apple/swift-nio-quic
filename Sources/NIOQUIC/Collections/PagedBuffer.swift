@@ -70,8 +70,7 @@ struct PagedBuffer<Value: ~Copyable>: ~Copyable {
     /// Grows the buffer by one slot and returns it, allocating a page if the last one is full.
     ///
     /// The slot's storage is allocated but not initialized. It is the caller's responsibility to
-    /// initialize it. If `Value` is an `Optional` (or expressible by `nil`) then you can grow the
-    /// buffer with `nil`-initialized storage using ``appendNil()``.
+    /// initialize it.
     @inlinable
     @discardableResult
     mutating func append() -> UnsafeMutablePointer<Value> {
@@ -98,47 +97,6 @@ struct PagedBuffer<Value: ~Copyable>: ~Copyable {
         assert(index < self._count, "slot \(index) was never handed out")
         let position = Page.position(of: index)
         return self.basePointer(ofPage: position.pageIndex).advanced(by: position.offset)
-    }
-}
-
-extension PagedBuffer where Value: ExpressibleByNilLiteral & ~Copyable {
-    /// Grows the buffer by one `nil`-initialized slot and returns it.
-    ///
-    /// The rest of any page this allocates is `nil`-initialized too: the whole-page operations
-    /// below rely on every slot of an allocated page holding a value.
-    @inlinable
-    @discardableResult
-    mutating func appendNil() -> UnsafeMutablePointer<Value> {
-        let allocated = self._pages.count
-        let pointer = self.append()
-
-        if self._pages.count > allocated {
-            let page = self.basePointer(ofPage: allocated)
-            for offset in 0..<Page.capacity(ofPage: allocated) {
-                page.advanced(by: offset).initialize(to: nil)
-            }
-        }
-
-        return pointer
-    }
-
-    /// Sets every slot to `nil`.
-    @inlinable
-    func setAllToNil() {
-        for index in self._pages.indices {
-            let page = self.basePointer(ofPage: index)
-            for offset in 0..<Page.capacity(ofPage: index) {
-                page.advanced(by: offset).pointee = nil
-            }
-        }
-    }
-
-    /// Deinitializes every slot of every page.
-    @inlinable
-    func deinitializeAll() {
-        for index in self._pages.indices {
-            self.basePointer(ofPage: index).deinitialize(count: Page.capacity(ofPage: index))
-        }
     }
 }
 
