@@ -634,7 +634,6 @@ struct QUICStreamTableTests {
         let data = Array("hello".utf8)
         let totalLength = data.count
         let firstReadLength = 3
-        assert(firstReadLength < totalLength)
         let secondReadLength = totalLength - firstReadLength
 
         var frame = Frame(copyBuffer: data)
