@@ -37,7 +37,9 @@ protocol QUICTransport {
 extension QUICConnectionChannel where Consumer: ~Copyable {
     enum Transport: QUICTransport {
         case live(QUICHandler<Consumer>.ChildView)
-        case test(any QUICTransport)
+        // Class-bound: an opaque existential would make the enum address-only, so every call through it from
+        // unspecialized code would look up the enum's metadata.
+        case test(any QUICTransport & AnyObject)
 
         func writeDatagram(_ envelope: AddressedEnvelope<ByteBuffer>, promise: EventLoopPromise<Void>?) {
             switch self {

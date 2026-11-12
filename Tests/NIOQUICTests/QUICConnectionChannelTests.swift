@@ -27,9 +27,9 @@ import Testing
 private func makeChannel(
     isServer: Bool = true,
     parent: EmbeddedChannel = EmbeddedChannel(),
-    connection: (any QUICConnectionProtocol)? = nil,
+    connection: (any QUICConnectionProtocol & AnyObject)? = nil,
     registrar: any QUICConnectionIDRegistrar = RecordingRegistrar(),
-    transport: any QUICTransport = RecordingTransport(),
+    transport: any QUICTransport & AnyObject = RecordingTransport(),
     initializer: ((any Channel) -> EventLoopFuture<Void>)? = nil
 ) throws -> QUICConnectionChannel<QUICStreamChannels> {
     let connection = connection ?? NoOpConnection()
@@ -980,7 +980,7 @@ final class RecordingConnection: QUICConnectionProtocol {
 }
 
 @available(anyAppleOS 27, *)
-struct NoOpConnection: QUICConnectionProtocol {
+final class NoOpConnection: QUICConnectionProtocol {
     let localAddress: SocketAddress
     let remoteAddress: SendableAddress
 

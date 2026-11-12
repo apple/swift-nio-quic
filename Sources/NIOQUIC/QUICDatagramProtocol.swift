@@ -52,7 +52,9 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
     /// (statically dispatched) or an existential test conformance.
     enum DatagramTransport {
         case live(QUICDatagramTransport<Consumer>)
-        case test(any QUICDatagramProtocol<SwiftNetworkQUICConnection<Consumer>>)
+        // Class-bound: an opaque existential would make the enum address-only, so every call through it from
+        // unspecialized code would look up the enum's metadata.
+        case test(any QUICDatagramProtocol<SwiftNetworkQUICConnection<Consumer>> & AnyObject)
     }
 }
 

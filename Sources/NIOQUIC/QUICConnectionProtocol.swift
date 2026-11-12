@@ -93,7 +93,9 @@ extension QUICConnectionChannel where Consumer: ~Copyable {
     /// (statically dispatched) or an existential test conformance.
     enum Connection {
         case live(SwiftNetworkQUICConnection<Consumer>)
-        case test(any QUICConnectionProtocol)
+        // Class-bound: an opaque existential would make the enum address-only, so every call through it from
+        // unspecialized code would look up the enum's metadata.
+        case test(any QUICConnectionProtocol & AnyObject)
 
         func withLiveOnly(
             promise: EventLoopPromise<Void>? = nil,
