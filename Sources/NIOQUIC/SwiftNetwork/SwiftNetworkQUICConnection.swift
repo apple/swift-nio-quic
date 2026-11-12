@@ -1815,7 +1815,9 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
         if self.activePath.remoteAddress == remoteAddress {
             return self.activePath
         } else {
-            // Apart, so that the check above, which every datagram makes, doesn't set up the frame this needs.
+            // Kept apart so that the check above, which every datagram makes, doesn't set up the stack frame
+            // `otherPath(for:)` needs. Only the inliner's heuristics keep it out of line: nothing enforces this, so
+            // recheck the release codegen after changing either function.
             return self.otherPath(for: remoteAddress)
         }
     }
