@@ -175,7 +175,6 @@ public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
             self.asyncVerifierRunner = .init(asyncVerifier: asyncVerifier)
         }
         self.authenticator = authenticator
-        self.rawPublicKeys = nil
         self.connectionHandle = .initial
         self.connectionRegistry = ConnectionRegistry()
         self.makeConsumer = makeConsumer

@@ -76,6 +76,25 @@ let privateKeyRSA = """
     """
 
 struct SingingKeysTests {
+    @available(anyAppleOS 27, *)
+    @Test
+    func rawPublicKeysReadOnlyTheHalfForTheRole() throws {
+        var configuration = QUICConfiguration.forServer(
+            serverName: "quic-test.local",
+            authenticationConfiguration: .rawPublicKeys(
+                publicKeyFilePath: p256PublicKeyPath,
+                privateKeyFilePath: p256PrivateKeyPath
+            ),
+            applicationProtocols: []
+        )
+        // A server never verifies with this, so an unreadable path doesn't matter.
+        configuration.verificationConfiguration = .rawPublicKeys(publicKeyFilePath: "/nonexistent/publicKey.der")
+
+        let keys = try RawPublicKeys(configuration: configuration)
+        #expect(keys.server?.publicKey == Array(Data(base64Encoded: publicKeyB64)!))
+        #expect(keys.trustedByClient == nil)
+    }
+
     @available(macOS 11, iOS 14, tvOS 14, watchOS 7, *)
     @Test("Reading private key from disk")
     func readPrivateKey() throws {
