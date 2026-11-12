@@ -226,4 +226,32 @@ struct ConnectionRegistryTests {
 
         #expect(Set(registry.values) == ["first", "second"])
     }
+
+    @available(anyAppleOS 27, *)
+    @Test
+    func removingAConnectionKeepsTheRoutesOfTheOneThatTakesItsPlace() {
+        var registry = ConnectionRegistry<String>()
+        let ids = self.makeConnectionIDs(4)
+        let first = ConnectionHandle.initial
+        let second = first.next()
+        let third = second.next()
+
+        registry.insert("first", forHandle: first, connectionID: ids[0])
+        registry.insert("second", forHandle: second, connectionID: ids[1])
+        registry.insert("third", forHandle: third, connectionID: ids[2])
+        #expect(registry.associate(ids[3], with: third) == true)
+
+        // The last connection, "third", moves into the first one's place.
+        #expect(registry.remove(first) == "first")
+
+        #expect(registry[ids[0]] == nil)
+        #expect(registry[ids[1]] == "second")
+        #expect(registry[ids[2]] == "third")
+        #expect(registry[ids[3]] == "third")
+        #expect(registry.retire(ids[3], from: third) == true)
+        #expect(registry[ids[3]] == nil)
+        #expect(registry.remove(third) == "third")
+        #expect(registry[ids[2]] == nil)
+        #expect(registry.values == ["second"])
+    }
 }

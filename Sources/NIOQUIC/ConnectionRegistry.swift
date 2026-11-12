@@ -26,17 +26,27 @@ struct ConnectionRegistry<Value> {
     // retaining the IDs array each time it's called (which can be frequent, e.g. on writability
     // changes).
 
-    /// Connections, keyed by their handle.
-    private var connections: [ConnectionHandle: Value]
+    /// Connections, in the slots their routes point to. Removing a connection moves the last one
+    /// into its slot.
+    ///
+    /// Slots rather than a dictionary keyed by handle: `Value` is generic, so a lookup by key
+    /// can't be specialized, and routing a datagram would hash twice.
+    private var connections: [Value]
+    /// The handle of the connection in each slot.
+    private var handles: [ConnectionHandle]
+    /// The slot of each connection, by handle.
+    private var slots: [ConnectionHandle: Int]
     /// The IDs for a given connection handle.
     private var connectionIDs: [ConnectionHandle: [QUICConnectionID]]
-    /// The handle each connection ID routes to.
-    private var handles: [QUICConnectionID: ConnectionHandle]
+    /// The slot of the connection each connection ID routes to.
+    private var routes: [QUICConnectionID: Int]
 
     init() {
-        self.connections = [:]
+        self.connections = []
+        self.handles = []
+        self.slots = [:]
         self.connectionIDs = [:]
-        self.handles = [:]
+        self.routes = [:]
     }
 
     /// The number of connections in the registry.
@@ -44,18 +54,18 @@ struct ConnectionRegistry<Value> {
     /// This counts connections, not routes: a connection with `n` connection IDs contributes
     /// `1`, not `n`.
     var count: Int {
-        self.connections.count
+        self.slots.count
     }
 
     /// Every connection in the registry, in no particular order.
-    var values: [ConnectionHandle: Value].Values {
-        self.connections.values
+    var values: [Value] {
+        self.connections
     }
 
     /// Returns the connection `connectionID` routes to, or `nil` if it routes nowhere.
     subscript(connectionID: QUICConnectionID) -> Value? {
-        if let handle = self.handles[connectionID] {
-            return self.connections[handle]
+        if let slot = self.routes[connectionID] {
+            return self.connections[slot]
         } else {
             return nil
         }
@@ -69,11 +79,16 @@ struct ConnectionRegistry<Value> {
     ///   - connectionID: The connection ID the connection is initially routable by. Must not
     ///     already route to a connection.
     mutating func insert(_ value: Value, forHandle handle: ConnectionHandle, connectionID: QUICConnectionID) {
-        precondition(!self.connections.keys.contains(handle), "Handle \(handle) is already registered")
-        precondition(self.handles[connectionID] == nil, "Connection ID \(connectionID) already routes to a connection")
-        self.connections[handle] = value
+        precondition(self.slots[handle] == nil, "Handle \(handle) is already registered")
+        precondition(self.routes[connectionID] == nil, "Connection ID \(connectionID) already routes to a connection")
+
+        let slot = self.connections.count
+        self.connections.append(value)
+        self.handles.append(handle)
+
+        self.slots[handle] = slot
         self.connectionIDs[handle] = [connectionID]
-        self.handles[connectionID] = handle
+        self.routes[connectionID] = slot
     }
 
     /// Adds `connectionID` as another route to the connection identified by `handle`.
@@ -85,10 +100,10 @@ struct ConnectionRegistry<Value> {
     ///   `connectionID` already routes somewhere.
     @discardableResult
     mutating func associate(_ connectionID: QUICConnectionID, with handle: ConnectionHandle) -> Bool {
-        guard self.connections.keys.contains(handle) else { return false }
-        guard self.handles[connectionID] == nil else { return false }
+        guard let slot = self.slots[handle] else { return false }
+        guard self.routes[connectionID] == nil else { return false }
 
-        self.handles[connectionID] = handle
+        self.routes[connectionID] = slot
         // '!' okay: the guard above checked the connection is registered.
         self.connectionIDs[handle]!.append(connectionID)
 
@@ -108,10 +123,10 @@ struct ConnectionRegistry<Value> {
     /// - Complexity: O(*c*) where *c* is the number of connection IDs routing to the connection.
     @discardableResult
     mutating func retire(_ connectionID: QUICConnectionID, from handle: ConnectionHandle) -> Bool {
-        guard self.handles[connectionID] == handle else { return false }
+        guard let slot = self.slots[handle], self.routes[connectionID] == slot else { return false }
 
-        self.handles.removeValue(forKey: connectionID)
-        // '!' okay: a route always points at a registered connection.
+        self.routes.removeValue(forKey: connectionID)
+        // '!' okay: a registered connection always has a list of connection IDs.
         self.connectionIDs[handle]!.removeAll { $0 == connectionID }
 
         return true
@@ -121,17 +136,32 @@ struct ConnectionRegistry<Value> {
     ///
     /// - Parameter handle: The connection to remove.
     /// - Returns: The removed connection, or `nil` if `handle` is unknown.
-    /// - Complexity: O(*c*) where *c* is the number of connection IDs routing to the connection.
+    /// - Complexity: O(*c*) where *c* is the number of connection IDs routing to the connection,
+    ///   and to the connection that moves into its slot.
     @discardableResult
     mutating func remove(_ handle: ConnectionHandle) -> Value? {
-        guard let value = self.connections.removeValue(forKey: handle) else { return nil }
+        guard let slot = self.slots.removeValue(forKey: handle) else { return nil }
 
         // '!' okay: a registered connection always has a list of connection IDs.
         for connectionID in self.connectionIDs.removeValue(forKey: handle)! {
-            self.handles.removeValue(forKey: connectionID)
+            self.routes.removeValue(forKey: connectionID)
         }
 
-        return value
+        // Move the last connection into the slot, and its routes with it.
+        let lastSlot = self.connections.count - 1
+        if slot != lastSlot {
+            self.connections.swapAt(slot, lastSlot)
+            self.handles.swapAt(slot, lastSlot)
+
+            let moved = self.handles[slot]
+            self.slots[moved] = slot
+            // '!' okay: a registered connection always has a list of connection IDs.
+            for connectionID in self.connectionIDs[moved]! {
+                self.routes[connectionID] = slot
+            }
+        }
+        self.handles.removeLast()
+        return self.connections.removeLast()
     }
 }
 
