@@ -755,7 +755,9 @@ extension QUICStreamTable where Consumer: ~Copyable {
 /// `QUICStreamTable.unregisterEventManager(of:in:)`.
 @available(anyAppleOS 27, *)
 private struct SlotRegistration: ProtocolInstance, ~Copyable {
-    let context: NetworkContext
+    // Unretained: a registration lives for one `unregisterEventManager(of:in:)` call, the table holds the context
+    // throughout, and unregistering never reads it. Retaining it would cost a retain and a release per stream.
+    unowned(unsafe) let context: NetworkContext
     var identifier: InstanceIdentifier
     var eventManager: ProtocolEventManager
 }
