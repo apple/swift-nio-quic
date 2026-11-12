@@ -1814,7 +1814,14 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
     private func path(for remoteAddress: SocketAddress) -> QUICConnectionPath<Consumer>? {
         if self.activePath.remoteAddress == remoteAddress {
             return self.activePath
+        } else {
+            // Apart, so that the check above, which every datagram makes, doesn't set up the frame this needs.
+            return self.otherPath(for: remoteAddress)
         }
+    }
+
+    /// As ``path(for:)``, for an address other than the active path's.
+    private func otherPath(for remoteAddress: SocketAddress) -> QUICConnectionPath<Consumer>? {
         // NIO's `SocketAddress` compares IPv6 flow information and scope IDs,
         // SwiftNetwork's `AddressEndpoint` doesn't. If the active path doesn't
         // match exactly, match paths using SwiftNetworks type.
