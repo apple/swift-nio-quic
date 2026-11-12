@@ -214,7 +214,7 @@ extension QUICStreamCore {
         var totalDelivered = 0
 
         while true {
-            var bytesRead: Int = 0
+            var bytesRead = 0
 
             // Nothing follows a FIN. There's nothing more to pull.
             if !self.finPending {
@@ -233,14 +233,14 @@ extension QUICStreamCore {
 
             // An empty pull shows the stack has nothing more, and so does the FIN, without another
             // entry into the stack: nothing follows it.
-            let pulledEverything = bytesRead == 0 || self.finPending
-            if pulledEverything {
+            let nothingMoreToPull = bytesRead == 0 || self.finPending
+            if nothingMoreToPull {
                 self.confirmFin()
             }
 
             // Stop once there's nothing more to pull, or once the consumer stopped reading and left
             // bytes undelivered.
-            if pulledEverything || !self.undeliveredReads.isEmpty {
+            if nothingMoreToPull || !self.undeliveredReads.isEmpty {
                 break
             }
         }
