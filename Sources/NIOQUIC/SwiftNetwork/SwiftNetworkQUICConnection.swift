@@ -181,9 +181,8 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
 
     /// Starts batching outbound writes for the read loop, unless it already has.
     ///
-    /// Called from the entry that delivers the read loop's input rather than from an entry of its
-    /// own, before that input is delivered: QUIC holds back the acknowledgements for it, as well as
-    /// the application's writes, until the batch ends.
+    /// Must run before the read loop's input is delivered: QUIC holds back the acknowledgements for
+    /// it, as well as the application's writes, until the batch ends.
     private func startOutboundBatching(in eventContext: inout NetworkContext.EventContext) {
         assert(self.inReadLoop)
         if self.batchingEnabled { return }
@@ -195,6 +194,16 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
         // This allows outbound writes to be better packed into datagrams. Any outbound writes are
         // emitted into `handleOutboundDatagramsQueued(on:count:)` soon after batching is disabled.
         newFlowHandler.outboundBatching(true, in: &eventContext)
+    }
+
+    /// As ``startOutboundBatching(in:)``, in an entry of its own.
+    private func startOutboundBatching() {
+        if self.batchingEnabled { return }
+        guard let newFlowHandler = self.connectionNewFlowHandler else { return }
+
+        self.callouts.enter(as: newFlowHandler) { eventContext in
+            self.startOutboundBatching(in: &eventContext)
+        }
     }
 
     private func stopOutboundBatching() {
@@ -1172,11 +1181,21 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
             path.finalizeQueuedInboundFramesAsFailed()
             return
         }
-        // Delivers upward from the path, which requires it to be mid-call: enter as it. The path has
-        // its own event state, so QUIC is idle for the batching down-call.
-        self.callouts.enter(as: path) { eventContext in
-            self.startOutboundBatching(in: &eventContext)
-            path.invokeInputAvailable(in: &eventContext)
+        // Delivers upward from the path, which requires it to be mid-call: enter as it.
+        if path === self.activePath {
+            // Start the batch in this entry, which saves one per read loop. The down-call returns with
+            // the path busy, so it relies on QUIC not calling into the path while it drains its pending
+            // events on return: that would trap. Other paths, around a migration, are ones QUIC is still
+            // validating, so they keep an entry of their own for it.
+            self.callouts.enter(as: path) { eventContext in
+                self.startOutboundBatching(in: &eventContext)
+                path.invokeInputAvailable(in: &eventContext)
+            }
+        } else {
+            self.startOutboundBatching()
+            self.callouts.enter(as: path) { eventContext in
+                path.invokeInputAvailable(in: &eventContext)
+            }
         }
     }
 

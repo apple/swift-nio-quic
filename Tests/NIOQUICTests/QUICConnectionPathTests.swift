@@ -379,6 +379,22 @@ struct QUICConnectionPathTests {
         #expect(!connection._forTesting_isBatchingOutboundWrites)
     }
 
+    /// Input that only another path has starts the batch in an entry of its own.
+    @available(anyAppleOS 27, *)
+    @Test
+    func readLoopBatchesOutboundWritesWhenOnlyAnotherPathHasInput() throws {
+        let connection = try self.makeConnection(role: .server)
+        connection.receivePacket(AddressedEnvelope(remoteAddress: Self.newAddress, data: Self.payload))
+        try #require(connection._forTesting_getOtherPaths().count == 1)
+        try #require(!connection._forTesting_getActivePath().hasQueuedInboundPackets)
+
+        connection.receivePacketsComplete()
+        #expect(connection._forTesting_isBatchingOutboundWrites)
+
+        connection.exitReadLoop()
+        #expect(!connection._forTesting_isBatchingOutboundWrites)
+    }
+
     @available(anyAppleOS 27, *)
     @Test
     func receivePacketsCompleteFeedsEveryPath() throws {
