@@ -21,27 +21,12 @@ import NIOQUICHelpers
 /// will be included in the next visit.
 @available(anyAppleOS 27, *)
 public struct QUICStreamIterator<Consumer: QUICStreamConsumer & ~Copyable>: ~Copyable, ~Escapable {
-    /// The handle and events that the last call to `next()` returned.
-    @usableFromInline
-    struct Pending {
-        @usableFromInline
-        var handle: QUICStreamHandle
-        @usableFromInline
-        var presented: QUICStreamEvents
-
-        @inlinable
-        init(handle: QUICStreamHandle, presented: QUICStreamEvents) {
-            self.handle = handle
-            self.presented = presented
-        }
-    }
-
     @usableFromInline
     let _table: QUICStreamTable<Consumer>
 
     /// The handle and events which are currently being visited.
     @usableFromInline
-    var _pending: Pending?
+    var _pending: QUICStreamPendingVisit?
 
     @inlinable
     @_lifetime(immortal)
@@ -71,7 +56,7 @@ public struct QUICStreamIterator<Consumer: QUICStreamConsumer & ~Copyable>: ~Cop
             guard let resolved = self._table.readySlot(for: handle) else { continue }
 
             // Stash the pending state (for cleanup in `_finishVisit()`)
-            self._pending = Pending(handle: handle, presented: resolved.events)
+            self._pending = QUICStreamPendingVisit(handle: handle, presented: resolved.events)
 
             return QUICStreamVisit(
                 table: self._table,
@@ -93,6 +78,24 @@ public struct QUICStreamIterator<Consumer: QUICStreamConsumer & ~Copyable>: ~Cop
         if let pending = self._pending.take() {
             self._table.finishVisit(pending.handle, presented: pending.presented)
         }
+    }
+}
+
+/// The handle and events that a ``QUICStreamIterator``'s last call to `next()` returned.
+///
+/// Not nested in the iterator: a type nested in a generic one is generic too, so the iterator's unspecialized code
+/// would look up its metadata, and its `Optional`'s, at run time for every visit.
+@usableFromInline
+struct QUICStreamPendingVisit {
+    @usableFromInline
+    var handle: QUICStreamHandle
+    @usableFromInline
+    var presented: QUICStreamEvents
+
+    @inlinable
+    init(handle: QUICStreamHandle, presented: QUICStreamEvents) {
+        self.handle = handle
+        self.presented = presented
     }
 }
 

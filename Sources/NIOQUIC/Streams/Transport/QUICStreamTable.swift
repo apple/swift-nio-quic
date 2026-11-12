@@ -197,10 +197,10 @@ extension QUICStreamTable where Consumer: ~Copyable {
     ) -> QUICStreamHandle {
         let transportState = QUICStreamTransportState(core: QUICStreamCore(id: id))
         let handle = self._transportStates.insert(transportState)
-        let consumerStatePointer = self._consumerStates.reserve(at: handle.index)
+        self._consumerStates.reserve(at: handle.index)
 
         if let state {
-            consumerStatePointer.pointee = consume state
+            self._consumerStates.initialize(at: handle.index, to: consume state)
             self._transportStates.withValue(for: handle) { $0.hasState = true }
         } else {
             self._needsState.append(handle)
@@ -316,7 +316,7 @@ extension QUICStreamTable where Consumer: ~Copyable {
 
         let consumerState = self._consumerStates.pointer(at: handle.index)
         var stream = QUICStream<Consumer>(table: self, transport: pointer, handle: handle)
-        return try body(&stream, &consumerState.pointee!)  // checked above
+        return try body(&stream, &consumerState.pointee)
     }
 
     /// The direction of a stream from its ID and this endpoint's role.
@@ -429,8 +429,7 @@ extension QUICStreamTable where Consumer: ~Copyable {
             assert(!transport.pointee.hasState)
 
             var stream = QUICStream<Consumer>(table: self, transport: transport, handle: handle)
-            let consumerState = self._consumerStates.pointer(at: handle.index)
-            consumerState.pointee = consumer.makeStreamState(&stream)
+            self._consumerStates.initialize(at: handle.index, to: consumer.makeStreamState(&stream))
             transport.pointee.hasState = true
         }
 
@@ -497,14 +496,14 @@ extension QUICStreamTable where Consumer: ~Copyable {
         @usableFromInline
         var transport: UnsafeMutablePointer<QUICStreamTransportState>
         @usableFromInline
-        var state: UnsafeMutablePointer<Consumer.StreamState?>
+        var state: UnsafeMutablePointer<Consumer.StreamState>
         @usableFromInline
         var events: QUICStreamEvents
 
         @inlinable
         init(
             transport: UnsafeMutablePointer<QUICStreamTransportState>,
-            state: UnsafeMutablePointer<Consumer.StreamState?>,
+            state: UnsafeMutablePointer<Consumer.StreamState>,
             events: QUICStreamEvents
         ) {
             self.transport = transport
@@ -583,21 +582,18 @@ extension QUICStreamTable where Consumer: ~Copyable {
     /// As ``vacateSlot(_:in:)``, but acquires the event context itself, and releases the consumer's
     /// state for the stream only once that acquisition has ended.
     func vacateSlot(_ handle: QUICStreamHandle) {
-        let state = self.takeConsumerState(for: handle)
-        self.withEventContext { eventContext in
-            self._remove(handle: handle, in: &eventContext)
+        if self._transportStates.containsValue(for: handle) && self._consumerStates.holdsState(at: handle.index) {
+            let state = self._consumerStates.move(at: handle.index)
+            self.withEventContext { eventContext in
+                self._remove(handle: handle, in: &eventContext)
+            }
+            // Only now, with nothing held: the state's deinit is consumer code.
+            _ = consume state
+        } else {
+            self.withEventContext { eventContext in
+                self._remove(handle: handle, in: &eventContext)
+            }
         }
-        // Only now, with nothing held: the state's deinit is consumer code.
-        _ = consume state
-    }
-
-    /// Moves the consumer's state for `handle`'s stream out of the table, for the caller to release
-    /// once no event context is held.
-    private func takeConsumerState(for handle: QUICStreamHandle) -> Consumer.StreamState? {
-        if self._transportStates.pointer(for: handle) == nil {
-            return nil
-        }
-        return self._consumerStates.pointer(at: handle.index).pointee.take()
     }
 
     /// Closes a slot's stream core and vacates the slot.

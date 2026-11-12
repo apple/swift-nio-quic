@@ -114,7 +114,14 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
         }
     }
     // The connection's other paths, oldest first. A demoted active path counts as the newest one.
-    private var otherPaths: [QUICConnectionPath<Consumer>]
+    private var otherPaths: [QUICConnectionPath<Consumer>] {
+        didSet {
+            self.hasOtherPaths = !self.otherPaths.isEmpty
+        }
+    }
+    // Whether `otherPaths` holds any. Reading the array's count, in this unspecialized code, would look up its element
+    // type's metadata, which every read loop would pay for.
+    private var hasOtherPaths: Bool
     // The pool for frames shared across QUIC connection paths.
     private let framePool: FramePool
     // The GSO settings every path on this connection is built with.
@@ -541,6 +548,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
             logger: logger
         )
         self.otherPaths = []
+        self.hasOtherPaths = false
 
         self.inReadLoop = false
         self.batchingEnabled = false
@@ -1163,6 +1171,11 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
 
     /// Singals to the QUIC stack that the input queue is ready to be consumed
     func receivePacketsComplete() {
+        // Without other paths, skip the snapshot: copying the array looks up its element type's metadata.
+        if !self.hasOtherPaths {
+            self.invokeInputAvailable(on: self.activePath)
+            return
+        }
         // Snapshot first: SwiftNetwork may promote one of the other paths while the active one is served.
         let otherPaths = self.otherPaths
         self.invokeInputAvailable(on: self.activePath)

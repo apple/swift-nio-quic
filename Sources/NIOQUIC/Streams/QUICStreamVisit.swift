@@ -31,7 +31,7 @@ public struct QUICStreamVisit<Consumer: QUICStreamConsumer & ~Copyable>: ~Copyab
     let _transport: UnsafeMutablePointer<QUICStreamTransportState>
 
     @usableFromInline
-    let _state: UnsafeMutablePointer<Consumer.StreamState?>
+    let _state: UnsafeMutablePointer<Consumer.StreamState>
 
     /// An opaque identifier for this stream.
     public let handle: QUICStreamHandle
@@ -44,7 +44,7 @@ public struct QUICStreamVisit<Consumer: QUICStreamConsumer & ~Copyable>: ~Copyab
     init(
         table: QUICStreamTable<Consumer>,
         transport: UnsafeMutablePointer<QUICStreamTransportState>,
-        state: UnsafeMutablePointer<Consumer.StreamState?>,
+        state: UnsafeMutablePointer<Consumer.StreamState>,
         handle: QUICStreamHandle,
         events: QUICStreamEvents
     ) {
@@ -129,10 +129,10 @@ public struct QUICStreamVisit<Consumer: QUICStreamConsumer & ~Copyable>: ~Copyab
     @inlinable
     public var state: Consumer.StreamState {
         _read {
-            yield self._state.pointee!
+            yield self._state.pointee
         }
         nonmutating _modify {
-            yield &self._state.pointee!
+            yield &self._state.pointee
         }
     }
 
@@ -153,7 +153,7 @@ public struct QUICStreamVisit<Consumer: QUICStreamConsumer & ~Copyable>: ~Copyab
             handle: self.handle
         )
 
-        return try body(&stream, &self._state.pointee!)
+        return try body(&stream, &self._state.pointee)
     }
 
     /// Ends the visit, taking the state out of the slot if the stream is closing.
@@ -173,7 +173,7 @@ public struct QUICStreamVisit<Consumer: QUICStreamConsumer & ~Copyable>: ~Copyab
         // `QUICStreams.withStream(handle:body:)`.
         self._transport.pointee.hasState = false
 
-        return self._state.pointee.take()
+        return self._table._consumerStates.move(at: self.handle.index)
     }
 }
 
