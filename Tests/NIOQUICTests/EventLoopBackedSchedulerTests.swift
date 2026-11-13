@@ -300,17 +300,13 @@ struct QUICTimerQueueTests {
     @Test func connectionsShareOneWakeup() {
         let loop = CountingScheduler()
         let queue = QUICTimerQueue(eventLoop: loop)
-        let order = Fires()
         var runs: [Int] = []
         let reference = SwiftNetwork.TimerReference()
 
         let connections = (0..<3).map { _ in Self.connection(on: loop, queue: queue) }
         for (index, connection) in connections.enumerated().reversed() {
             connection.schedule(
-                {
-                    order.count &+= 1
-                    runs.append(index)
-                },
+                { runs.append(index) },
                 after: .milliseconds(Int64(100 &* (index &+ 1))),
                 reference: reference
             )
@@ -480,8 +476,13 @@ struct QUICTimerQueueTests {
 
         first.schedule({ fires.count &+= 1 }, after: .milliseconds(100), reference: reference)
         second.schedule({ fires.count &+= 1 }, after: .milliseconds(200), reference: reference)
+        // The earliest of several: the wakeup stays, fires early, and arms one for the next.
         first.unschedule(reference: reference)
         #expect(loop.cancelled == 0)
+        loop.advanceTime(by: .milliseconds(100))
+        #expect(fires.count == 0)
+        #expect(loop.scheduled == 2)
+
         second.unschedule(reference: reference)
         #expect(loop.cancelled == 1)
         #expect(loop.pending == 0)
@@ -494,7 +495,7 @@ struct QUICTimerQueueTests {
     /// the only timer, which cancels the wakeup, and schedules it again, which arms another.
     @available(anyAppleOS 27, *)
     @Test func aWakeupCancelledAfterTheLoopPickedItUpDoesNothing() {
-        let loop = EmbeddedEventLoop()
+        let loop = CountingScheduler()
         let queue = QUICTimerQueue(eventLoop: loop)
         let fires = Fires()
         let reference = SwiftNetwork.TimerReference()
@@ -512,6 +513,8 @@ struct QUICTimerQueueTests {
 
         loop.advanceTime(by: .milliseconds(10))
         #expect(fires.count == 1)
+        // That task and two wakeups. Honoring the stale one would have armed a third.
+        #expect(loop.scheduled == 3)
     }
 
     /// Timers keep their order through many moves and removals.
@@ -535,12 +538,11 @@ struct QUICTimerQueueTests {
         }
 
         loop.advanceTime(by: .milliseconds(100))
+        // The last round's deadlines are distinct: 37 and 50 are coprime.
         let expected = connections.indices
             .filter { $0 % 5 != 0 }
             .sorted { ($0 &* 37 &+ 22) % 50 < ($1 &* 37 &+ 22) % 50 }
-        #expect(runs.count == expected.count)
-        let deadlines = runs.map { ($0 &* 37 &+ 22) % 50 }
-        #expect(deadlines == deadlines.sorted())
+        #expect(runs == expected)
         #expect(queue._forTesting_count == 0)
     }
 }

@@ -277,8 +277,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
     ///     - localAddress: The socket address we are sending from.
     ///     - remoteAddress: The socket address of the peer.
     ///     - eventLoop:  EventLoop to schedule events on inside of SwiftQUIC
-    ///     - timerQueue: The queue for the connection's timers, shared with the handler's other connections. A
-    ///       queue of its own if `nil`.
+    ///     - timerQueue: The queue for the connection's timers, shared with the handler's other connections.
     ///     - logger: Logger to log events
     static func client(
         configuration: QUICConfiguration,
@@ -290,7 +289,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
         localAddress: SocketAddress,
         remoteAddress: SocketAddress,
         eventLoop: any EventLoop,
-        timerQueue: QUICTimerQueue? = nil,
+        timerQueue: QUICTimerQueue,
         logger: Logger,
         usesStreamTable: Bool = false
     ) throws -> SwiftNetworkQUICConnection<Consumer> {
@@ -333,8 +332,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
     ///     - remoteAddress: The socket address of the peer.
     ///     - logger: Logger to log events
     ///     - eventLoop:  EventLoop to schedule events on inside of SwiftQUIC
-    ///     - timerQueue: The queue for the connection's timers, shared with the handler's other connections. A
-    ///       queue of its own if `nil`.
+    ///     - timerQueue: The queue for the connection's timers, shared with the handler's other connections.
     static func server(
         configuration: QUICConfiguration,
         sourceConnectionID: QUICConnectionID,
@@ -345,7 +343,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
         remoteAddress: SocketAddress,
         logger: Logger,
         eventLoop: any EventLoop,
-        timerQueue: QUICTimerQueue? = nil,
+        timerQueue: QUICTimerQueue,
         usesStreamTable: Bool = false
     ) throws -> SwiftNetworkQUICConnection {
         guard let serverName = configuration.serverName else {
@@ -381,7 +379,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
         localAddress: SocketAddress,
         remoteAddress: SocketAddress,
         eventLoop: any EventLoop,
-        timerQueue: QUICTimerQueue?,
+        timerQueue: QUICTimerQueue,
         mode: Mode,
         rawPublicKeys: RawPublicKeys,
         logger: Logger,
@@ -405,15 +403,13 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
         self.eventLoop = eventLoop
         let callouts = QUICCallouts()
         self.callouts = callouts
-        let scheduler =
-            if let timerQueue {
-                EventLoopBackedScheduler(eventLoop: eventLoop, callouts: callouts, timerQueue: timerQueue)
-            } else {
-                EventLoopBackedScheduler(eventLoop: eventLoop, callouts: callouts)
-            }
         let networkContext = NetworkContext(
             identifier: "swift-nio-quic-context-\(self.role.description)",
-            externalScheduler: scheduler
+            externalScheduler: EventLoopBackedScheduler(
+                eventLoop: eventLoop,
+                callouts: callouts,
+                timerQueue: timerQueue
+            )
         )
         swiftNetworkParameters.context = networkContext
         self.networkContext = networkContext

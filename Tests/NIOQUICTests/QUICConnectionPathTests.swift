@@ -490,6 +490,7 @@ struct QUICConnectionPathTests {
                 verificationConfiguration: .rawPublicKeys(publicKeyFilePath: publicKeyPath),
                 applicationProtocols: []
             )
+            let eventLoop = EmbeddedEventLoop()
             connection = try .client(
                 configuration: configuration,
                 sourceConnectionID: .random(using: &rng),
@@ -499,7 +500,8 @@ struct QUICConnectionPathTests {
                 rawPublicKeys: try RawPublicKeys(configuration: configuration),
                 localAddress: localAddress,
                 remoteAddress: pathAddress,
-                eventLoop: EmbeddedEventLoop(),
+                eventLoop: eventLoop,
+                timerQueue: QUICTimerQueue(eventLoop: eventLoop),
                 logger: Logger(label: "test")
             )
         case .server:
@@ -511,6 +513,7 @@ struct QUICConnectionPathTests {
                 ),
                 applicationProtocols: []
             )
+            let eventLoop = EmbeddedEventLoop()
             connection = try .server(
                 configuration: configuration,
                 sourceConnectionID: .random(using: &rng),
@@ -520,7 +523,8 @@ struct QUICConnectionPathTests {
                 localAddress: localAddress,
                 remoteAddress: pathAddress,
                 logger: Logger(label: "test"),
-                eventLoop: EmbeddedEventLoop()
+                eventLoop: eventLoop,
+                timerQueue: QUICTimerQueue(eventLoop: eventLoop)
             )
         }
         if isConnected {

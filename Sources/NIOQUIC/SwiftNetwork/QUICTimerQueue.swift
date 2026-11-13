@@ -71,12 +71,12 @@ final class QUICTimerQueue {
 
     /// Queues `timer` to run `task` at `deadline`, or moves it there, replacing its task, if it's queued.
     func schedule(_ timer: QUICTimer, at deadline: NIODeadline, task: @escaping () -> Void) {
+        self.eventLoop.assertInEventLoop()
         timer.deadline = deadline
         timer.task = task
         if let index = timer.heapIndex {
             self.restoreOrder(at: index)
         } else {
-            timer.heapIndex = self.heap.count
             self.heap.append(timer)
             self.siftUp(from: self.heap.count - 1)
         }
@@ -85,6 +85,7 @@ final class QUICTimerQueue {
 
     /// Takes `timer` out of the queue: its task doesn't run.
     func remove(_ timer: QUICTimer) {
+        self.eventLoop.assertInEventLoop()
         timer.task = nil
         if let index = timer.heapIndex {
             self.removeTimer(at: index)
@@ -228,10 +229,10 @@ final class QUICTimerQueue {
 @available(anyAppleOS 27, *)
 final class QUICTimer {
     /// When the task is due, while the timer is queued.
-    fileprivate(set) var deadline: NIODeadline
+    fileprivate var deadline: NIODeadline
 
     /// The task to run, until it ran or the timer was removed.
-    fileprivate(set) var task: (() -> Void)?
+    fileprivate var task: (() -> Void)?
 
     /// The timer's index in its queue's heap, or `nil` if it isn't queued.
     fileprivate var heapIndex: Int?

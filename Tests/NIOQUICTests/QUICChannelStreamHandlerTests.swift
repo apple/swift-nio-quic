@@ -761,7 +761,8 @@ extension QUICChannelStreamHandlerTests {
             localAddress: try SocketAddress(ipAddress: "127.0.0.1", port: 1234),
             remoteAddress: try SocketAddress(ipAddress: "127.0.0.1", port: 1234),
             logger: Logger(label: "test"),
-            eventLoop: eventLoop
+            eventLoop: eventLoop,
+            timerQueue: QUICTimerQueue(eventLoop: eventLoop)
         )
 
         // Constructing the channel wires it into the connection via setDriver, which
