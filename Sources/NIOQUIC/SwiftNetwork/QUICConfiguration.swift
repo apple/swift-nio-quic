@@ -71,9 +71,9 @@ public enum KeyExchangeGroup: UInt16, Sendable {
 
 /// Configure the size of the Initial packet.
 ///
-/// NOTE: With the don't fragment bit set (RFC 9000, § 14, see ``QUICDontFragment``), the network
-/// drops datagrams larger than the path MTU instead of fragmenting them, so a size the path can't
-/// carry stalls the handshake until the idle timeout.
+/// - Note: With the don't fragment bit set (RFC 9000, § 14, see ``QUICDontFragment``), the network
+///   drops datagrams larger than the path MTU instead of fragmenting them, so a size the path can't
+///   carry stalls the handshake until the idle timeout.
 public struct InitialPacketSize: Sendable, Hashable {
     enum Kind: Sendable, Hashable {
         case fixed(Int)
@@ -84,7 +84,7 @@ public struct InitialPacketSize: Sendable, Hashable {
 
     /// Send UDP payloads of up to `size` bytes.
     ///
-    /// NOTE: Values of 1200 or less have no effect.
+    /// - Note: Values of 1200 or less have no effect.
     public static func fixed(_ size: Int) -> Self {
         Self(kind: .fixed(size))
     }
@@ -92,9 +92,9 @@ public struct InitialPacketSize: Sendable, Hashable {
     /// Send UDP payloads as large as the datagram that carried the client's first Initial packet,
     /// but at most `maximum` bytes.
     ///
-    /// NOTE: The client's Initial only shows that the path carries packets of its size towards
-    /// the server, not back towards the client. Only servers can match a client's Initial, clients
-    /// use 1200 bytes (minimum according RFC 9000, § 8.1). Values of 1200 or less have no effect.
+    /// - Note: The client's Initial only shows that the path carries packets of its size towards
+    ///   the server, not back towards the client. Only servers can match a client's Initial, clients
+    ///   use 1200 bytes (minimum according RFC 9000, § 8.1). Values of 1200 or less have no effect.
     public static func matchingClientInitial(upTo maximum: Int) -> Self {
         Self(kind: .matchingClientInitial(maximum: maximum))
     }
@@ -174,7 +174,7 @@ public struct QUICConfiguration: Sendable {
     /// 1200 bytes, the minimum every QUIC path must support (RFC 9000, Section 14). Initial packets are
     /// padded to this size, and the connection never lowers its maximum packet size below it.
     ///
-    /// NOTE: Only raise it if the whole path and the peer support it. Values of 1200 or less have no effect.
+    /// - Note: Only raise it if the whole path and the peer support it. Values of 1200 or less have no effect.
     public var initialPacketSize: InitialPacketSize = .fixed(1200)
 
     /// The path to the file where the key log should be written to. Defaults to `nil`, no key log.
