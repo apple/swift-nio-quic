@@ -356,26 +356,79 @@ struct EventLoopBackedSchedulerTests {
         loop.advanceTime(by: .milliseconds(100))
         #expect(fires.count == 1)
 
-        // The others find nothing due, and the timer is done.
-        loop.advanceTime(by: .seconds(1))
+        // The others find nothing due, and the timer is done: the 500 ms wakeup was the one cancelled.
+        loop.advanceTime(by: .milliseconds(200))
         #expect(fires.count == 1)
         #expect(loop.pending == 0)
     }
 
     @available(anyAppleOS 27, *)
-    @Test func unschedulingCancelsBothWakeups() {
+    @Test func unschedulingCancelsEveryWakeup() {
         let loop = CountingScheduler()
         let scheduler = EventLoopBackedScheduler(eventLoop: loop, callouts: QUICCallouts())
         let fires = Fires()
         let reference = SwiftNetwork.TimerReference()
 
         scheduler.schedule({ fires.count &+= 1 }, after: .milliseconds(500), reference: reference)
+        scheduler.schedule({ fires.count &+= 1 }, after: .milliseconds(100), reference: reference)
         scheduler.schedule({ fires.count &+= 1 }, after: .milliseconds(50), reference: reference)
         scheduler.unschedule(reference: reference)
-        #expect(loop.cancelled == 2)
+        #expect(loop.cancelled == 3)
 
         loop.advanceTime(by: .seconds(1))
         #expect(fires.count == 0)
+    }
+
+    /// A connection that closes inside a timer task unschedules its timer while a later wakeup is still
+    /// armed.
+    @available(anyAppleOS 27, *)
+    @Test func aTaskUnschedulingItsTimerCancelsTheWakeupLeftArmed() {
+        let loop = CountingScheduler()
+        let scheduler = EventLoopBackedScheduler(eventLoop: loop, callouts: QUICCallouts())
+        let fires = Fires()
+        let reference = SwiftNetwork.TimerReference()
+
+        scheduler.schedule({ fires.count &+= 1 }, after: .milliseconds(500), reference: reference)
+        scheduler.schedule(
+            {
+                fires.count &+= 1
+                scheduler.unschedule(reference: reference)
+            },
+            after: .milliseconds(50),
+            reference: reference
+        )
+
+        loop.advanceTime(by: .milliseconds(50))
+        #expect(fires.count == 1)
+        #expect(loop.cancelled == 1)
+        #expect(loop.pending == 0)
+
+        loop.advanceTime(by: .seconds(1))
+        #expect(fires.count == 1)
+    }
+
+    /// A wakeup the loop picked up before it was cancelled still fires. Here a task in the same tick
+    /// unschedules the timer and schedules it again, as QUIC's timer does when none of its timers is
+    /// enabled for a moment, so the stale wakeup finds a timer that hasn't armed it.
+    @available(anyAppleOS 27, *)
+    @Test func aWakeupCancelledAfterTheLoopPickedItUpDoesNothing() throws {
+        let loop = EmbeddedEventLoop()
+        let scheduler = EventLoopBackedScheduler(eventLoop: loop, callouts: QUICCallouts())
+        let fires = Fires()
+        let reference = SwiftNetwork.TimerReference()
+
+        // Due in the same tick as the timer's wakeup, and scheduled first, so it runs first.
+        loop.assumeIsolated().scheduleTask(in: .milliseconds(50)) {
+            scheduler.unschedule(reference: reference)
+            scheduler.schedule({ fires.count &+= 1 }, after: .milliseconds(10), reference: reference)
+        }
+        scheduler.schedule({ fires.count &+= 1 }, after: .milliseconds(50), reference: reference)
+
+        loop.advanceTime(by: .milliseconds(50))
+        #expect(fires.count == 0)
+
+        loop.advanceTime(by: .milliseconds(10))
+        #expect(fires.count == 1)
     }
 
     /// Once the task ran, a wakeup left armed keeps the timer, so the next deadline it covers arms

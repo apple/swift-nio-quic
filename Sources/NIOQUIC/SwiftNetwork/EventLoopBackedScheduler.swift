@@ -39,7 +39,7 @@ final class EventLoopBackedScheduler: NetworkContext.Scheduler {
             var callback: NIOScheduledCallback
             /// The deadline when the callback is scheduled to fire.
             var deadline: NIODeadline
-            /// Tells the callback apart from the timer's other one when it fires.
+            /// Tells the callback apart from the timer's others when it fires.
             var id: UInt64
         }
 
@@ -75,9 +75,10 @@ final class EventLoopBackedScheduler: NetworkContext.Scheduler {
             return displaced
         }
 
-        /// Forgets the callback that fired.
+        /// Forgets the callback that fired: the earliest, on a loop that fires them in deadline order.
         ///
-        /// - Returns: Whether it was armed.
+        /// - Returns: Whether it was armed. A callback cancelled after the loop picked it up still fires,
+        ///   and isn't any more.
         mutating func disarm(id: UInt64) -> Bool {
             if self.first?.id == id {
                 self.first = self.second
@@ -200,8 +201,11 @@ final class EventLoopBackedScheduler: NetworkContext.Scheduler {
     private func wakeupFired(reference: TimerReference, id: UInt64) {
         guard let index = self.wakeups.index(forKey: reference) else { return }
 
-        let wasArmed = self.wakeups.values[index].disarm(id: id)
-        assert(wasArmed, "A callback fired that its timer doesn't have armed")
+        if !self.wakeups.values[index].disarm(id: id) {
+            // Cancelled after the loop picked it up, by unscheduling the timer, which may have been
+            // scheduled again since: its own callbacks serve it.
+            return
+        }
 
         guard let due = self.wakeups.values[index].due else {
             // Left armed after the task ran. The timer is done once no callback is left.
@@ -212,14 +216,14 @@ final class EventLoopBackedScheduler: NetworkContext.Scheduler {
         }
 
         if self.eventLoop.now < due.deadline {
-            // The deadline moved out since this callback was armed. The other callback may serve it;
+            // The deadline moved out since this callback was armed. Another armed callback may serve it;
             // otherwise arm one for what is left.
             if self.wakeups.values[index].isCovered(by: due.deadline) {
                 return
             }
             if let scheduled = self.schedule(at: due.deadline, reference: reference) {
-                // This callback's slot is free, so nothing is displaced.
-                _ = self.wakeups.values[index].arm(scheduled)
+                let displaced = self.wakeups.values[index].arm(scheduled)
+                assert(displaced == nil, "Nothing is displaced: this callback's slot is free")
             } else {
                 // Event loop has shutdown; remove the entry.
                 self.wakeups.remove(at: index)
@@ -239,7 +243,7 @@ final class EventLoopBackedScheduler: NetworkContext.Scheduler {
         reference: SwiftNetwork.TimerReference
     ) -> Wakeup.Scheduled? {
         let id = self.nextCallbackID
-        self.nextCallbackID &+= 1
+        self.nextCallbackID += 1
         do {
             let callback = try self.eventLoop.assumeIsolatedUnsafeUnchecked().scheduleCallback(
                 at: deadline,
