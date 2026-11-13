@@ -332,6 +332,44 @@ extension QUICStreamTable where Consumer: ~Copyable {
     }
 }
 
+// MARK: - Inbound flows
+
+@available(anyAppleOS 27, *)
+extension QUICStreamTable: QUICInboundStreamTable where Consumer: ~Copyable {
+    func attachInboundFlow(
+        lowerProtocol: BaseStreamListenerLinkage,
+        flowInstance: InstanceIdentifier,
+        streamID: QUICStreamID,
+        in eventContext: inout NetworkContext.EventContext
+    ) -> QUICInboundFlowAttachment {
+        if self.isClosed {
+            return .declinedTableClosed
+        }
+
+        // No state: the consumer makes it in 'makeStreamState' before the first visit.
+        let handle = self.insertSlot(id: streamID, state: nil)
+        let identifier = self.registerIdentifier(for: handle, in: &eventContext)
+
+        let linkage: BaseOutboundStreamLinkage
+        do throws(NetworkError) {
+            linkage = try lowerProtocol.invokeAttachUpperProtocolToExistingFlow(
+                self.upperLinkage(for: handle, identifier: identifier),
+                existingFlowInstance: flowInstance
+            )
+        } catch {
+            self.vacateSlot(handle, in: &eventContext)
+            return .failed(error)
+        }
+
+        self.attach(handle, identifier: identifier, linkage: linkage)
+
+        self.assignID(streamID, to: handle)
+        linkage.invokeConnect(for: identifier, in: &eventContext)
+        self.markReady(handle: handle, events: [.opened, .readable])
+        return .attached
+    }
+}
+
 // MARK: - Stack events
 
 /// What the stack's events for a stream do, reported by the stream's `QUICStreamUpperLinkage`.

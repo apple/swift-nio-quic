@@ -27,13 +27,51 @@ import Android
 import Musl
 #endif
 
+/// The connection a ``QUICChannelNewFlowHandler`` reports to.
+@available(anyAppleOS 27, *)
+protocol QUICNewFlowOwner: AnyObject {
+    func connected(in eventContext: inout NetworkContext.EventContext)
+    func disconnected(error: NetworkError?, in eventContext: inout NetworkContext.EventContext)
+    func newInboundStream(_ handler: QUICChannelStreamHandler)
+    func associateConnectionID(_ cid: QUICConnectionID, in eventContext: inout NetworkContext.EventContext)
+    func retireConnectionID(_ cid: QUICConnectionID, in eventContext: inout NetworkContext.EventContext)
+    func pathValidated(remote: AddressEndpoint)
+    func pathCurrent(remote: AddressEndpoint)
+    func pathUnreachable(remote: AddressEndpoint, in eventContext: inout NetworkContext.EventContext)
+}
+
+/// The stream table a ``QUICChannelNewFlowHandler`` gives inbound flows a slot in.
+@available(anyAppleOS 27, *)
+protocol QUICInboundStreamTable: AnyObject {
+    /// Gives the inbound flow `flowInstance` a slot, then attaches and connects it.
+    func attachInboundFlow(
+        lowerProtocol: BaseStreamListenerLinkage,
+        flowInstance: InstanceIdentifier,
+        streamID: QUICStreamID,
+        in eventContext: inout NetworkContext.EventContext
+    ) -> QUICInboundFlowAttachment
+}
+
+/// How ``QUICInboundStreamTable/attachInboundFlow(lowerProtocol:flowInstance:streamID:in:)`` went.
+@available(anyAppleOS 27, *)
+enum QUICInboundFlowAttachment {
+    case attached
+    /// The table is closed, so nothing would close the stream.
+    case declinedTableClosed
+    case failed(NetworkError)
+}
+
 /// `QUICChannelNewFlowHandler` is responsible for dealing with new SwiftNetwork 'flows' initiated by the other end of the connection.
 /// A flow in this case is a new stream of data that is registered with the QUIC stack and is represented here by `QUICChannelStreamHandler`.
 /// The `QUICChannelNewFlowHandler` registered with the SwiftNetwork `QUICConnection` as a new flow handler.
 /// This object deals with creating and linking the objects describing a new flow, it creates a new `QUICChannelStreamHandler`
 /// for each new flow, registers it and keeps track of it.
+///
+/// Not generic over the consumer: the connection enters the stack as the handler on every read loop, to end the
+/// outbound batch, and entering as a generic type looks up its metadata at run time. It reaches the connection
+/// through ``QUICNewFlowOwner`` and the stream table through ``QUICInboundStreamTable``.
 @available(anyAppleOS 27, *)
-final class QUICChannelNewFlowHandler<Consumer: QUICStreamConsumer & ~Copyable>: ExternalInboundStreamFlowLinkage {
+final class QUICChannelNewFlowHandler: ExternalInboundStreamFlowLinkage {
 
     internal typealias LowerProtocol = BaseStreamListenerLinkage
 
@@ -62,7 +100,7 @@ final class QUICChannelNewFlowHandler<Consumer: QUICStreamConsumer & ~Copyable>:
     // This view is set in the call the `start` and is required for operation. It uses
     // an implicitly unwrapped optionals because Swift's initialization rules prevent
     // passing 'self' method references during init.
-    private var connectionView: SwiftNetworkQUICConnection<Consumer>.NewFlowView!
+    private var connectionView: (any QUICNewFlowOwner)!
     private var lowerProtocol: LowerProtocol?
 
     private var datagramListener: BaseDatagramListenerLinkage
@@ -72,7 +110,7 @@ final class QUICChannelNewFlowHandler<Consumer: QUICStreamConsumer & ~Copyable>:
 
     /// The stream table inbound flows attach to, or nil if inbound streams become
     /// child channels.
-    var streamTable: QUICStreamTable<Consumer>?
+    var streamTable: (any QUICInboundStreamTable)?
 
     internal init?(
         local: Endpoint,
@@ -154,7 +192,7 @@ final class QUICChannelNewFlowHandler<Consumer: QUICStreamConsumer & ~Copyable>:
 
     // Start the new flow handler
     func start(
-        _ view: SwiftNetworkQUICConnection<Consumer>.NewFlowView,
+        _ view: any QUICNewFlowOwner,
         in eventContext: inout NetworkContext.EventContext
     ) {
         log("start")
@@ -234,13 +272,21 @@ final class QUICChannelNewFlowHandler<Consumer: QUICStreamConsumer & ~Copyable>:
         // Before the connection channel is required below: a connection using a stream
         // table has no child channel to parent the stream to.
         if let table = self.streamTable {
-            self.attachInboundFlowToTable(
-                table,
+            let streamID = QUICStreamID(rawValue: inputHandlerStreamID)
+            switch table.attachInboundFlow(
                 lowerProtocol: lowerProtocol,
                 flowInstance: flowInstance,
-                streamID: QUICStreamID(rawValue: inputHandlerStreamID),
+                streamID: streamID,
                 in: &eventContext
-            )
+            ) {
+            case .attached:
+                ()
+            case .declinedTableClosed:
+                // Nothing would close this stream any more: leave the flow to the connection's teardown.
+                self.log("Declining inbound flow for stream \(streamID): the stream table is closed")
+            case .failed(let error):
+                self.log("Failed to attach new inbound flow: \(error)")
+            }
         } else if let connectionChannel = self.connectionChannel {
             // Registers as it's created.
             let streamHandler = QUICChannelStreamHandler(
@@ -278,49 +324,13 @@ final class QUICChannelNewFlowHandler<Consumer: QUICStreamConsumer & ~Copyable>:
             fatalError("connection channel is not available")
         }
     }
-
-    private func attachInboundFlowToTable(
-        _ table: QUICStreamTable<Consumer>,
-        lowerProtocol: BaseStreamListenerLinkage,
-        flowInstance: InstanceIdentifier,
-        streamID: QUICStreamID,
-        in eventContext: inout NetworkContext.EventContext
-    ) {
-        if table.isClosed {
-            // Nothing would close this stream any more: leave the flow to the connection's teardown.
-            self.log("Declining inbound flow for stream \(streamID): the stream table is closed")
-            return
-        }
-
-        // No state: the consumer makes it in 'makeStreamState' before the first visit.
-        let handle = table.insertSlot(id: streamID, state: nil)
-        let identifier = table.registerIdentifier(for: handle, in: &eventContext)
-
-        let linkage: BaseOutboundStreamLinkage
-        do throws(NetworkError) {
-            linkage = try lowerProtocol.invokeAttachUpperProtocolToExistingFlow(
-                table.upperLinkage(for: handle, identifier: identifier),
-                existingFlowInstance: flowInstance
-            )
-        } catch {
-            self.log("Failed to attach new inbound flow: \(error)")
-            table.vacateSlot(handle, in: &eventContext)
-            return
-        }
-
-        table.attach(handle, identifier: identifier, linkage: linkage)
-
-        table.assignID(streamID, to: handle)
-        linkage.invokeConnect(for: identifier, in: &eventContext)
-        table.markReady(handle: handle, events: [.opened, .readable])
-    }
 }
 
 @available(anyAppleOS 27, *)
-extension QUICChannelNewFlowHandler: ProtocolInstance where Consumer: ~Copyable {}
+extension QUICChannelNewFlowHandler: ProtocolInstance {}
 
 @available(anyAppleOS 27, *)
-extension QUICChannelNewFlowHandler where Consumer: ~Copyable {
+extension QUICChannelNewFlowHandler {
     func handleNetworkProtocolEvent(
         event: SwiftNetwork.NetworkProtocolEvent,
         for instance: InstanceIdentifier,
@@ -417,7 +427,7 @@ extension QUICChannelNewFlowHandler where Consumer: ~Copyable {
 }
 
 @available(anyAppleOS 27, *)
-extension QUICChannelNewFlowHandler where Consumer: ~Copyable {
+extension QUICChannelNewFlowHandler {
     /// Attaches the connection's datagram flow.
     ///
     /// Must be called with no event context held: attaching a new flow acquires the context itself.
@@ -431,7 +441,9 @@ extension QUICChannelNewFlowHandler where Consumer: ~Copyable {
     /// the flow, which QUIC acts on when the handshake completes.
     ///
     /// - Returns: The transport for the attached flow, or `nil` if it could not be attached.
-    func attachDatagramFlow() -> QUICDatagramTransport<Consumer>? {
+    func attachDatagramFlow<Consumer: QUICStreamConsumer & ~Copyable>(
+        for consumer: Consumer.Type
+    ) -> QUICDatagramTransport<Consumer>? {
         #if DEBUG
         assert(!self.callouts.isInsideStack, "Attaching a new flow requires that no event context is held")
         #endif

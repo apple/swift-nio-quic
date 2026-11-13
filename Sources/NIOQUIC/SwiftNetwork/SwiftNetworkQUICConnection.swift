@@ -142,7 +142,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
     // To prevent that we buffer removal of the last ID until we receive a new one.
     private var scidPendingDeletion: QUICConnectionID?
 
-    private var connectionNewFlowHandler: QUICChannelNewFlowHandler<Consumer>?
+    private var connectionNewFlowHandler: QUICChannelNewFlowHandler?
 
     /// The connection's stream table, or nil if its streams are serviced as child
     /// channels.
@@ -481,7 +481,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
 
         // The new-flow handler and the initial client stream attach as they are created, and
         // attaching acquires the event context itself: both are created with nothing held.
-        let newFlowHandler = QUICChannelNewFlowHandler<Consumer>(
+        let newFlowHandler = QUICChannelNewFlowHandler(
             local: localEndpoint,
             remote: remoteEndpoint,
             parameters: swiftNetworkParameters,
@@ -626,7 +626,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
         // This disconnected handler is called at the connection level (when flow: .allFlows),
         // not for individual streams. Connection-level events include: connection close, draining state, and connection errors.
         self.callouts.enter(as: newFlowHandler) { eventContext in
-            newFlowHandler.start(NewFlowView(self), in: &eventContext)
+            newFlowHandler.start(self, in: &eventContext)
         }
 
         // If that start delivered a disconnect, the connection has torn down: attach no datagram flow.
@@ -636,7 +636,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
 
         // Attach the datagram flow with nothing held, before any packet is processed, so that it
         // exists before any DATAGRAM frame can arrive.
-        if let transport = newFlowHandler.attachDatagramFlow() {
+        if let transport = newFlowHandler.attachDatagramFlow(for: Consumer.self) {
             self.setDatagramTransport(.live(transport))
         }
 
@@ -2132,47 +2132,6 @@ extension Frame {
 
 @available(anyAppleOS 27, *)
 extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
-    /// A view over the connection for the `QUICChannelNewFlowHandler`.
-    struct NewFlowView {
-        private let connection: SwiftNetworkQUICConnection
-
-        fileprivate init(_ connection: SwiftNetworkQUICConnection) {
-            self.connection = connection
-        }
-
-        func connected(in eventContext: inout NetworkContext.EventContext) {
-            self.connection.handleConnectionConnected(in: &eventContext)
-        }
-
-        func disconnected(error: NetworkError?, in eventContext: inout NetworkContext.EventContext) {
-            self.connection.handleConnectionDisconnected(error: error, in: &eventContext)
-        }
-
-        func newInboundStream(_ handler: QUICChannelStreamHandler) {
-            self.connection.newFlowHandlerAddNewStream(streamHandler: handler)
-        }
-
-        func associateConnectionID(_ cid: QUICConnectionID, in eventContext: inout NetworkContext.EventContext) {
-            self.connection.handleAssociateConnectionID(cid, in: &eventContext)
-        }
-
-        func retireConnectionID(_ cid: QUICConnectionID, in eventContext: inout NetworkContext.EventContext) {
-            self.connection.handleRetireConnectionID(cid, in: &eventContext)
-        }
-
-        func pathValidated(remote: AddressEndpoint) {
-            self.connection.handlePathValidated(remote: remote)
-        }
-
-        func pathCurrent(remote: AddressEndpoint) {
-            self.connection.handlePathCurrent(remote: remote)
-        }
-
-        func pathUnreachable(remote: AddressEndpoint, in eventContext: inout NetworkContext.EventContext) {
-            self.connection.handlePathUnreachable(remote: remote, in: &eventContext)
-        }
-    }
-
     /// Installs the connection's datagram (RFC 9221) transport, registering the connection as its
     /// reader.
     ///
@@ -2190,6 +2149,43 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
         }
         transport.setReader(connection: self)
         self.datagramTransport = transport
+    }
+}
+
+// MARK: - New flow owner
+
+@available(anyAppleOS 27, *)
+extension SwiftNetworkQUICConnection: QUICNewFlowOwner where Consumer: ~Copyable {
+    func connected(in eventContext: inout NetworkContext.EventContext) {
+        self.handleConnectionConnected(in: &eventContext)
+    }
+
+    func disconnected(error: NetworkError?, in eventContext: inout NetworkContext.EventContext) {
+        self.handleConnectionDisconnected(error: error, in: &eventContext)
+    }
+
+    func newInboundStream(_ handler: QUICChannelStreamHandler) {
+        self.newFlowHandlerAddNewStream(streamHandler: handler)
+    }
+
+    func associateConnectionID(_ cid: QUICConnectionID, in eventContext: inout NetworkContext.EventContext) {
+        self.handleAssociateConnectionID(cid, in: &eventContext)
+    }
+
+    func retireConnectionID(_ cid: QUICConnectionID, in eventContext: inout NetworkContext.EventContext) {
+        self.handleRetireConnectionID(cid, in: &eventContext)
+    }
+
+    func pathValidated(remote: AddressEndpoint) {
+        self.handlePathValidated(remote: remote)
+    }
+
+    func pathCurrent(remote: AddressEndpoint) {
+        self.handlePathCurrent(remote: remote)
+    }
+
+    func pathUnreachable(remote: AddressEndpoint, in eventContext: inout NetworkContext.EventContext) {
+        self.handlePathUnreachable(remote: remote, in: &eventContext)
     }
 }
 
