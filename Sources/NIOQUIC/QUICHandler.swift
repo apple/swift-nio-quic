@@ -324,10 +324,10 @@ public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
     /// waits for the peer to retransmit.
     private func deliverFirstPacket(
         _ envelope: AddressedEnvelope<ByteBuffer>,
-        to connection: any QUICConnectionRegistryView
+        to view: any QUICConnectionRegistryView
     ) {
         self.eventLoop.assertInEventLoop()
-        self.deliverPacket(envelope, to: connection)
+        self.deliverPacket(envelope, to: view)
 
         // First reads can be delivered outside of the read loop (i.e. after the connection init)
         // so notify read complete out-of-band if necessary.
@@ -338,18 +338,18 @@ public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
 
     private func deliverPacket(
         _ envelope: AddressedEnvelope<ByteBuffer>,
-        to connection: any QUICConnectionRegistryView
+        to view: any QUICConnectionRegistryView
     ) {
-        let didEnterReadLoop = connection.parentChannelRead(envelope)
+        let didEnterReadLoop = view._parentChannelRead(envelope)
 
         if didEnterReadLoop {
-            self.connectionsAwaitingReadComplete.append(connection)
+            self.connectionsAwaitingReadComplete.append(view)
         }
     }
 
     private func notifyPendingReadCompletions() {
-        for connection in self.connectionsAwaitingReadComplete {
-            connection.parentChannelReadComplete()
+        for view in self.connectionsAwaitingReadComplete {
+            view._parentChannelReadComplete()
         }
 
         self.connectionsAwaitingReadComplete.removeAll(keepingCapacity: true)
@@ -1211,8 +1211,7 @@ extension QUICHandler: QUICHandlerChildTransport where Consumer: ~Copyable {}
 struct QUICHandlerChildView: QUICTransport {
     private let handler: any QUICHandlerChildTransport
 
-    init(_ handler: some QUICHandlerChildTransport, eventLoop: any EventLoop) {
-        eventLoop.assertInEventLoop()
+    init(_ handler: some QUICHandlerChildTransport) {
         self.handler = handler
     }
 
@@ -1278,7 +1277,7 @@ extension QUICHandler where Consumer: ~Copyable {
             udpChannel: self.udpChannel,
             connection: .live(quicConnection),
             registrar: .live(QUICHandler<Consumer>.RegistrarView(self, handle: handle)),
-            transport: .live(QUICHandlerChildView(self, eventLoop: self.eventLoop)),
+            transport: .live(QUICHandlerChildView(self)),
             isServer: quicConnection.role == .server,
             table: table
         )

@@ -615,41 +615,7 @@ extension QUICConnectionChannel.TransportView where Consumer: ~Copyable {
 // MARK: - Registry view
 
 @available(anyAppleOS 27, *)
-extension QUICConnectionChannel: QUICConnectionRegistryView where Consumer: ~Copyable {
-    /// Returns whether the read caused the channel to enter a read loop.
-    @discardableResult
-    func parentChannelRead(_ envelope: AddressedEnvelope<ByteBuffer>) -> Bool {
-        self._parentChannelRead(envelope)
-    }
-
-    func parentChannelReadComplete() {
-        self._parentChannelReadComplete()
-    }
-
-    func parentChannelInactive() {
-        self._parentChannelBecameInactive()
-    }
-
-    func parentChannelWritabilityChanged(to isWritable: Bool) {
-        self._parentChannelWritabilityChanged(to: isWritable)
-    }
-
-    func parentChannelUserInboundEventTriggered(_ event: Any) {
-        self._parentChannelUserInboundEvent(event)
-    }
-
-    func shutdown(promise: EventLoopPromise<Void>?) {
-        self._parentInvokedShutdown(promise: promise)
-    }
-
-    /// Tear the channel down immediately.
-    ///
-    /// Skips waiting for the QUIC close handshake or for per-stream close futures; used when
-    /// a graceful shutdown overran its deadline.
-    func forceClose() {
-        self._forceClose()
-    }
-}
+extension QUICConnectionChannel: QUICConnectionRegistryView where Consumer: ~Copyable {}
 
 // MARK: - Close & inactive
 
@@ -917,7 +883,7 @@ extension QUICConnectionChannel where Consumer: ~Copyable {
         }
     }
 
-    fileprivate func _parentChannelBecameInactive() {
+    func _parentChannelBecameInactive() {
         self.eventLoop.assertInEventLoop()
 
         let shouldClose: Bool
@@ -946,7 +912,7 @@ extension QUICConnectionChannel where Consumer: ~Copyable {
 
     /// Force the channel closed without waiting for QUIC peer ack or per-stream close futures.
     /// Used by the registry when graceful shutdown overran its deadline.
-    fileprivate func _forceClose() {
+    func _forceClose() {
         self.eventLoop.assertInEventLoop()
 
         switch self._lifecycle.forceClosing() {
@@ -972,12 +938,12 @@ extension QUICConnectionChannel where Consumer: ~Copyable {
         }
     }
 
-    fileprivate func _parentChannelUserInboundEvent(_ event: Any) {
+    func _parentChannelUserInboundEvent(_ event: Any) {
         self.eventLoop.assertInEventLoop()
         self.pipeline.syncOperations.fireUserInboundEventTriggered(event)
     }
 
-    fileprivate func _parentChannelRead(_ envelope: AddressedEnvelope<ByteBuffer>) -> Bool {
+    func _parentChannelRead(_ envelope: AddressedEnvelope<ByteBuffer>) -> Bool {
         self.eventLoop.assertInEventLoop()
         // Feed packets in, '_parentChannelReadComplete' signals to the connection that
         // it should then consume those packets.
@@ -988,7 +954,7 @@ extension QUICConnectionChannel where Consumer: ~Copyable {
         return didEnterReadLoop
     }
 
-    fileprivate func _parentChannelReadComplete() {
+    func _parentChannelReadComplete() {
         self.eventLoop.assertInEventLoop()
         self._inReadLoop = false
 
@@ -1014,7 +980,7 @@ extension QUICConnectionChannel where Consumer: ~Copyable {
         self.drainAndReconcileLifecycle()
     }
 
-    fileprivate func _parentChannelWritabilityChanged(to isWritable: Bool) {
+    func _parentChannelWritabilityChanged(to isWritable: Bool) {
         let (exchanged, _) = self._isWritable.compareExchange(
             expected: !isWritable,
             desired: isWritable,
@@ -1027,7 +993,7 @@ extension QUICConnectionChannel where Consumer: ~Copyable {
         }
     }
 
-    fileprivate func _parentInvokedShutdown(promise: EventLoopPromise<Void>?) {
+    func _parentInvokedShutdown(promise: EventLoopPromise<Void>?) {
         self.closeConnection(
             promise: promise,
             isApplicationClose: false,

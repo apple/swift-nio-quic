@@ -166,20 +166,28 @@ struct ConnectionRegistry<Value> {
 
 /// What the registry needs from a connection, and what the QUIC handler delivers packets to.
 ///
-/// Class-bound, so that the handler stores its connections as `any QUICConnectionRegistryView`, a
-/// concrete type: `QUICConnectionChannel`, which conforms, is generic over its consumer, and storing
-/// it under a type of its own made the handler's per-packet bookkeeping look up metadata at run time.
+/// The handler stores its connections as `any QUICConnectionRegistryView`, whose type is concrete:
+/// `QUICConnectionChannel`, which conforms, is generic over its consumer, and storing it under a type
+/// of its own made the handler's per-packet bookkeeping look up metadata at run time. Class-bound,
+/// so that the existential is two words and copying it is a retain.
+///
+/// The requirements must be called on the connection's event loop, hence their leading underscores:
+/// see `QUICConnectionChannel`.
 @available(anyAppleOS 27, *)
 protocol QUICConnectionRegistryView: AnyObject {
     /// Delivers a packet. Returns whether the read caused the connection to enter a read loop.
-    func parentChannelRead(_ envelope: AddressedEnvelope<ByteBuffer>) -> Bool
+    func _parentChannelRead(_ envelope: AddressedEnvelope<ByteBuffer>) -> Bool
     /// Ends the read loop the connection entered.
-    func parentChannelReadComplete()
-    func shutdown(promise: EventLoopPromise<Void>?)
-    func forceClose()
-    func parentChannelInactive()
-    func parentChannelWritabilityChanged(to writable: Bool)
-    func parentChannelUserInboundEventTriggered(_ event: Any)
+    func _parentChannelReadComplete()
+    func _parentInvokedShutdown(promise: EventLoopPromise<Void>?)
+    /// Tears the connection down immediately.
+    ///
+    /// Skips waiting for the QUIC close handshake or for per-stream close futures; used when a
+    /// graceful shutdown overran its deadline.
+    func _forceClose()
+    func _parentChannelBecameInactive()
+    func _parentChannelWritabilityChanged(to isWritable: Bool)
+    func _parentChannelUserInboundEvent(_ event: Any)
 }
 
 /// A class because a local `var` trips up CMO.
@@ -200,7 +208,7 @@ extension ConnectionRegistry where Value == any QUICConnectionRegistryView {
     func shutdownConnections(deadline: NIODeadline, promise: EventLoopPromise<Void>.Isolated?) {
         guard let promise = promise else {
             for view in self.values {
-                view.shutdown(promise: nil)
+                view._parentInvokedShutdown(promise: nil)
             }
             return
         }
@@ -211,7 +219,7 @@ extension ConnectionRegistry where Value == any QUICConnectionRegistryView {
 
         for view in self.values {
             let promise = eventLoop.makePromise(of: Void.self)
-            view.shutdown(promise: promise)
+            view._parentInvokedShutdown(promise: promise)
             futures.append(promise.futureResult)
         }
 
@@ -225,7 +233,7 @@ extension ConnectionRegistry where Value == any QUICConnectionRegistryView {
             race.finished = true
 
             for view in connectionsSnapshot {
-                view.forceClose()
+                view._forceClose()
             }
 
             promise.succeed(())
@@ -242,19 +250,19 @@ extension ConnectionRegistry where Value == any QUICConnectionRegistryView {
 
     func notifyParentChannelInactive() {
         for view in self.values {
-            view.parentChannelInactive()
+            view._parentChannelBecameInactive()
         }
     }
 
     func notifyParentChannelWritabilityChanged(_ writable: Bool) {
         for view in self.values {
-            view.parentChannelWritabilityChanged(to: writable)
+            view._parentChannelWritabilityChanged(to: writable)
         }
     }
 
     func notifyParentChannelUserInboundEventTriggered(_ event: Any) {
         for view in self.values {
-            view.parentChannelUserInboundEventTriggered(event)
+            view._parentChannelUserInboundEvent(event)
         }
     }
 }

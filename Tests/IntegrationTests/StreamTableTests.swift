@@ -768,7 +768,7 @@ struct StreamTableTests {
 
             let channel = try #require(pair.clientConnection.channel as? QUICConnectionChannel<RecordConsumer>)
             try await channel.eventLoop.submit {
-                channel.forceClose()
+                channel._forceClose()
             }.get()
 
             // Completes once the channel has torn down, which retires the table's anchor.
@@ -802,7 +802,7 @@ struct StreamTableTests {
 
             let channel = try #require(pair.clientConnection.channel as? QUICConnectionChannel<IdleConsumer>)
             try await channel.eventLoop.submit {
-                channel.forceClose()
+                channel._forceClose()
             }.get()
             try await channel.closeFuture.get()
 

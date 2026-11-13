@@ -40,8 +40,8 @@ protocol QUICTransport {
 @available(anyAppleOS 27, *)
 enum QUICConnectionTransport: QUICTransport {
     case live(QUICHandlerChildView)
-    // Class-bound: an opaque existential would make the enum address-only, so every call through it from
-    // unspecialized code would pass it indirectly, with its metadata.
+    // Class-bound: an opaque existential would make the enum address-only, so it would be passed and
+    // copied indirectly.
     case test(any QUICTransport & AnyObject)
 
     func writeDatagram(_ envelope: AddressedEnvelope<ByteBuffer>, promise: EventLoopPromise<Void>?) {
