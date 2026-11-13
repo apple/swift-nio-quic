@@ -184,27 +184,22 @@ extension QUICStreamTable where Consumer: ~Copyable {
         return hadOutputPending
     }
 
-    /// Adds a slot for a stream, with the consumer's state for it.
+    /// Adds a slot for a stream, with the consumer's state for it. Streams the peer opens get theirs
+    /// from ``insertSlotNeedingState(id:)`` instead.
     ///
     /// - Parameters:
     ///   - id: The stream ID, if the stack has already assigned one.
-    ///   - state: The consumer's state for the stream. Streams which don't provide state here
-    ///     will make state via ``QUICStreamConsumer/makeStreamState(_:)`` before their first visit.
+    ///   - state: The consumer's state for the stream.
     @inlinable
     func insertSlot(
         id: QUICStreamID?,
-        state: consuming Consumer.StreamState?
+        state: consuming Consumer.StreamState
     ) -> QUICStreamHandle {
         let transportState = QUICStreamTransportState(core: QUICStreamCore(id: id))
         let handle = self._transportStates.insert(transportState)
         self._consumerStates.reserve(at: handle.index)
-
-        if let state {
-            self._consumerStates.initialize(at: handle.index, to: consume state)
-            self._transportStates.withValue(for: handle) { $0.hasState = true }
-        } else {
-            self._needsState.append(handle)
-        }
+        self._consumerStates.initialize(at: handle.index, to: consume state)
+        self._transportStates.withValue(for: handle) { $0.hasState = true }
 
         if let id {
             self._byID[id] = handle
@@ -482,7 +477,7 @@ extension QUICStreamTable where Consumer: ~Copyable {
             assert(!transport.pointee.hasState)
 
             var stream = QUICStream<Consumer>(table: self, transport: transport, handle: handle)
-            // An inbound stream's slot has no storage for its state yet.
+            // An inbound stream's slot may have no storage for its state yet.
             self._consumerStates.reserve(at: handle.index)
             self._consumerStates.initialize(at: handle.index, to: consumer.makeStreamState(&stream))
             transport.pointee.hasState = true
@@ -703,8 +698,8 @@ extension QUICStreamTable where Consumer: ~Copyable {
         self.unregisterEventManager(of: &transport.pointee, in: &eventContext)
 
         // Its callers move the state out first, so this releases nothing unless one of them broke
-        // that. Only a slot holding a state has storage for it: an inbound stream's is reserved by
-        // its first visit.
+        // that. A slot without a state may have no storage for one: an inbound stream's is reserved
+        // by its first visit.
         let holdsState = transport.pointee.hasState
         self._transportStates.removeValue(for: handle)
         if holdsState {

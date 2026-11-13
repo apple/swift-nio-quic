@@ -880,7 +880,7 @@ extension QUICConnectionChannel where Consumer: ~Copyable {
 
         if let table = self._table {
             // Through the consumer, so that the visit runs specialized for it.
-            self._consumer!._visitStreams(_QUICStreamsVisit(table: table))
+            self._consumer!._visitStreams(QUICStreams(table: table))
         }
     }
 

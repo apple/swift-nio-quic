@@ -268,7 +268,7 @@ struct QUICStreamTableTests {
     func slotWithoutStateIsNotVisited() {
         let table = Self.makeTable()
         defer { table.retireAnchor() }
-        let handle = table.insertSlot(id: nil, state: nil)
+        let handle = table.insertSlotNeedingState(id: 0)
         #expect(table.withStream(handle: handle) { _, state in state } == nil)
     }
 
@@ -333,7 +333,7 @@ struct QUICStreamTableTests {
         let table = Self.makeRecordingTable()
         defer { table.retireAnchor() }
         var consumer = RecordingConsumer()
-        let handle = table.insertSlot(id: 0, state: nil)
+        let handle = table.insertSlotNeedingState(id: 0)
         table.markReady(handle: handle, events: .readable)
 
         table.drain(into: &consumer)
@@ -351,7 +351,7 @@ struct QUICStreamTableTests {
         let table = Self.makeRecordingTable()
         defer { table.retireAnchor() }
         var consumer = RecordingConsumer()
-        let handle = table.insertSlot(id: 0, state: nil)
+        let handle = table.insertSlotNeedingState(id: 0)
         table.markReady(handle: handle, events: .readable)
         table.markReady(handle: handle, events: [.stopSending, .writable])
 
@@ -369,7 +369,7 @@ struct QUICStreamTableTests {
 
         // Don't pull any streams.
         consumer.pullLimit = 0
-        let handle = table.insertSlot(id: 0, state: nil)
+        let handle = table.insertSlotNeedingState(id: 0)
         table.markReady(handle: handle, events: .readable)
 
         // Run the first drain.
@@ -389,7 +389,7 @@ struct QUICStreamTableTests {
         let table = Self.makeRecordingTable()
         defer { table.retireAnchor() }
         var consumer = RecordingConsumer(pullLimit: 1)
-        let handle = table.insertSlot(id: 0, state: nil)
+        let handle = table.insertSlotNeedingState(id: 0)
         table.markReady(handle: handle, events: .readable)
         table.drain(into: &consumer)
         #expect(consumer.sightings.count == 1)
@@ -405,7 +405,7 @@ struct QUICStreamTableTests {
         let table = Self.makeRecordingTable()
         defer { table.retireAnchor() }
         var consumer = RecordingConsumer()
-        let handle = table.insertSlot(id: 0, state: nil)
+        let handle = table.insertSlotNeedingState(id: 0)
 
         table.markReady(handle: handle, events: .readable)
         table.drain(into: &consumer)
@@ -430,21 +430,26 @@ struct QUICStreamTableTests {
         table.vacateSlot(first)
         // Reuses the first one's slot.
         let third = table.insertSlotNeedingState(id: 8)
-        // A locally opened stream comes with its state, so it reserves storage past the inbound slots.
-        let local = table.insertSlot(id: nil, state: RecordingConsumer.StreamState(madeAt: 0))
+        #expect(third.index == first.index)
+        #expect(table._consumerStates._holdsState.isEmpty)
 
+        // The drain makes the second one's state first, so it reserves past the third one's slot.
         table.markReady(handle: third, events: .readable)
         table.markReady(handle: second, events: .readable)
-        table.markReady(handle: local, events: .readable)
         table.drain(into: &consumer)
 
         #expect(consumer.madeStates == 2)
-        #expect(consumer.sightings.map { $0.handle } == [third, second, local])
+        #expect(consumer.sightings.map { $0.handle } == [third, second])
         // States are made in the order the slots were inserted, before any visit.
-        #expect(consumer.sightings.map { $0.stateMadeAt } == [2, 1, 0])
-        #expect(third.index == first.index)
+        #expect(consumer.sightings.map { $0.stateMadeAt } == [2, 1])
         #expect(table.handle(forID: 0) == nil)
         #expect(table.handle(forID: 8) == third)
+
+        // A locally opened stream comes with its state, which reserves its own slot's storage.
+        let local = table.insertSlot(id: nil, state: RecordingConsumer.StreamState(madeAt: 0))
+        table.markReady(handle: local, events: .readable)
+        table.drain(into: &consumer)
+        #expect(consumer.sightings.map { $0.handle } == [third, second, local])
 
         table.vacateSlot(second)
         table.vacateSlot(third)
@@ -472,8 +477,8 @@ struct QUICStreamTableTests {
         let table = Self.makeRecordingTable()
         defer { table.retireAnchor() }
         var consumer = RecordingConsumer()
-        let first = table.insertSlot(id: 0, state: nil)
-        let second = table.insertSlot(id: 4, state: nil)
+        let first = table.insertSlotNeedingState(id: 0)
+        let second = table.insertSlotNeedingState(id: 4)
 
         // Reach the second stream from inside every visit, which is the case the exclusivity rules
         // make impossible through the slot store's closure-taking members.
@@ -513,7 +518,7 @@ struct QUICStreamTableTests {
             }
         }
 
-        let handle = table.insertSlot(id: 0, state: nil)
+        let handle = table.insertSlotNeedingState(id: 0)
         table.markReady(handle: handle, events: .readable)
         table.drain(into: &consumer)
 
@@ -531,7 +536,7 @@ struct QUICStreamTableTests {
         let table = Self.makeRecordingTable()
         defer { table.retireAnchor() }
         var consumer = RecordingConsumer()
-        let handle = table.insertSlot(id: 0, state: nil)
+        let handle = table.insertSlotNeedingState(id: 0)
 
         var takenStates: [Int] = []
         var reachedAfterTake: [Int?] = []
@@ -561,9 +566,9 @@ struct QUICStreamTableTests {
     func closeAllDeliversClosedForEveryLiveStream() {
         let table = Self.makeRecordingTable()
         var consumer = RecordingConsumer()
-        let first = table.insertSlot(id: 0, state: nil)
-        let second = table.insertSlot(id: 4, state: nil)
-        let third = table.insertSlot(id: 8, state: nil)
+        let first = table.insertSlotNeedingState(id: 0)
+        let second = table.insertSlotNeedingState(id: 4)
+        let third = table.insertSlotNeedingState(id: 8)
         table.markReady(handle: second, events: .readable)
         table.closeAll(error: Boom(), disconnect: nil, into: &consumer)
 
@@ -581,8 +586,8 @@ struct QUICStreamTableTests {
         let table = Self.makeRecordingTable()
         var consumer = RecordingConsumer(pullLimit: 1)
 
-        _ = table.insertSlot(id: 0, state: nil)
-        _ = table.insertSlot(id: 4, state: nil)  // ignored because of pullLimit
+        _ = table.insertSlotNeedingState(id: 0)
+        _ = table.insertSlotNeedingState(id: 4)  // ignored because of pullLimit
 
         table.closeAll(error: Boom(), disconnect: nil, into: &consumer)
         #expect(consumer.sightings.count == 1)
@@ -597,7 +602,7 @@ struct QUICStreamTableTests {
         var consumer = FinishingConsumer(counter: counter, finishes: true)
 
         // The consumer finishes the first stream and drops its state.
-        let first = table.insertSlot(id: 0, state: nil)
+        let first = table.insertSlotNeedingState(id: 0)
         table.markReady(handle: first, events: [.readable, .closed])
         table.drain(into: &consumer)
         #expect(counter.released == 1)
@@ -670,7 +675,7 @@ struct QUICStreamTableTests {
     func roomAvailableMarksTheStreamWritable() {
         let table = Self.makeRecordingTable()
         var consumer = RecordingConsumer()
-        let handle = table.insertSlot(id: 0, state: nil)
+        let handle = table.insertSlotNeedingState(id: 0)
 
         // The stack delivers a stream's events to the linkage the stream attached with. There's no
         // flow here, so attach the stream to an empty linkage, which ignores the stream's calls.
@@ -780,13 +785,13 @@ struct QUICStreamTableTests {
     func eventsThroughAStaleLinkageAreDropped() {
         let table = Self.makeRecordingTable()
         var consumer = RecordingConsumer()
-        let stale = table.insertSlot(id: 0, state: nil)
+        let stale = table.insertSlotNeedingState(id: 0)
         let staleIdentifier = table.registerIdentifier(for: stale)
         table.attach(stale, identifier: staleIdentifier, linkage: BaseOutboundStreamLinkage())
         let staleLinkage = QUICStreamUpperLinkage(table: table, handle: stale, identifier: staleIdentifier)
         table.vacateSlot(stale)
 
-        let live = table.insertSlot(id: 4, state: nil)
+        let live = table.insertSlotNeedingState(id: 4)
         #expect(stale.index == live.index)
         let liveIdentifier = table.registerIdentifier(for: live)
         table.attach(live, identifier: liveIdentifier, linkage: BaseOutboundStreamLinkage())
@@ -807,7 +812,7 @@ struct QUICStreamTableTests {
     func eventsDeliveredWhileAStreamIsVacatedAreDropped() {
         let table = Self.makeRecordingTable()
         var consumer = RecordingConsumer()
-        let handle = table.insertSlot(id: 0, state: nil)
+        let handle = table.insertSlotNeedingState(id: 0)
         let identifier = table.registerIdentifier(for: handle)
         let lowerLinkage = TestLowerLinkage(context: table.context)
         table.attach(handle, identifier: identifier, linkage: BaseOutboundStreamLinkage(external: lowerLinkage))
@@ -829,7 +834,7 @@ struct QUICStreamTableTests {
     func eventsDeliveredWhileAllSlotsAreTornDownAreDropped() {
         let table = Self.makeRecordingTable()
         var consumer = RecordingConsumer(pullLimit: 0)
-        let handle = table.insertSlot(id: 0, state: nil)
+        let handle = table.insertSlotNeedingState(id: 0)
         let identifier = table.registerIdentifier(for: handle)
         let lowerLinkage = TestLowerLinkage(context: table.context)
         table.attach(handle, identifier: identifier, linkage: BaseOutboundStreamLinkage(external: lowerLinkage))
@@ -849,12 +854,12 @@ struct QUICStreamTableTests {
         let table = Self.makeRecordingTable()
         var consumer = RecordingConsumer(pullLimit: 0)
 
-        let first = table.insertSlot(id: 0, state: nil)
+        let first = table.insertSlotNeedingState(id: 0)
         let firstIdentifier = table.registerIdentifier(for: first)
         let firstLinkage = TestLowerLinkage(context: table.context)
         table.attach(first, identifier: firstIdentifier, linkage: BaseOutboundStreamLinkage(external: firstLinkage))
 
-        let second = table.insertSlot(id: 4, state: nil)
+        let second = table.insertSlotNeedingState(id: 4)
         let secondIdentifier = table.registerIdentifier(for: second)
         let secondLinkage = TestLowerLinkage(context: table.context)
         table.attach(second, identifier: secondIdentifier, linkage: BaseOutboundStreamLinkage(external: secondLinkage))
