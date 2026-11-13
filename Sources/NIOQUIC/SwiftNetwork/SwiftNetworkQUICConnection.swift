@@ -119,8 +119,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
             self.hasOtherPaths = !self.otherPaths.isEmpty
         }
     }
-    // Whether `otherPaths` holds any. Reading the array's count, in this unspecialized code, would look up its element
-    // type's metadata, which every read loop would pay for.
+    // Whether `otherPaths` holds any, so that a read loop or a drain with a single path doesn't copy the array.
     private var hasOtherPaths: Bool
     // The pool for frames shared across QUIC connection paths.
     private let framePool: FramePool
@@ -1171,7 +1170,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
 
     /// Singals to the QUIC stack that the input queue is ready to be consumed
     func receivePacketsComplete() {
-        // Without other paths, skip the snapshot: copying the array looks up its element type's metadata.
+        // Without other paths, skip the snapshot and its retain and release.
         if !self.hasOtherPaths {
             self.invokeInputAvailable(on: self.activePath)
             return
@@ -1227,7 +1226,7 @@ final class SwiftNetworkQUICConnection<Consumer: QUICStreamConsumer & ~Copyable>
     @inlinable
     func drainPacketsToSend(to transport: some QUICTransport) {
         self.activePath.drainPacketsToSend(to: transport)
-        // As in `receivePacketsComplete()`: iterating the array looks up its element type's metadata.
+        // As in `receivePacketsComplete()`: don't retain an array there's nothing to iterate in.
         if !self.hasOtherPaths {
             return
         }
