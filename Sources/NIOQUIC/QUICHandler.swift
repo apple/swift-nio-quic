@@ -86,7 +86,7 @@ public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
     private let quicConfiguration: QUICConfiguration
 
     /// A registry of connections.
-    private var connectionRegistry: ConnectionRegistry<QUICConnectionChannel<Consumer>.TransportView>
+    private var connectionRegistry: ConnectionRegistry<any QUICConnectionRegistryView>
     /// Decides whether new connections may be admitted.
     private var connectionAdmissionController: ConnectionAdmissionController
 
@@ -111,7 +111,7 @@ public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
     /// Whether we're expecting a channelReadComplete. This is used to delay flushing the channel until the a read complete is received.
     private var expectingChannelReadComplete: Bool = false
     /// Connections which read at least one datagram in the read loop.
-    private var connectionsAwaitingReadComplete: [QUICConnectionChannel<Consumer>.TransportView] = []
+    private var connectionsAwaitingReadComplete: [any QUICConnectionRegistryView] = []
     /// The context of the channel handler.
     private var context: ChannelHandlerContext?
     /// The next connection handle to use. Don't use directly, use `nextConnectionHandle()` instead.
@@ -282,7 +282,7 @@ public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
                 handle: handle
             )
             let view = channel.transportView
-            self.connectionRegistry.insert(view, forHandle: handle, connectionID: sourceConnectionID)
+            self.connectionRegistry.insert(channel, forHandle: handle, connectionID: sourceConnectionID)
 
             let streamCreator = channel.makeStreamCreator(role: self.quicConfiguration.role)
             let activePromise = self.eventLoop.makePromise(of: Void.self)
@@ -324,10 +324,10 @@ public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
     /// waits for the peer to retransmit.
     private func deliverFirstPacket(
         _ envelope: AddressedEnvelope<ByteBuffer>,
-        to view: QUICConnectionChannel<Consumer>.TransportView
+        to connection: any QUICConnectionRegistryView
     ) {
         self.eventLoop.assertInEventLoop()
-        self.deliverPacket(envelope, to: view)
+        self.deliverPacket(envelope, to: connection)
 
         // First reads can be delivered outside of the read loop (i.e. after the connection init)
         // so notify read complete out-of-band if necessary.
@@ -338,18 +338,18 @@ public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
 
     private func deliverPacket(
         _ envelope: AddressedEnvelope<ByteBuffer>,
-        to view: QUICConnectionChannel<Consumer>.TransportView
+        to connection: any QUICConnectionRegistryView
     ) {
-        let didEnterReadLoop = view.parentChannelRead(envelope)
+        let didEnterReadLoop = connection.parentChannelRead(envelope)
 
         if didEnterReadLoop {
-            self.connectionsAwaitingReadComplete.append(view)
+            self.connectionsAwaitingReadComplete.append(connection)
         }
     }
 
     private func notifyPendingReadCompletions() {
-        for view in self.connectionsAwaitingReadComplete {
-            view.parentChannelReadComplete()
+        for connection in self.connectionsAwaitingReadComplete {
+            connection.parentChannelReadComplete()
         }
 
         self.connectionsAwaitingReadComplete.removeAll(keepingCapacity: true)
@@ -1008,7 +1008,7 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
             channel.setInboundStreamInitializer(.closure(inboundStreamInitializer))
 
             let view = channel.transportView
-            self.connectionRegistry.insert(view, forHandle: handle, connectionID: newSourceConnectionID)
+            self.connectionRegistry.insert(channel, forHandle: handle, connectionID: newSourceConnectionID)
 
             // Keep track of the original DCID the peer used in case they retransmit or send
             // additional INITIAL packets.
@@ -1027,7 +1027,7 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
             initPromise.futureResult.assumeIsolated().whenComplete { result in
                 switch result {
                 case .success:
-                    self.deliverFirstPacket(addressedEnvelope, to: view)
+                    self.deliverFirstPacket(addressedEnvelope, to: channel)
                 case .failure:
                     // Nothing to unwind: failing initialization closes the channel, so
                     // 'connectionDidClose' does the teardown.
@@ -1041,7 +1041,7 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
                 handle: handle
             )
             let view = channel.transportView
-            self.connectionRegistry.insert(view, forHandle: handle, connectionID: newSourceConnectionID)
+            self.connectionRegistry.insert(channel, forHandle: handle, connectionID: newSourceConnectionID)
 
             // Keep track of the original DCID the peer used in case they retransmit or send
             // additional INITIAL packets.
@@ -1072,7 +1072,7 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
                     case .success(let (_, output)):
                         connectionLogger.trace("QUICHandler yielding output to multiplexer")
                         multiplexerContinuation.yield(connection: output)
-                        self.deliverFirstPacket(addressedEnvelope, to: view)
+                        self.deliverFirstPacket(addressedEnvelope, to: channel)
                     case .failure:
                         // Nothing to unwind: failing initialization closes the channel, so
                         // 'connectionDidClose' does the teardown.
@@ -1084,7 +1084,7 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
             // No continuation means the consumer is used.
             channel = self.makeQUICConnectionChannel(quicConnection: quicConnection, handle: handle)
             let view = channel.transportView
-            self.connectionRegistry.insert(view, forHandle: handle, connectionID: newSourceConnectionID)
+            self.connectionRegistry.insert(channel, forHandle: handle, connectionID: newSourceConnectionID)
 
             // Keep track of the original DCID the peer used in case they retransmit or send
             // additional INITIAL packets.
@@ -1101,7 +1101,7 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
             initPromise.futureResult.assumeIsolated().whenComplete { result in
                 switch result {
                 case .success:
-                    self.deliverFirstPacket(addressedEnvelope, to: view)
+                    self.deliverFirstPacket(addressedEnvelope, to: channel)
                 case .failure:
                     ()
                 }
@@ -1192,36 +1192,49 @@ extension QUICHandler where Consumer: ~Copyable {
     }
 }
 
+/// What a connection channel's ``QUICHandlerChildView`` needs from its handler.
+///
+/// `QUICHandler` is generic over its consumer: reaching it through this keeps the view non-generic,
+/// so that the channel's unspecialized code doesn't look up the view's metadata to drain its output.
 @available(anyAppleOS 27, *)
-extension QUICHandler where Consumer: ~Copyable {
-    struct ChildView: QUICTransport {
-        private let handler: QUICHandler
+protocol QUICHandlerChildTransport: AnyObject {
+    func writeDatagram(_ envelope: AddressedEnvelope<ByteBuffer>, promise: EventLoopPromise<Void>?)
+    func flush()
+    func read()
+}
 
-        init(_ handler: QUICHandler) {
-            handler.eventLoop.assertInEventLoop()
-            self.handler = handler
-        }
+@available(anyAppleOS 27, *)
+extension QUICHandler: QUICHandlerChildTransport where Consumer: ~Copyable {}
 
-        func writeDatagram(
-            _ envelope: AddressedEnvelope<ByteBuffer>,
-            promise: EventLoopPromise<Void>?
-        ) {
-            self.handler.writeDatagram(envelope, promise: promise)
-        }
+/// A connection channel's view of its handler, which writes to the UDP channel.
+@available(anyAppleOS 27, *)
+struct QUICHandlerChildView: QUICTransport {
+    private let handler: any QUICHandlerChildTransport
 
-        func flush() {
-            self.handler.flush()
-        }
+    init(_ handler: some QUICHandlerChildTransport, eventLoop: any EventLoop) {
+        eventLoop.assertInEventLoop()
+        self.handler = handler
+    }
 
-        func read() {
-            self.handler.read()
-        }
+    func writeDatagram(
+        _ envelope: AddressedEnvelope<ByteBuffer>,
+        promise: EventLoopPromise<Void>?
+    ) {
+        self.handler.writeDatagram(envelope, promise: promise)
+    }
+
+    func flush() {
+        self.handler.flush()
+    }
+
+    func read() {
+        self.handler.read()
     }
 }
 
 @available(anyAppleOS 27, *)
 @available(*, unavailable)
-extension QUICHandler.ChildView: Sendable where Consumer: ~Copyable {}
+extension QUICHandlerChildView: Sendable {}
 
 @available(anyAppleOS 27, *)
 extension QUICHandler where Consumer: ~Copyable {
@@ -1265,7 +1278,7 @@ extension QUICHandler where Consumer: ~Copyable {
             udpChannel: self.udpChannel,
             connection: .live(quicConnection),
             registrar: .live(QUICHandler<Consumer>.RegistrarView(self, handle: handle)),
-            transport: .live(QUICHandler<Consumer>.ChildView(self)),
+            transport: .live(QUICHandlerChildView(self, eventLoop: self.eventLoop)),
             isServer: quicConnection.role == .server,
             table: table
         )

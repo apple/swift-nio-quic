@@ -577,12 +577,11 @@ struct QUICConnectionChannelTests {
                 $0.eventLoop.makeSucceededVoidFuture()
             }
 
-            let view = channel.transportView
             let hello = AddressedEnvelope(
                 remoteAddress: connection.remoteAddress.value,
                 data: ByteBuffer(string: "Hello,")
             )
-            #expect(view.parentChannelRead(hello))
+            #expect(channel.parentChannelRead(hello))
             #expect(connection.events.popFirst() == .receivedPacket(ByteBuffer(string: "Hello,")))
             #expect(transport.events.isEmpty)
 
@@ -590,12 +589,12 @@ struct QUICConnectionChannelTests {
                 remoteAddress: connection.remoteAddress.value,
                 data: ByteBuffer(string: "QUIC!")
             )
-            #expect(!view.parentChannelRead(quic))
+            #expect(!channel.parentChannelRead(quic))
             #expect(connection.events.popFirst() == .receivedPacket(ByteBuffer(string: "QUIC!")))
             #expect(transport.events.isEmpty)
 
             // Read-complete will trigger a drain which will in turn trigger a flush.
-            view.parentChannelReadComplete()
+            channel.parentChannelReadComplete()
             #expect(connection.events.popFirst() == .receivedPacketsComplete)
             #expect(transport.events.popFirst() == .flushed)
         }
@@ -613,7 +612,7 @@ struct QUICConnectionChannelTests {
 
             // Prepare an outbound packet. The inactive should cause a drain.
             connection.outboundPackets.append(ByteBuffer(string: "Bye!"))
-            channel.transportView.parentChannelInactive()
+            channel.parentChannelInactive()
 
             #expect(!channel.isActive)
 
@@ -645,18 +644,17 @@ struct QUICConnectionChannelTests {
 
             #expect(recorder.changes.isEmpty)
 
-            let view = channel.transportView
-            view.parentChannelWritabilityChanged(to: false)
+            channel.parentChannelWritabilityChanged(to: false)
             #expect(recorder.changes == [false])
 
-            view.parentChannelWritabilityChanged(to: true)
+            channel.parentChannelWritabilityChanged(to: true)
             #expect(recorder.changes == [false, true])
 
             // Check duplicate notifications are suppressed by the channel.
-            view.parentChannelWritabilityChanged(to: true)
+            channel.parentChannelWritabilityChanged(to: true)
             #expect(recorder.changes == [false, true])
 
-            view.parentChannelWritabilityChanged(to: false)
+            channel.parentChannelWritabilityChanged(to: false)
             #expect(recorder.changes == [false, true, false])
         }
 
@@ -686,10 +684,9 @@ struct QUICConnectionChannelTests {
 
             #expect(recorder.events.isEmpty)
 
-            let view = channel.transportView
-            view.parentChannelUserInboundEventTriggered(TestEvent.one)
-            view.parentChannelUserInboundEventTriggered(TestEvent.two)
-            view.parentChannelUserInboundEventTriggered(TestEvent.three)
+            channel.parentChannelUserInboundEventTriggered(TestEvent.one)
+            channel.parentChannelUserInboundEventTriggered(TestEvent.two)
+            channel.parentChannelUserInboundEventTriggered(TestEvent.three)
 
             #expect(recorder.events == [.one, .two, .three])
         }
@@ -706,7 +703,7 @@ struct QUICConnectionChannelTests {
             #expect(channel.isActive)
 
             let promise = channel.eventLoop.makePromise(of: Void.self)
-            channel.transportView.shutdown(promise: promise)
+            channel.shutdown(promise: promise)
 
             // Shutdown is graceful: the connection is closed cleanly (no error) and
             // channelInactive fires exactly once.
@@ -733,7 +730,7 @@ struct QUICConnectionChannelTests {
 
             // Force-close doesn't wait for the QUIC close handshake; channelInactive fires
             // synchronously and the connection is not asked to close gracefully.
-            channel.transportView.forceClose()
+            channel.forceClose()
             #expect(recorder.inactiveCount == 1)
             #expect(!channel.isActive)
             #expect(connection.events == [])
@@ -751,13 +748,13 @@ struct QUICConnectionChannelTests {
             }
 
             // Close the channel
-            channel.transportView.forceClose()
+            channel.forceClose()
             channel.embeddedEventLoop.run()
             try channel.closeFuture.wait()
             #expect(recorder.inactiveCount == 1)
 
             // A second force-close on the closed channel is a no-op.
-            channel.transportView.forceClose()
+            channel.forceClose()
             channel.embeddedEventLoop.run()
             #expect(recorder.inactiveCount == 1)
         }
@@ -767,7 +764,7 @@ struct QUICConnectionChannelTests {
         func shutdownWhenAlreadyClosedCompletesPromise() throws {
             let channel = try makeChannel()
 
-            channel.transportView.forceClose()
+            channel.forceClose()
             channel.embeddedEventLoop.run()
             try channel.closeFuture.wait()
 
@@ -775,7 +772,7 @@ struct QUICConnectionChannelTests {
             // otherwise callers waiting on it (e.g. shutting down every connection in the
             // registry) wait until their deadline expires.
             let promise = channel.eventLoop.makePromise(of: Void.self)
-            channel.transportView.shutdown(promise: promise)
+            channel.shutdown(promise: promise)
             channel.embeddedEventLoop.run()
             try promise.futureResult.wait()
         }
@@ -796,11 +793,11 @@ struct QUICConnectionChannelTests {
 
             // Begin a graceful close: inactive is committed but deferred until the stream
             // close future completes.
-            channel.transportView.shutdown(promise: nil)
+            channel.shutdown(promise: nil)
             #expect(recorder.inactiveCount == 0)
 
             // Force-close during that window must not fire a second (or early) inactive.
-            channel.transportView.forceClose()
+            channel.forceClose()
             #expect(recorder.inactiveCount == 0)
 
             // Once the stream finishes closing, inactive fires exactly once.

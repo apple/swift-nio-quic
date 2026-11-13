@@ -69,7 +69,7 @@ final class QUICConnectionChannel<Consumer: QUICStreamConsumer & ~Copyable>: @un
     private let _registrar: ConnectionIDRegistrar
 
     /// A view into the QUIC handler in the UDP channel, for outbound operations.
-    private let _transport: Transport
+    private let _transport: QUICConnectionTransport
 
     /// The lifecycle state machine for the channel.
     private var _lifecycle: QUICConnectionChannelLifecycle
@@ -137,7 +137,7 @@ final class QUICConnectionChannel<Consumer: QUICStreamConsumer & ~Copyable>: @un
         udpChannel: any Channel,
         connection: Connection,
         registrar: ConnectionIDRegistrar,
-        transport: Transport,
+        transport: QUICConnectionTransport,
         isServer: Bool,
         table: QUICStreamTable<Consumer>?
     ) {
@@ -545,10 +545,6 @@ extension QUICConnectionChannel where Consumer: ~Copyable {
 extension QUICConnectionChannel.TransportView: Sendable where Consumer: ~Copyable {}
 
 @available(anyAppleOS 27, *)
-extension QUICConnectionChannel.TransportView: QUICConnectionRegistryView
-where Consumer: ~Copyable {}
-
-@available(anyAppleOS 27, *)
 extension QUICConnectionChannel.TransportView where Consumer: ~Copyable {
     /// Configure the pipeline, then complete `promise`.
     ///
@@ -614,31 +610,36 @@ extension QUICConnectionChannel.TransportView where Consumer: ~Copyable {
             self.channel._handshakePromise.take()?.fail(error)
         }
     }
+}
 
+// MARK: - Registry view
+
+@available(anyAppleOS 27, *)
+extension QUICConnectionChannel: QUICConnectionRegistryView where Consumer: ~Copyable {
     /// Returns whether the read caused the channel to enter a read loop.
     @discardableResult
     func parentChannelRead(_ envelope: AddressedEnvelope<ByteBuffer>) -> Bool {
-        self.channel._parentChannelRead(envelope)
+        self._parentChannelRead(envelope)
     }
 
     func parentChannelReadComplete() {
-        self.channel._parentChannelReadComplete()
+        self._parentChannelReadComplete()
     }
 
     func parentChannelInactive() {
-        self.channel._parentChannelBecameInactive()
+        self._parentChannelBecameInactive()
     }
 
     func parentChannelWritabilityChanged(to isWritable: Bool) {
-        self.channel._parentChannelWritabilityChanged(to: isWritable)
+        self._parentChannelWritabilityChanged(to: isWritable)
     }
 
     func parentChannelUserInboundEventTriggered(_ event: Any) {
-        self.channel._parentChannelUserInboundEvent(event)
+        self._parentChannelUserInboundEvent(event)
     }
 
     func shutdown(promise: EventLoopPromise<Void>?) {
-        self.channel._parentInvokedShutdown(promise: promise)
+        self._parentInvokedShutdown(promise: promise)
     }
 
     /// Tear the channel down immediately.
@@ -646,7 +647,7 @@ extension QUICConnectionChannel.TransportView where Consumer: ~Copyable {
     /// Skips waiting for the QUIC close handshake or for per-stream close futures; used when
     /// a graceful shutdown overran its deadline.
     func forceClose() {
-        self.channel._forceClose()
+        self._forceClose()
     }
 }
 

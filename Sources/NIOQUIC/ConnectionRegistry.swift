@@ -29,13 +29,9 @@ struct ConnectionRegistry<Value> {
     /// Connections, in the slots their routes point to. Removing a connection moves the last one
     /// into its slot.
     ///
-    /// Slots rather than a dictionary keyed by handle: `Value` is generic, so a lookup by key
-    /// can't be specialized, and routing a datagram would hash twice.
+    /// Slots rather than a dictionary keyed by handle, so that routing a datagram hashes once.
     private var connections: [Value]
     /// The handle of the connection in each slot.
-    ///
-    /// Not stored with the connections: an array of `(handle, value)` tuples would need the tuple's
-    /// metadata, looked up at run time, for every access.
     private var handles: [ConnectionHandle]
     /// The slot of each connection, by handle.
     private var slots: [ConnectionHandle: Int]
@@ -168,9 +164,17 @@ struct ConnectionRegistry<Value> {
     }
 }
 
-/// What the registry needs from a connection.
+/// What the registry needs from a connection, and what the QUIC handler delivers packets to.
+///
+/// Class-bound, so that the handler stores its connections as `any QUICConnectionRegistryView`, a
+/// concrete type: `QUICConnectionChannel`, which conforms, is generic over its consumer, and storing
+/// it under a type of its own made the handler's per-packet bookkeeping look up metadata at run time.
 @available(anyAppleOS 27, *)
-protocol QUICConnectionRegistryView {
+protocol QUICConnectionRegistryView: AnyObject {
+    /// Delivers a packet. Returns whether the read caused the connection to enter a read loop.
+    func parentChannelRead(_ envelope: AddressedEnvelope<ByteBuffer>) -> Bool
+    /// Ends the read loop the connection entered.
+    func parentChannelReadComplete()
     func shutdown(promise: EventLoopPromise<Void>?)
     func forceClose()
     func parentChannelInactive()
@@ -184,7 +188,7 @@ private final class ShutdownRace {
 }
 
 @available(anyAppleOS 27, *)
-extension ConnectionRegistry where Value: QUICConnectionRegistryView {
+extension ConnectionRegistry where Value == any QUICConnectionRegistryView {
     /// Shut down every registered connection, racing graceful completion against `deadline`.
     ///
     /// If all connections drain before the deadline, `promise` succeeds. If the deadline wins,

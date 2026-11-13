@@ -18,9 +18,9 @@ import NIOCore
 ///
 /// ``QUICConnectionChannel`` writes finalized datagrams, flushes, and requests
 /// reads through this seam rather than holding a concrete
-/// ``QUICHandler/ChildView`` directly. This lets the outbound side be
+/// ``QUICHandlerChildView`` directly. This lets the outbound side be
 /// substituted (for example, a recording double) when testing the channel in
-/// isolation. The production conformer is ``QUICHandler/ChildView``.
+/// isolation. The production conformer is ``QUICHandlerChildView``.
 @available(anyAppleOS 27, *)
 protocol QUICTransport {
     /// Write a single addressed datagram to the UDP channel.
@@ -33,39 +33,41 @@ protocol QUICTransport {
     func read()
 }
 
+/// A connection channel's transport: its handler's, or a test double.
+///
+/// Not nested in the channel, which is generic over its consumer: a nested type would be generic
+/// too, and the channel's unspecialized code would look up its metadata at run time.
 @available(anyAppleOS 27, *)
-extension QUICConnectionChannel where Consumer: ~Copyable {
-    enum Transport: QUICTransport {
-        case live(QUICHandler<Consumer>.ChildView)
-        // Class-bound: an opaque existential would make the enum address-only, so every call through it from
-        // unspecialized code would look up the enum's metadata.
-        case test(any QUICTransport & AnyObject)
+enum QUICConnectionTransport: QUICTransport {
+    case live(QUICHandlerChildView)
+    // Class-bound: an opaque existential would make the enum address-only, so every call through it from
+    // unspecialized code would pass it indirectly, with its metadata.
+    case test(any QUICTransport & AnyObject)
 
-        func writeDatagram(_ envelope: AddressedEnvelope<ByteBuffer>, promise: EventLoopPromise<Void>?) {
-            switch self {
-            case .live(let transport):
-                transport.writeDatagram(envelope, promise: promise)
-            case .test(let transport):
-                transport.writeDatagram(envelope, promise: promise)
-            }
+    func writeDatagram(_ envelope: AddressedEnvelope<ByteBuffer>, promise: EventLoopPromise<Void>?) {
+        switch self {
+        case .live(let transport):
+            transport.writeDatagram(envelope, promise: promise)
+        case .test(let transport):
+            transport.writeDatagram(envelope, promise: promise)
         }
+    }
 
-        func flush() {
-            switch self {
-            case .live(let transport):
-                transport.flush()
-            case .test(let transport):
-                transport.flush()
-            }
+    func flush() {
+        switch self {
+        case .live(let transport):
+            transport.flush()
+        case .test(let transport):
+            transport.flush()
         }
+    }
 
-        func read() {
-            switch self {
-            case .live(let transport):
-                transport.read()
-            case .test(let transport):
-                transport.read()
-            }
+    func read() {
+        switch self {
+        case .live(let transport):
+            transport.read()
+        case .test(let transport):
+            transport.read()
         }
     }
 }
