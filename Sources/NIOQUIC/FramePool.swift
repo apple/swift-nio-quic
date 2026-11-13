@@ -60,9 +60,9 @@ final class FramePool {
         Self(
             // Small frames are approx MSS sized.
             smallFrameSize: 1500,
-            // SwiftNetwork writes every datagram into a small frame, GSO or not, and asks for them in
-            // batches of up to 10. The batches of a read loop stay queued on the path until it's drained,
-            // so a large write holds dozens; with fewer pooled, each read loop allocates and frees the rest.
+            // QUIC writes every datagram into a small frame, GSO or not, and hands a path up to 40 at
+            // once. They come back only when the path is drained, so with fewer pooled, a large write
+            // allocates and frees the rest of every burst.
             maxSmallFrames: 64,
             // 64KB is the upper limit on what can be sent with GSO.
             largeFrameSize: gso ? 64 * 1024 : 0,
