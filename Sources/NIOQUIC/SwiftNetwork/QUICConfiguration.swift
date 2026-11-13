@@ -83,6 +83,8 @@ public struct InitialPacketSize: Sendable, Hashable {
     let kind: Kind
 
     /// Send UDP payloads of up to `size` bytes.
+    ///
+    /// NOTE: Values of 1200 or less have no effect.
     public static func fixed(_ size: Int) -> Self {
         Self(kind: .fixed(size))
     }
@@ -92,7 +94,7 @@ public struct InitialPacketSize: Sendable, Hashable {
     ///
     /// NOTE: The client's Initial only shows that the path carries packets of its size towards
     /// the server, not back towards the client. Only servers can match a client's Initial, clients
-    /// use 1200 bytes (minimum according RFC 9000, § 8.1).
+    /// use 1200 bytes (minimum according RFC 9000, § 8.1). Values of 1200 or less have no effect.
     public static func matchingClientInitial(upTo maximum: Int) -> Self {
         Self(kind: .matchingClientInitial(maximum: maximum))
     }
