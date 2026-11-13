@@ -26,9 +26,11 @@ import Darwin
 
 @available(anyAppleOS 27, *)
 extension NetworkError {
-    /// Whether this is SwiftNetwork's idle timeout. That closes a connection silently (RFC 9000,
-    /// Section 10.1), so the connection and its streams treat it as a clean close.
-    var isIdleTimeout: Bool {
+    /// Whether SwiftNetwork closed the connection because of a timeout: the idle timeout, which closes
+    /// it silently (RFC 9000, Section 10.1), or the limit on how long it may stay in PTO recovery
+    /// (`maxPTODuration`, two minutes by default), which sends CONNECTION_CLOSE with NO_ERROR. Both
+    /// report the same error, and the connection and its streams treat either as a clean close.
+    var isTimeout: Bool {
         self == .posix(ETIMEDOUT)
     }
 }

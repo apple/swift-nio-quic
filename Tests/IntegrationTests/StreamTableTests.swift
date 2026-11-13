@@ -19,13 +19,6 @@ import Testing
 
 @testable import NIOQUIC
 
-/// swift-network-evolution 0.4.0 hands a closed stream's flow ID to the next stream, so a late ACK for the
-/// old stream can mark the new stream's data as delivered before it was sent. Fixed on its main branch by
-/// apple/swift-network-evolution#165 (4ed1faa39) during the protocol stack refactor.
-///
-/// TODO: Remove the known issues using this once a release has it.
-private let flowIDReuse: Comment = "Flow ID reuse, fixed by apple/swift-network-evolution#165"
-
 @Suite(.timeLimit(.minutes(5)))
 struct StreamTableTests {
     @available(anyAppleOS 27, *)
@@ -83,10 +76,8 @@ struct StreamTableTests {
             let visits = await recording.visits(untilClosedStreams: streamCount)
 
             let closed = visits.filter { $0.events.contains(.closed) }
-            withKnownIssue(flowIDReuse, isIntermittent: true) {
-                #expect(Set(closed.map { $0.handle }).count == streamCount)
-                #expect(closed.allSatisfy { $0.bytesReadSoFar == request })
-            }
+            #expect(Set(closed.map { $0.handle }).count == streamCount)
+            #expect(closed.allSatisfy { $0.bytesReadSoFar == request })
         }
 
         #expect(failures.withLockedValue { $0 }.isEmpty)
@@ -144,10 +135,8 @@ struct StreamTableTests {
             let visits = await recording.visits(untilClosedStreams: requestCount)
 
             let responses = visits.filter { $0.events.contains(.closed) }.map { $0.bytesReadSoFar }
-            withKnownIssue(flowIDReuse, isIntermittent: true) {
-                #expect(responses.count == requestCount)
-                #expect(responses.allSatisfy { $0 == expected })
-            }
+            #expect(responses.count == requestCount)
+            #expect(responses.allSatisfy { $0 == expected })
         }
 
         #expect(failures.withLockedValue { $0 }.isEmpty)
@@ -622,9 +611,7 @@ struct StreamTableTests {
             let visits = await recording.visits(untilClosedStreams: streamCount)
 
             let echoed = Set(visits.filter { $0.events.contains(.closed) }.map { $0.bytesReadSoFar })
-            withKnownIssue(flowIDReuse, isIntermittent: true) {
-                #expect(echoed == Set(payloads))
-            }
+            #expect(echoed == Set(payloads))
         }
 
         #expect(failures.withLockedValue { $0 }.isEmpty)
@@ -952,6 +939,108 @@ struct StreamTableTests {
             #expect(error.code == 20)
             #expect(error.reason == "client says bye")
             #expect(error.isApplication)
+        }
+    }
+
+    // MARK: - Draining
+
+    @available(anyAppleOS 27, *)
+    @Test
+    func streamOpenedFromChannelReadCompleteIsVisitedWithoutAnotherDatagram() async throws {
+        let opened = NIOLockedValueBox(Set<QUICStreamHandle>())
+        let echoed = makePromise(of: Void.self, timeout: .seconds(10))
+        let visitedInTime = makePromise(of: Bool.self, timeout: .seconds(10))
+        let serverConnection = NIOLockedValueBox<QUICStreamConnection<EchoConsumer>?>(nil)
+        let captureConnection: @Sendable (QUICStreamConnection<EchoConsumer>) -> Void = { connection in
+            serverConnection.withLockedValue { $0 = connection }
+        }
+
+        try await withConsumerPair(
+            client: CallbackConsumer(makeState: { ByteBuffer() }) { visit in
+                var visit = visit
+                if visit.events.contains(.opened) {
+                    _ = opened.withLockedValue { $0.insert(visit.handle) }
+                }
+                if visit.events.contains(.readable), case .endOfStream = visit.readAll() {
+                    echoed.succeed()
+                }
+            },
+            server: EchoConsumer(),
+            onServerConnection: captureConnection
+        ) { pair in
+            let connection = pair.clientConnection
+            try await connection.eventLoop.submit {
+                let handler = OpenStreamOnReadComplete(
+                    connection: connection,
+                    opened: opened,
+                    visitedInTime: visitedInTime
+                )
+                try connection.channel.pipeline.syncOperations.addHandler(handler)
+            }.get()
+
+            // Once a request has been echoed the handshake is done, so the server can send a datagram.
+            _ = try await pair.openClientStream(writing: ByteBuffer(string: "GET"), fin: true)
+            try await echoed.futureResult.get()
+
+            // The connection channel only fires channelReadComplete for a read loop which read a datagram.
+            let server = try #require(serverConnection.withLockedValue { $0 })
+            try await server.channel.writeAndFlush(ByteBuffer(string: "ping"))
+
+            let wasVisited = try await visitedInTime.futureResult.get()
+            #expect(wasVisited)
+        }
+    }
+}
+
+// MARK: - Handlers
+
+/// Opens a stream from the first `channelReadComplete` it sees, which comes after the read loop's drain of the
+/// stream table, and reports whether the stream's `.opened` visit happened before the event loop reads again.
+@available(anyAppleOS 27, *)
+private final class OpenStreamOnReadComplete: ChannelInboundHandler {
+    typealias InboundIn = NIOAny
+
+    private let connection: QUICStreamConnection<CallbackConsumer<ByteBuffer>>
+    private let opened: NIOLockedValueBox<Set<QUICStreamHandle>>
+    private let visitedInTime: EventLoopPromise<Bool>
+    private var hasOpened = false
+
+    init(
+        connection: QUICStreamConnection<CallbackConsumer<ByteBuffer>>,
+        opened: NIOLockedValueBox<Set<QUICStreamHandle>>,
+        visitedInTime: EventLoopPromise<Bool>
+    ) {
+        self.connection = connection
+        self.opened = opened
+        self.visitedInTime = visitedInTime
+    }
+
+    func channelReadComplete(context: ChannelHandlerContext) {
+        if !self.hasOpened {
+            self.hasOpened = true
+            self.openStream(context: context)
+        }
+        context.fireChannelReadComplete()
+    }
+
+    private func openStream(context: ChannelHandlerContext) {
+        let handle: QUICStreamHandle?
+        do {
+            handle = try self.connection.assumeIsolated().withStreams { streams in
+                try streams.open(.clientInitiatedBidirectional, state: ByteBuffer())
+            }
+        } catch {
+            self.visitedInTime.fail(error)
+            return
+        }
+
+        // Tasks run in the order they were queued, and before the event loop reads again: a drain which the open
+        // asked for runs before this.
+        let opened = self.opened
+        let visitedInTime = self.visitedInTime
+        context.eventLoop.assumeIsolated().execute {
+            let wasVisited = handle.map { handle in opened.withLockedValue { $0.contains(handle) } } ?? false
+            visitedInTime.succeed(wasVisited)
         }
     }
 }

@@ -49,7 +49,7 @@ import Darwin
 //                                     │         │ receiveDisconnectedEvent()│
 //                                     │         │ OR completeDraining()     │
 //        receiveDisconnectedEvent()   │         └────────┐                  │
-//        [peer close / idle timeout]  │                  │                  │
+//        [peer close / timeout]       │                  │                  │
 //                                     │                  │                  │
 //                                     │                  │                  │
 //                                     │                  │                  │
@@ -99,8 +99,8 @@ struct QUICConnectionStateMachine: ~Copyable {
             enum DrainingReason {
                 /// Peer sent CONNECTION_CLOSE, optionally with an error
                 case peerInitiated(NIOQUICHelpers.QUICConnectionError?)
-                /// Idle timeout reached
-                case idleTimeout
+                /// Idle timeout or PTO limit reached
+                case timeout
             }
 
             init(from state: consuming Connected, reason: DrainingReason, connectionError: NetworkError?) {
@@ -124,8 +124,8 @@ struct QUICConnectionStateMachine: ~Copyable {
             enum CloseReason {
                 /// Clean shutdown with no errors
                 case clean
-                /// Idle timeout reached
-                case idleTimeout
+                /// Idle timeout or PTO limit reached
+                case timeout
                 /// Abrupt closed locally
                 case abruptClose
                 /// Peer sent a QUIC connection error
@@ -133,8 +133,8 @@ struct QUICConnectionStateMachine: ~Copyable {
 
                 init(from drainingReason: State.Draining.DrainingReason) {
                     switch drainingReason {
-                    case .idleTimeout:
-                        self = .idleTimeout
+                    case .timeout:
+                        self = .timeout
                     case .peerInitiated(let error):
                         if let error {
                             self = .peerError(error)
@@ -265,12 +265,12 @@ struct QUICConnectionStateMachine: ~Copyable {
                     return .closeWithError(peerError)
                 }
                 return .noAction
-            case .idleTimeout:
+            case .timeout:
                 return .noAction
             }
         case .closed(let closed):
             switch closed.closeReason {
-            case .clean, .idleTimeout, .abruptClose:
+            case .clean, .timeout, .abruptClose:
                 return .closeCleanly
             case .peerError(let error):
                 return .closeWithError(error)
@@ -439,13 +439,13 @@ struct QUICConnectionStateMachine: ~Copyable {
         var errorAction: ErrorAction? = nil
         var quicError: NIOQUICHelpers.QUICConnectionError? = nil
         var connectionError: NetworkError? = nil
-        var isIdleTimeout = false
+        var isTimeout = false
 
         // Inspect and convert the error
         if let error = error {
-            // Idle timeout from SwiftNetwork
-            if error.isIdleTimeout {
-                isIdleTimeout = true
+            // Idle timeout or PTO limit from SwiftNetwork
+            if error.isTimeout {
+                isTimeout = true
                 // No error actions for timeout
             }
             // Abrupt close on connection abort
@@ -482,8 +482,8 @@ struct QUICConnectionStateMachine: ~Copyable {
         switch consume self.state {
         case .connecting(let connecting):
             // Disconnected before fully connecting
-            if isIdleTimeout {
-                self = .init(state: .closed(.init(from: connecting, closeReason: .idleTimeout, connectionError: nil)))
+            if isTimeout {
+                self = .init(state: .closed(.init(from: connecting, closeReason: .timeout, connectionError: nil)))
                 stateAction = .beginDraining(nil)
             } else if let error = quicError {
                 self = .init(
@@ -500,8 +500,8 @@ struct QUICConnectionStateMachine: ~Copyable {
             }
         case .connected(let connected):
             // Normal disconnection from connected state - peer initiated
-            if isIdleTimeout {
-                self = .init(state: .draining(.init(from: connected, reason: .idleTimeout, connectionError: nil)))
+            if isTimeout {
+                self = .init(state: .draining(.init(from: connected, reason: .timeout, connectionError: nil)))
                 stateAction = .beginDraining(nil)
             } else if let error = quicError {
                 self = .init(
@@ -521,8 +521,8 @@ struct QUICConnectionStateMachine: ~Copyable {
         case .closing(let closing):
             // We were actively closing (sent CONNECTION_CLOSE), now complete the closure
             // No draining period needed since we initiated
-            if isIdleTimeout {
-                self = .init(state: .closed(.init(from: closing, closeReason: .idleTimeout, connectionError: nil)))
+            if isTimeout {
+                self = .init(state: .closed(.init(from: closing, closeReason: .timeout, connectionError: nil)))
             } else {
                 self = .init(
                     state: .closed(.init(from: closing, closeReason: .clean, connectionError: connectionError))

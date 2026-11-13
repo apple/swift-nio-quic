@@ -90,7 +90,7 @@ final class QUICStreamTable<Consumer: QUICStreamConsumer & ~Copyable> {
     @usableFromInline
     var outOfBandDrainRequested: Bool
 
-    /// Whether the connection is currently in a read-loop.
+    /// Whether the connection is in a read loop which is yet to drain the table.
     ///
     /// This is used to avoid unnecessary out-of-band drain calls.
     @usableFromInline
@@ -434,6 +434,11 @@ extension QUICStreamTable where Consumer: ~Copyable {
         // Finish any visit the consumer didn't pull to completion, so `QUICStreamIterator.deinit`'s
         // precondition holds once the iterator's scope ends right after this.
         iterator._finishVisit()
+
+        // A read loop drains the table once, so if this drain was it, a stream marked ready from
+        // now on (say, from `channelReadComplete` or the read loop's final flush) needs a drain of
+        // its own.
+        self.inReadLoop = false
     }
 
     /// Marks every stream as closed and visits each of them, then retires the table's anchor.

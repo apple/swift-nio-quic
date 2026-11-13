@@ -719,7 +719,7 @@ final class QUICChannelStreamHandler: ExternalInboundStreamLinkage, @unchecked S
         }
 
         let closeError: (any Error)?
-        if error?.isIdleTimeout == true {
+        if error?.isTimeout == true {
             closeError = nil
         } else {
             closeError = error.flatMap { QUICConnectionError(networkError: $0) } ?? error
@@ -1132,8 +1132,6 @@ final class QUICChannelStreamHandler: ExternalInboundStreamLinkage, @unchecked S
         return readDataCount
     }
 
-    // TODO: Workaround compiler crash while evaluating request ExecuteSILPipelineRequest
-    @_optimize(none)
     func shutdownStream(
         direction: StreamShutdownDirection,
         applicationErrorCode: QUICApplicationErrorCode?,

@@ -27,4 +27,13 @@ struct InitialPacketSizeTests {
         let initialPacketSize = InitialPacketSize.matchingClientInitial(upTo: 1400)
         #expect(initialPacketSize.size(forClientInitial: clientInitialSize) == expected)
     }
+
+    @Test(arguments: [
+        (InitialPacketSize.fixed(1000), Int?.none),
+        (.matchingClientInitial(upTo: 1000), 1350),
+        (.matchingClientInitial(upTo: 1400), 1000),
+    ])
+    func neverBelow1200(initialPacketSize: InitialPacketSize, clientInitialSize: Int?) {
+        #expect(initialPacketSize.size(forClientInitial: clientInitialSize) == 1200)
+    }
 }
