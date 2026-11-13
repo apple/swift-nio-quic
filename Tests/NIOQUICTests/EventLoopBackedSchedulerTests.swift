@@ -27,13 +27,22 @@ private final class Fires {
 
 /// An ``EmbeddedEventLoop`` which counts what is scheduled on it.
 ///
-/// `@unchecked Sendable` because the counter is plain storage: an embedded loop only ever runs on the
+/// `@unchecked Sendable` because the counters are plain storage: an embedded loop only ever runs on the
 /// thread driving it, which for these tests is the test's own.
 private final class CountingScheduler: EventLoop, @unchecked Sendable {
     let embedded = EmbeddedEventLoop()
     /// How many tasks have been scheduled, which for the scheduler under test is how many wakeups it
     /// has armed.
     private(set) var scheduled = 0
+    /// How many of them ran.
+    private(set) var ran = 0
+    /// How many of them were cancelled.
+    private(set) var cancelled = 0
+
+    /// How many are still pending.
+    var pending: Int {
+        self.scheduled - self.ran - self.cancelled
+    }
 
     var inEventLoop: Bool {
         self.embedded.inEventLoop
@@ -55,16 +64,31 @@ private final class CountingScheduler: EventLoop, @unchecked Sendable {
         deadline: NIODeadline,
         _ task: @escaping @Sendable () throws -> T
     ) -> Scheduled<T> {
-        self.scheduled &+= 1
-        return self.embedded.scheduleTask(deadline: deadline, task)
+        self.count(self.embedded.scheduleTask(deadline: deadline, self.counting(task)))
     }
 
     func scheduleTask<T>(
         in amount: TimeAmount,
         _ task: @escaping @Sendable () throws -> T
     ) -> Scheduled<T> {
+        self.count(self.embedded.scheduleTask(in: amount, self.counting(task)))
+    }
+
+    private func counting<T>(_ task: @escaping @Sendable () throws -> T) -> @Sendable () throws -> T {
+        {
+            self.ran &+= 1
+            return try task()
+        }
+    }
+
+    private func count<T>(_ scheduled: Scheduled<T>) -> Scheduled<T> {
         self.scheduled &+= 1
-        return self.embedded.scheduleTask(in: amount, task)
+        scheduled.futureResult.whenFailure { error in
+            if case EventLoopError.cancelled = error {
+                self.cancelled &+= 1
+            }
+        }
+        return scheduled
     }
 
     func shutdownGracefully(queue: DispatchQueue, _ callback: @escaping (((any Error)?) -> Void)) {
@@ -259,5 +283,119 @@ struct EventLoopBackedSchedulerTests {
         loop.advanceTime(by: .milliseconds(190))
         #expect(fires.count == 1)
         #expect(loop.scheduled == 2)
+    }
+
+    /// QUIC's timer moves earlier for an acknowledgement or a probe, then back out to the idle timeout,
+    /// on nearly every request. Each earlier deadline arms a wakeup instead of cancelling one, which on a
+    /// `SelectableEventLoop` searches every scheduled task, and the idle timeout's wakeup serves the
+    /// deadline whenever it moves back out.
+    @available(anyAppleOS 27, *)
+    @Test func movingTheDeadlineEarlierArmsRatherThanCancels() {
+        let loop = CountingScheduler()
+        let scheduler = EventLoopBackedScheduler(eventLoop: loop, callouts: QUICCallouts())
+        let fires = Fires()
+        let reference = SwiftNetwork.TimerReference()
+
+        // Like QUIC's, the task arms the timer again when it runs: here for the idle timeout.
+        func idleTimeout() {
+            scheduler.schedule({ fires.count &+= 1 }, after: .seconds(30), reference: reference)
+        }
+        let task = {
+            fires.count &+= 1
+            idleTimeout()
+        }
+
+        for request in 1...10 {
+            idleTimeout()
+            scheduler.schedule(task, after: .milliseconds(28), reference: reference)
+            scheduler.schedule(task, after: .milliseconds(25), reference: reference)
+            #expect(loop.pending == 3)
+
+            // The acknowledgement's wakeup runs the task; the probe's then finds the deadline moved out
+            // to the idle timeout, which the idle timeout's wakeup covers.
+            loop.advanceTime(by: .milliseconds(25))
+            #expect(fires.count == request)
+            loop.advanceTime(by: .milliseconds(3))
+            #expect(fires.count == request)
+            #expect(loop.pending == 1)
+        }
+        // The first idle timeout's wakeup, and one per earlier deadline.
+        #expect(loop.scheduled == 21)
+        #expect(loop.cancelled == 0)
+
+        // Back out to the idle timeout, which the first idle wakeup covers: it fires early, arms one
+        // more for what is left, and the task runs there.
+        scheduler.schedule({ fires.count &+= 1 }, after: .seconds(30), reference: reference)
+        #expect(loop.scheduled == 21)
+        loop.advanceTime(by: .milliseconds(29_720))
+        #expect(fires.count == 10)
+        #expect(loop.scheduled == 22)
+        loop.advanceTime(by: .milliseconds(280))
+        #expect(fires.count == 11)
+        #expect(loop.pending == 0)
+        #expect(loop.cancelled == 0)
+    }
+
+    /// A timer keeps at most three wakeups armed: a fourth deadline, earlier than all of them, cancels
+    /// the latest.
+    @available(anyAppleOS 27, *)
+    @Test func aFourthEarlierDeadlineCancelsTheLatestWakeup() {
+        let loop = CountingScheduler()
+        let scheduler = EventLoopBackedScheduler(eventLoop: loop, callouts: QUICCallouts())
+        let fires = Fires()
+        let reference = SwiftNetwork.TimerReference()
+
+        scheduler.schedule({ fires.count &+= 1 }, after: .milliseconds(500), reference: reference)
+        scheduler.schedule({ fires.count &+= 1 }, after: .milliseconds(300), reference: reference)
+        scheduler.schedule({ fires.count &+= 1 }, after: .milliseconds(200), reference: reference)
+        #expect(loop.cancelled == 0)
+        scheduler.schedule({ fires.count &+= 1 }, after: .milliseconds(100), reference: reference)
+        #expect(loop.cancelled == 1)
+        #expect(loop.pending == 3)
+
+        loop.advanceTime(by: .milliseconds(100))
+        #expect(fires.count == 1)
+
+        // The others find nothing due, and the timer is done.
+        loop.advanceTime(by: .seconds(1))
+        #expect(fires.count == 1)
+        #expect(loop.pending == 0)
+    }
+
+    @available(anyAppleOS 27, *)
+    @Test func unschedulingCancelsBothWakeups() {
+        let loop = CountingScheduler()
+        let scheduler = EventLoopBackedScheduler(eventLoop: loop, callouts: QUICCallouts())
+        let fires = Fires()
+        let reference = SwiftNetwork.TimerReference()
+
+        scheduler.schedule({ fires.count &+= 1 }, after: .milliseconds(500), reference: reference)
+        scheduler.schedule({ fires.count &+= 1 }, after: .milliseconds(50), reference: reference)
+        scheduler.unschedule(reference: reference)
+        #expect(loop.cancelled == 2)
+
+        loop.advanceTime(by: .seconds(1))
+        #expect(fires.count == 0)
+    }
+
+    /// Once the task ran, a wakeup left armed keeps the timer, so the next deadline it covers arms
+    /// nothing.
+    @available(anyAppleOS 27, *)
+    @Test func aWakeupLeftArmedServesTheNextDeadline() {
+        let loop = CountingScheduler()
+        let scheduler = EventLoopBackedScheduler(eventLoop: loop, callouts: QUICCallouts())
+        let fires = Fires()
+        let reference = SwiftNetwork.TimerReference()
+
+        scheduler.schedule({ fires.count &+= 1 }, after: .milliseconds(500), reference: reference)
+        scheduler.schedule({ fires.count &+= 1 }, after: .milliseconds(50), reference: reference)
+        loop.advanceTime(by: .milliseconds(50))
+        #expect(fires.count == 1)
+
+        scheduler.schedule({ fires.count &+= 1 }, after: .milliseconds(450), reference: reference)
+        #expect(loop.scheduled == 2)
+        loop.advanceTime(by: .milliseconds(450))
+        #expect(fires.count == 2)
+        #expect(loop.pending == 0)
     }
 }
