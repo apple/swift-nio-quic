@@ -15,46 +15,23 @@
 import NIOCore
 @_spi(ProtocolProvider) @_spi(Essentials) import SwiftNetwork
 
+/// A connection's `NetworkContext.Scheduler`: it reads the event loop's clock, runs immediate tasks on the loop, and
+/// keeps the connection's timers in a ``QUICTimerQueue`` shared with the handler's other connections.
+///
+/// The stack acquires the event context itself only inside the tasks it schedules here, so the connection's queued
+/// callouts run after each one.
 @available(anyAppleOS 27, *)
 final class EventLoopBackedScheduler: NetworkContext.Scheduler {
-    struct Wakeup {
-        /// When the task is due.
-        var deadline: NIODeadline
-
-        /// The task to run.
-        var task: () -> Void
-
-        struct Scheduled {
-            /// A handle on the scheduled callback.
-            var callback: NIOScheduledCallback
-            /// The deadline when the callback is scheduled to fire.
-            ///
-            /// Must be at or before the deadline stored directly on `Wakeup`.
-            var deadline: NIODeadline
-        }
-
-        /// Scheduled callback and deadline.
-        var scheduled: Scheduled
-    }
-
-    /// Identifies which timer an event loop wakeup belongs to.
-    private struct Handler: NIOScheduledCallbackHandler {
-        let scheduler: EventLoopBackedScheduler
-        let reference: TimerReference
-
-        func handleScheduledCallback(eventLoop: some EventLoop) {
-            self.scheduler.wakeupFired(reference: self.reference)
-        }
-    }
-
     internal var runningInScheduler: Bool {
         self.eventLoop.inEventLoop
     }
 
-    private var wakeups: [TimerReference: Wakeup] = [:]
+    /// The connection's timers, kept to reuse them each time a reference is scheduled again.
+    private var timers: [TimerReference: QUICTimer] = [:]
+    /// The queue that runs the timers.
+    private let timerQueue: QUICTimerQueue
     private let eventLoop: any EventLoop
-    /// The connection's queued callouts. The stack acquires the event context itself only inside the
-    /// tasks it schedules here, so they run after each one.
+    /// The connection's queued callouts.
     private let callouts: QUICCallouts
 
     var now: NetworkClock.Instant {
@@ -66,9 +43,16 @@ final class EventLoopBackedScheduler: NetworkContext.Scheduler {
         self.now
     }
 
-    internal init(eventLoop: any EventLoop, callouts: QUICCallouts) {
+    /// - Parameter timerQueue: The queue for the connection's timers, shared with the handler's other connections.
+    internal init(eventLoop: any EventLoop, callouts: QUICCallouts, timerQueue: QUICTimerQueue) {
         self.eventLoop = eventLoop
         self.callouts = callouts
+        self.timerQueue = timerQueue
+    }
+
+    /// A scheduler with a timer queue of its own.
+    internal convenience init(eventLoop: any EventLoop, callouts: QUICCallouts) {
+        self.init(eventLoop: eventLoop, callouts: callouts, timerQueue: QUICTimerQueue(eventLoop: eventLoop))
     }
 
     private struct UnsafeTransfer<Wrapped>: @unchecked Sendable {
@@ -102,96 +86,19 @@ final class EventLoopBackedScheduler: NetworkContext.Scheduler {
         reference: SwiftNetwork.TimerReference
     ) {
         let deadline = self.eventLoop.now + .milliseconds(milliseconds.roundedUpMilliseconds)
-
-        if let index = self.wakeups.index(forKey: reference) {
-            let keepWakeup = self._reschedule(
-                &self.wakeups.values[index],
-                to: deadline,
-                task: task,
-                reference: reference
-            )
-
-            if !keepWakeup {
-                self.wakeups.remove(at: index)
-            }
-        } else if let scheduled = self.schedule(at: deadline, reference: reference) {
-            self.wakeups[reference] = Wakeup(deadline: deadline, task: task, scheduled: scheduled)
-        }  //  else: event loop is shutdown.
-    }
-
-    func _reschedule(
-        _ wakeup: inout Wakeup,
-        to deadline: NIODeadline,
-        task: @escaping (() -> Void),
-        reference: SwiftNetwork.TimerReference
-    ) -> Bool {
-        wakeup.deadline = deadline
-        wakeup.task = task
-
-        let keepWakeup: Bool
-
-        // Only cancel the scheduled task if the new deadline is earlier. If the new deadline is
-        // the same as or later than the scheduled deadline then let the original callback fire as
-        // cancellation can be expensive (it's O(log N) where N is the number of tasks currently
-        // scheduled) when there are connections. When the original callback fires it will
-        // reschedule itself if the deadline hasn't passed yet.
-        if wakeup.scheduled.deadline > deadline {
-            wakeup.scheduled.callback.cancel()
-
-            if let scheduled = self.schedule(at: deadline, reference: reference) {
-                wakeup.scheduled = scheduled
-                keepWakeup = true
-            } else {
-                keepWakeup = false
-            }
+        let timer: QUICTimer
+        if let existing = self.timers[reference] {
+            timer = existing
         } else {
-            keepWakeup = true
+            timer = QUICTimer(callouts: self.callouts)
+            self.timers[reference] = timer
         }
-
-        return keepWakeup
+        self.timerQueue.schedule(timer, at: deadline, task: task)
     }
 
     func unschedule(reference: SwiftNetwork.TimerReference) {
-        let wakeup = self.wakeups.removeValue(forKey: reference)
-        wakeup?.scheduled.callback.cancel()
-    }
-
-    private func wakeupFired(reference: TimerReference) {
-        guard let index = self.wakeups.index(forKey: reference) else { return }
-
-        if self.eventLoop.now < self.wakeups.values[index].deadline {
-            // The deadline hasn't passed yet: the deadline must have moved. Rescheduled the wakeup.
-            let scheduled = self.schedule(
-                at: self.wakeups.values[index].deadline,
-                reference: reference
-            )
-
-            if let scheduled {
-                self.wakeups.values[index].scheduled = scheduled
-            } else {
-                // Event loop has shutdown; remove the entry.
-                self.wakeups.remove(at: index)
-            }
-        } else {
-            // Deadline has been passed: run the task.
-            let (_, wakeup) = self.wakeups.remove(at: index)
-            self.callouts.runStackTask(wakeup.task)
-        }
-    }
-
-    private func schedule(
-        at deadline: NIODeadline,
-        reference: SwiftNetwork.TimerReference
-    ) -> Wakeup.Scheduled? {
-        do {
-            let callback = try self.eventLoop.assumeIsolatedUnsafeUnchecked().scheduleCallback(
-                at: deadline,
-                handler: Handler(scheduler: self, reference: reference)
-            )
-            return Wakeup.Scheduled(callback: callback, deadline: deadline)
-        } catch {
-            // The loop is shutting down.
-            return nil
+        if let timer = self.timers.removeValue(forKey: reference) {
+            self.timerQueue.remove(timer)
         }
     }
 }

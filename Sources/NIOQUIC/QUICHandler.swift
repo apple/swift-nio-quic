@@ -95,6 +95,8 @@ public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
     private var multiplexerContinuation: MultiplexerContinuation<Consumer>?
     /// The event loop of the channel we are added to.
     private let eventLoop: any EventLoop
+    /// The timers of the handler's connections, behind one event loop callback.
+    private let timerQueue: QUICTimerQueue
     /// The logger used everywhere.
     private let logger: Logger
     /// The generator used for creating source connection IDs for new connections.
@@ -167,6 +169,7 @@ public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
     ) {
         self.udpChannel = channel
         self.eventLoop = channel.eventLoop
+        self.timerQueue = QUICTimerQueue(eventLoop: channel.eventLoop)
         self.quicConfiguration = quicConfiguration
         self.logger = logger
         self.connectionIDGenerator = connectionIDGenerator
@@ -272,6 +275,7 @@ public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
                 localAddress: localAddress,
                 remoteAddress: remoteAddress,
                 eventLoop: self.context!.eventLoop,
+                timerQueue: self.timerQueue,
                 logger: connectionLogger,
                 usesStreamTable: self.makeConsumer != nil
             )
@@ -985,6 +989,7 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
                 remoteAddress: addressedEnvelope.remoteAddress,
                 logger: connectionLogger,
                 eventLoop: self.context!.eventLoop,
+                timerQueue: self.timerQueue,
                 usesStreamTable: self.makeConsumer != nil
             )
         } catch {
