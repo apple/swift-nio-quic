@@ -418,6 +418,42 @@ struct QUICStreamTableTests {
 
     @available(anyAppleOS 27, *)
     @Test
+    func inboundStreamsGetStateStorageOnlyOnceVisited() {
+        // Inbound slots reserve no storage for their state until the visit makes it, so several can
+        // be allocated, and some vacated, before any is reserved.
+        let table = Self.makeRecordingTable(role: .server)
+        defer { table.retireAnchor() }
+        var consumer = RecordingConsumer()
+        let first = table.insertSlotNeedingState(id: 0)
+        let second = table.insertSlotNeedingState(id: 4)
+        // Vacated with no storage reserved for it.
+        table.vacateSlot(first)
+        // Reuses the first one's slot.
+        let third = table.insertSlotNeedingState(id: 8)
+        // A locally opened stream comes with its state, so it reserves storage past the inbound slots.
+        let local = table.insertSlot(id: nil, state: RecordingConsumer.StreamState(madeAt: 0))
+
+        table.markReady(handle: third, events: .readable)
+        table.markReady(handle: second, events: .readable)
+        table.markReady(handle: local, events: .readable)
+        table.drain(into: &consumer)
+
+        #expect(consumer.madeStates == 2)
+        #expect(consumer.sightings.map { $0.handle } == [third, second, local])
+        // States are made in the order the slots were inserted, before any visit.
+        #expect(consumer.sightings.map { $0.stateMadeAt } == [2, 1, 0])
+        #expect(third.index == first.index)
+        #expect(table.handle(forID: 0) == nil)
+        #expect(table.handle(forID: 8) == third)
+
+        table.vacateSlot(second)
+        table.vacateSlot(third)
+        table.vacateSlot(local)
+        #expect(table.count == 0)
+    }
+
+    @available(anyAppleOS 27, *)
+    @Test
     func slotInsertedWithStateIsNotOfferedToTheConsumer() {
         let table = Self.makeRecordingTable()
         defer { table.retireAnchor() }

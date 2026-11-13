@@ -213,6 +213,17 @@ extension QUICStreamTable where Consumer: ~Copyable {
         return handle
     }
 
+    /// Adds a slot for a stream the peer opened, whose consumer makes its state before its first visit.
+    ///
+    /// Unlike ``insertSlot(id:state:)``, leaves the consumer's states alone, as this runs as NIOQUIC's
+    /// generic code: the visit that makes the state reserves its storage, specialized for the consumer.
+    func insertSlotNeedingState(id: QUICStreamID) -> QUICStreamHandle {
+        let handle = self._transportStates.insert(QUICStreamTransportState(core: QUICStreamCore(id: id)))
+        self._needsState.append(handle)
+        self._byID[id] = handle
+        return handle
+    }
+
     /// Registers a fresh identifier for `handle`'s stream, using that stream's own event
     /// manager.
     func registerIdentifier(
@@ -347,7 +358,7 @@ extension QUICStreamTable: QUICInboundStreamTable where Consumer: ~Copyable {
         }
 
         // No state: the consumer makes it in 'makeStreamState' before the first visit.
-        let handle = self.insertSlot(id: streamID, state: nil)
+        let handle = self.insertSlotNeedingState(id: streamID)
         let identifier = self.registerIdentifier(for: handle, in: &eventContext)
 
         let linkage: BaseOutboundStreamLinkage
@@ -459,6 +470,10 @@ extension QUICStreamTable where Consumer: ~Copyable {
     /// Hand each ready stream to the consumer.
     ///
     /// Holds no event context while the consumer runs: its stream operations each acquire one.
+    ///
+    /// Inlinable, so that ``QUICStreamConsumer/_visitStreams(_:)`` runs it specialized for the
+    /// consumer: it works on the consumer's states throughout.
+    @inlinable
     func drain(into consumer: inout Consumer) {
         self.outOfBandDrainRequested = false
 
@@ -467,6 +482,8 @@ extension QUICStreamTable where Consumer: ~Copyable {
             assert(!transport.pointee.hasState)
 
             var stream = QUICStream<Consumer>(table: self, transport: transport, handle: handle)
+            // An inbound stream's slot has no storage for its state yet.
+            self._consumerStates.reserve(at: handle.index)
             self._consumerStates.initialize(at: handle.index, to: consumer.makeStreamState(&stream))
             transport.pointee.hasState = true
         }
@@ -578,12 +595,22 @@ extension QUICStreamTable where Consumer: ~Copyable {
     /// Clears the flags a visit presented and, if that visit was the stream's last, recycles its
     /// slot.
     ///
-    /// Acquires the event context only to recycle the slot.
-    @usableFromInline
+    /// Acquires the event context only to recycle the slot. Inlinable, so that it runs specialized
+    /// for the consumer wherever its visits do: recycling a slot releases the consumer's state.
+    @inlinable
     func finishVisit(_ handle: QUICStreamHandle, presented: QUICStreamEvents) {
         if presented.contains(.closed) {
             self.vacateSlot(handle)
-        } else if let transport = self._transportStates.pointer(for: handle) {
+        } else {
+            self._finishOpenVisit(handle, presented: presented)
+        }
+    }
+
+    /// ``finishVisit(_:presented:)`` for a stream that stays open, which doesn't touch the
+    /// consumer's state.
+    @usableFromInline
+    func _finishOpenVisit(_ handle: QUICStreamHandle, presented: QUICStreamEvents) {
+        if let transport = self._transportStates.pointer(for: handle) {
             // Clear the events which were shown in the last visit.
             transport.pointee.events.subtract(presented)
 
@@ -619,26 +646,34 @@ extension QUICStreamTable where Consumer: ~Copyable {
 
     /// As ``vacateSlot(_:in:)``, but acquires the event context itself, and releases the consumer's
     /// state for the stream only once that acquisition has ended.
+    ///
+    /// Inlinable, like ``finishVisit(_:presented:)``, its caller on every stream's last visit.
+    @inlinable
     func vacateSlot(_ handle: QUICStreamHandle) {
-        // Two branches rather than one with an optional state: in this unspecialized code, an
-        // optional state would look up its metadata at run time.
+        // Two branches rather than one with an optional state: in unspecialized code, an optional
+        // state would look up its metadata at run time.
         if let transport = self._transportStates.pointer(for: handle), transport.pointee.hasState {
             let state = self.moveState(of: transport, at: handle.index)
-            self.withEventContext { eventContext in
-                self._remove(handle: handle, in: &eventContext)
-            }
+            self._removeAcquiringEventContext(handle)
             // Only now, with nothing held: the state's deinit is consumer code.
             _ = consume state
         } else {
-            self.withEventContext { eventContext in
-                self._remove(handle: handle, in: &eventContext)
-            }
+            self._removeAcquiringEventContext(handle)
+        }
+    }
+
+    /// Closes the stream core of `handle`'s slot and vacates the slot, acquiring the event context
+    /// to do so. The slot must hold no consumer state.
+    @usableFromInline
+    func _removeAcquiringEventContext(_ handle: QUICStreamHandle) {
+        self.withEventContext { eventContext in
+            self._remove(handle: handle, in: &eventContext)
         }
     }
 
     /// Moves the consumer's state out of the slot `transport` belongs to, which must hold one, and
     /// marks the slot as holding none.
-    @usableFromInline
+    @inlinable
     func moveState(
         of transport: UnsafeMutablePointer<QUICStreamTransportState>,
         at index: QUICStreamHandle.Index
@@ -667,8 +702,14 @@ extension QUICStreamTable where Consumer: ~Copyable {
         transport.pointee.core.close(error: error, in: &eventContext)
         self.unregisterEventManager(of: &transport.pointee, in: &eventContext)
 
+        // Its callers move the state out first, so this releases nothing unless one of them broke
+        // that. Only a slot holding a state has storage for it: an inbound stream's is reserved by
+        // its first visit.
+        let holdsState = transport.pointee.hasState
         self._transportStates.removeValue(for: handle)
-        self._consumerStates.removeValue(at: handle.index)
+        if holdsState {
+            self._consumerStates.removeValue(at: handle.index)
+        }
     }
 
     /// Retires the stack's registration of a slot's event manager, which traps on deinit otherwise.

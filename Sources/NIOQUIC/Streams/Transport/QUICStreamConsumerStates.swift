@@ -43,10 +43,14 @@ struct QUICStreamConsumerStates<State: ~Copyable>: ~Copyable {
         }
     }
 
-    /// Makes room for a state at `index`, if the slots have only just allocated it.
+    /// Makes room for a state at `index`, and at any index before it, if the slots have allocated
+    /// them since.
+    ///
+    /// The slots can allocate several before any is reserved: an inbound stream's state is only
+    /// reserved when the consumer makes it, before its first visit.
     @inlinable
     mutating func reserve(at index: QUICStreamHandle.Index) {
-        if index.rawValue == self._storage.count {
+        while index.rawValue >= self._storage.count {
             self._storage.append()
             self._holdsState.append(false)
         }

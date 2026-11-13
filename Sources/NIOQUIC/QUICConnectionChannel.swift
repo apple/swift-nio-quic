@@ -879,7 +879,8 @@ extension QUICConnectionChannel where Consumer: ~Copyable {
         self.eventLoop.assertInEventLoop()
 
         if let table = self._table {
-            table.drain(into: &self._consumer!)
+            // Through the consumer, so that the visit runs specialized for it.
+            self._consumer!._visitStreams(_QUICStreamsVisit(table: table))
         }
     }
 
