@@ -26,13 +26,27 @@ import Android
 import Musl
 #endif
 
+/// The connection a ``QUICConnectionPath`` reports to.
+///
+/// `SwiftNetworkQUICConnection` is generic over its consumer. The path reaches it through this, so
+/// that the path isn't generic: the connection enters the stack as the path on every read loop,
+/// and entering as a generic type looks up its metadata at run time.
+@available(anyAppleOS 27, *)
+protocol QUICConnectionPathOwner: AnyObject {
+    /// `path` queued `count` datagrams to send.
+    func outboundDatagramsQueued(on path: QUICConnectionPath, count: Int)
+
+    /// SwiftNetwork detached from `path`.
+    func upperProtocolDetached(from path: QUICConnectionPath)
+}
+
 /// One network path for a connection.
 ///
 /// The path is the bridge between SwiftNetwork and our code on the network-side. It is attached to
 /// the SwiftNetwork `QUICConnection` as the lower datagram protocol of this path and deals with
 /// both getting bytes in and out of it.
 @available(anyAppleOS 27, *)
-final class QUICConnectionPath<Consumer: QUICStreamConsumer & ~Copyable>: ExternalOutboundDatagramLinkage {
+final class QUICConnectionPath: ExternalOutboundDatagramLinkage {
 
     typealias UpperProtocol = BaseInboundDatagramLinkage
 
@@ -58,7 +72,7 @@ final class QUICConnectionPath<Consumer: QUICStreamConsumer & ~Copyable>: Extern
         /// Not attached to a connection yet.
         case idle
         /// Attached to the related connection.
-        case attached(SwiftNetworkQUICConnection<Consumer>.PathView)
+        case attached(any QUICConnectionPathOwner)
         /// Detached from its connection on teardown.
         case detached
     }
@@ -102,13 +116,13 @@ final class QUICConnectionPath<Consumer: QUICStreamConsumer & ~Copyable>: Extern
         self.coalescer.finalizeAllFramesAsFailed()
     }
 
-    /// Attaches the path to the connection behind `view`, which it reports to.
+    /// Attaches the path to `owner`, which it reports to.
     ///
     /// Precondition: The current state must be idle.
-    func attach(_ view: SwiftNetworkQUICConnection<Consumer>.PathView) {
+    func attach(to owner: any QUICConnectionPathOwner) {
         switch self.state {
         case .idle:
-            self.state = .attached(view)
+            self.state = .attached(owner)
         case .attached, .detached:
             preconditionFailure("A path can only be attached from an idle state.")
         }
@@ -199,10 +213,10 @@ final class QUICConnectionPath<Consumer: QUICStreamConsumer & ~Copyable>: Extern
 }
 
 @available(anyAppleOS 27, *)
-extension QUICConnectionPath: ProtocolInstance where Consumer: ~Copyable {}
+extension QUICConnectionPath: ProtocolInstance {}
 
 @available(anyAppleOS 27, *)
-extension QUICConnectionPath where Consumer: ~Copyable {
+extension QUICConnectionPath {
     // The framework's answer for its own lower protocols: connected once this path delivered its
     // connected event, and no longer once it delivered its disconnected event or was released.
     func protocolIsConnected(in eventContext: inout NetworkContext.EventContext) -> Bool {
@@ -266,9 +280,9 @@ extension QUICConnectionPath where Consumer: ~Copyable {
         // APPLICATION_CLOSE or CONNECTION_CLOSE frames.
         self.isDetachedBySwiftNetwork = true
         switch self.state {
-        case .attached(let connectionView):
+        case .attached(let owner):
             // The connection decides whether the path is still needed.
-            connectionView.upperProtocolDetached(from: self)
+            owner.upperProtocolDetached(from: self)
         case .idle, .detached:
             break
         }
@@ -314,10 +328,10 @@ extension QUICConnectionPath where Consumer: ~Copyable {
     ) throws(SwiftNetwork.NetworkError) {
         log("received finalize output frames")
         switch self.state {
-        case .attached(let connectionView):
+        case .attached(let owner):
             let count = datagrams.count
             self.appendOutboundFrames(datagrams)
-            connectionView.outboundDatagramsQueued(on: self, count: count)
+            owner.outboundDatagramsQueued(on: self, count: count)
         case .idle, .detached:
             self.logger.error("path is not attached: dropping frame array with \(datagrams.count) frames")
             datagrams.finalizeAllFramesAsFailed()
