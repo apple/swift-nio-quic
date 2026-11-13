@@ -28,15 +28,26 @@ import Musl
 #endif
 
 /// The connection a ``QUICChannelNewFlowHandler`` reports to.
+///
+/// Its requirements are the stack's events, which the handler hands on as they arrive, with the
+/// event context held.
 @available(anyAppleOS 27, *)
 protocol QUICNewFlowOwner: AnyObject {
+    /// The QUIC connection connected.
     func connected(in eventContext: inout NetworkContext.EventContext)
+    /// The QUIC connection disconnected, with an error unless it closed cleanly.
     func disconnected(error: NetworkError?, in eventContext: inout NetworkContext.EventContext)
+    /// The peer opened a stream, which became a child channel's.
     func newInboundStream(_ handler: QUICChannelStreamHandler)
+    /// The stack issued `cid` to the peer, which may now address the connection with it.
     func associateConnectionID(_ cid: QUICConnectionID, in eventContext: inout NetworkContext.EventContext)
+    /// The peer retired `cid`, one of the connection IDs the stack issued to it.
     func retireConnectionID(_ cid: QUICConnectionID, in eventContext: inout NetworkContext.EventContext)
+    /// The stack validated the path to `remote`.
     func pathValidated(remote: AddressEndpoint)
+    /// The stack made the path to `remote` the one it sends on.
     func pathCurrent(remote: AddressEndpoint)
+    /// The stack found the path to `remote` unreachable.
     func pathUnreachable(remote: AddressEndpoint, in eventContext: inout NetworkContext.EventContext)
 }
 
@@ -97,10 +108,10 @@ final class QUICChannelNewFlowHandler: ExternalInboundStreamFlowLinkage {
     private var connectionChannel: (any Channel)?
 
     // Private mutable state
-    // This view is set in the call the `start` and is required for operation. It uses
+    // The owner is set in the call the `start` and is required for operation. It uses
     // an implicitly unwrapped optionals because Swift's initialization rules prevent
     // passing 'self' method references during init.
-    private var connectionView: (any QUICNewFlowOwner)!
+    private var owner: (any QUICNewFlowOwner)!
     private var lowerProtocol: LowerProtocol?
 
     private var datagramListener: BaseDatagramListenerLinkage
@@ -192,11 +203,11 @@ final class QUICChannelNewFlowHandler: ExternalInboundStreamFlowLinkage {
 
     // Start the new flow handler
     func start(
-        _ view: any QUICNewFlowOwner,
+        _ owner: any QUICNewFlowOwner,
         in eventContext: inout NetworkContext.EventContext
     ) {
         log("start")
-        self.connectionView = view
+        self.owner = owner
         self.lowerProtocol?.invokeConnect(for: self.identifier, in: &eventContext)
     }
 
@@ -233,7 +244,7 @@ final class QUICChannelNewFlowHandler: ExternalInboundStreamFlowLinkage {
     // Received connected event
     func handleConnectedEvent(for instance: InstanceIdentifier, in eventContext: inout NetworkContext.EventContext) {
         log("connected received")
-        self.connectionView.connected(in: &eventContext)
+        self.owner.connected(in: &eventContext)
     }
 
     // Received disconnected event
@@ -243,8 +254,8 @@ final class QUICChannelNewFlowHandler: ExternalInboundStreamFlowLinkage {
         in eventContext: inout NetworkContext.EventContext
     ) {
         log("received disconnected with error: \(String(describing: error))")
-        self.connectionView.disconnected(error: error, in: &eventContext)
-        self.connectionView = nil
+        self.owner.disconnected(error: error, in: &eventContext)
+        self.owner = nil
     }
 
     // Receive a new inbound flow and either give it a slot in the stream table or
@@ -310,7 +321,7 @@ final class QUICChannelNewFlowHandler: ExternalInboundStreamFlowLinkage {
                 streamHandler.swiftNetworkStreamHandle.attach(linkage: linkage, identifier: streamHandler.identifier)
                 streamHandler.setNewFlowMetadata(metadata)
                 streamHandler.start(fromNewFlowHandler: true, in: &eventContext)
-                self.connectionView.newInboundStream(streamHandler)
+                self.owner.newInboundStream(streamHandler)
 
                 // For new inbound flows, only set the keep-alive interval once for the connection.
                 // That means only the first flow should send the interval into QUICChannelStreamHandler
@@ -342,11 +353,11 @@ extension QUICChannelNewFlowHandler {
             case .newInboundConnectionID(let connectionID):
                 self.log("New inbound connection ID \(connectionID)")
                 let nioConnectionID = NIOQUIC.QUICConnectionID(connectionID)
-                self.connectionView.associateConnectionID(nioConnectionID, in: &eventContext)
+                self.owner.associateConnectionID(nioConnectionID, in: &eventContext)
             case .retiredInboundConnectionID(let connectionID):
                 self.log("Retired inbound connection ID \(connectionID)")
                 let nioConnectionID = NIOQUIC.QUICConnectionID(connectionID)
-                self.connectionView.retireConnectionID(nioConnectionID, in: &eventContext)
+                self.owner.retireConnectionID(nioConnectionID, in: &eventContext)
             case .newOutboundConnectionID:
                 break
             case .retiredOutboundConnectionID:
@@ -370,11 +381,11 @@ extension QUICChannelNewFlowHandler {
                 // SwiftNetwork announces a path as soon as it is attached. Not much to do at that point.
                 break
             case .pathValidated(let info):
-                self.connectionView.pathValidated(remote: info.remote)
+                self.owner.pathValidated(remote: info.remote)
             case .pathUnreachable(let info):
-                self.connectionView.pathUnreachable(remote: info.remote, in: &eventContext)
+                self.owner.pathUnreachable(remote: info.remote, in: &eventContext)
             case .pathCurrent(let info):
-                self.connectionView?.pathCurrent(remote: info.remote)
+                self.owner?.pathCurrent(remote: info.remote)
             }
         } else {
             // There might be more that we are interested in.
