@@ -198,9 +198,7 @@ struct QUICCalloutsTests {
     @available(anyAppleOS 27, *)
     @Test
     func queueingWhereNothingRunsTheQueueTraps() async throws {
-        #if os(Android)
-        try Test.cancel("Exit tests cannot be run on Android yet")
-        #else
+        #if os(macOS) || os(Linux)
         // A framework entry point called directly, rather than through `callFramework(_:)`: nothing
         // would run what its witnesses queue.
         await #expect(processExitsWith: .failure) {
@@ -212,6 +210,8 @@ struct QUICCalloutsTests {
                 callouts.run()
             }
         }
+        #else
+        try Test.cancel("Exit tests are not supported on all systems")
         #endif
     }
     #endif
