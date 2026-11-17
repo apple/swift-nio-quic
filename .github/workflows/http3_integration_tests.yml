@@ -10,6 +10,8 @@ jobs:
   toolchains:
     name: Toolchains
     uses: swiftlang/github-workflows/.github/workflows/toolchain_matrix.yml@0.0.18
+    with:
+      linux_swift_versions: '["6.4", "nightly-release", "nightly-main"]'
 
   integration-tests:
     name: Integration tests

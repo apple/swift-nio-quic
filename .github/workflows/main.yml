@@ -23,7 +23,8 @@ jobs:
       linux_version_overrides: |
         default: -Xswiftc -warnings-as-errors --explicit-target-dependency-import-check error
         nightly-main: --explicit-target-dependency-import-check error
-      linux_static_sdk_versions: '["current", "nightly-main"]'
+      linux_swift_versions: '["6.4", "nightly-release", "nightly-main"]'
+      linux_static_sdk_versions: '["6.4", "nightly-main"]'
 
       # macOS
       macos_swift_versions: '["6.4"]'
