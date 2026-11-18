@@ -248,9 +248,7 @@ struct QUICStreamTableTests {
     @available(anyAppleOS 27, *)
     @Test
     func nestedVisitsToOneStreamTrap() async throws {
-        #if os(Android)
-        try Test.cancel("Exit tests cannot be run on Android yet")
-        #else
+        #if os(macOS) || os(Linux)
         await #expect(processExitsWith: .failure) {
             let table = Self.makeTable()
             let handle = table.insertSlot(id: nil, state: 1)
@@ -260,6 +258,8 @@ struct QUICStreamTableTests {
                 }
             }
         }
+        #else
+        try Test.cancel("Exit tests are not supported on all systems")
         #endif
     }
 
