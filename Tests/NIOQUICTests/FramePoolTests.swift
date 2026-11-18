@@ -50,9 +50,7 @@ struct FramePoolTests {
     @Test
     @available(anyAppleOS 27, *)
     func initPreconditions() async throws {
-        #if os(Android)
-        try Test.cancel("Exit tests cannot be run on Android yet")
-        #else
+        #if os(macOS) || os(Linux)
         // Sizes must be >= 0
         await #expect(processExitsWith: .failure) {
             _ = FramePool(smallFrameSize: -1, maxSmallFrames: 1, largeFrameSize: 1, maxLargeFrames: 1)
@@ -73,6 +71,8 @@ struct FramePoolTests {
         await #expect(processExitsWith: .failure) {
             _ = FramePool(smallFrameSize: 10, maxSmallFrames: 1, largeFrameSize: 9, maxLargeFrames: 1)
         }
+        #else
+        try Test.cancel("Exit tests are not supported on all systems")
         #endif
     }
 

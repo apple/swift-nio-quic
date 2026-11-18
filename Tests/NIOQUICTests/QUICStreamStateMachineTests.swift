@@ -1445,9 +1445,7 @@ struct SwiftNetworkStreamHandleTests {
     @available(anyAppleOS 27, *)
     @Test("Attaching an attached or a detached handle traps", arguments: [false, true])
     func attachingAgainTraps(detachFirst: Bool) async throws {
-        #if os(Android)
-        try Test.cancel("Exit tests cannot be run on Android yet")
-        #else
+        #if os(macOS) || os(Linux)
         await #expect(processExitsWith: .failure) { [detachFirst] in
             var handle = SwiftNetworkStreamHandleTests.attachedHandle()
             if detachFirst {
@@ -1455,6 +1453,8 @@ struct SwiftNetworkStreamHandleTests {
             }
             handle.attach(linkage: BaseOutboundStreamLinkage(), identifier: InstanceIdentifier())
         }
+        #else
+        try Test.cancel("Exit tests are not supported on all systems")
         #endif
     }
 
