@@ -10,39 +10,36 @@ on:
     - cron: "0 8,20 * * *"
 
 jobs:
-  unit-tests:
-    name: Unit tests
-    # Workaround https://github.com/nektos/act/issues/1875
-    uses: apple/swift-nio/.github/workflows/unit_tests.yml@main
+  tests:
+    name: Test
+    uses: swiftlang/github-workflows/.github/workflows/package_test.yml@0.0.18
     with:
-      linux_6_4_arguments_override: "-Xswiftc -warnings-as-errors --explicit-target-dependency-import-check error"
-      linux_nightly_next_arguments_override: "-Xswiftc -warnings-as-errors --explicit-target-dependency-import-check error"
-      linux_nightly_main_arguments_override: "--explicit-target-dependency-import-check error"
+      name: tests
 
-  cxx-interop:
-    name: Cxx interop
-    # Workaround https://github.com/nektos/act/issues/1875
-    uses: apple/swift-nio/.github/workflows/cxx_interop.yml@main
+      # Linux
+      linux_command: |
+        Test: swift test
+        Release-Build: swift build -c release
+      linux_version_overrides: |
+        default: -Xswiftc -warnings-as-errors --explicit-target-dependency-import-check error
+        nightly-main: --explicit-target-dependency-import-check error
+      linux_swift_versions: '["6.4", "nightly-release", "nightly-main"]'
+      linux_static_sdk_versions: '["6.4", "nightly-main"]'
 
-  macos-tests:
-    name: macOS tests
-    # Workaround https://github.com/nektos/act/issues/1875
-    uses: apple/swift-nio/.github/workflows/macos_tests.yml@main
-    with:
-      runner_pool: nightly
-      build_scheme: swift-nio-quic-Package
-      swift_6_1_enabled: false
-      swift_6_2_enabled: false
-      swift_6_3_enabled: false
+      # macOS
+      macos_swift_versions: '["6.4"]'
+      macos_xcode_versions: '["latest-beta"]'
+      macos_runner_pool: nightly
+      xcode_scheme: swift-nio-quic-Package
+      xcode_targets: '[macOS, iOS, watchOS, tvOS, visionOS]'
 
-  static-sdk:
-    name: Static Linux Swift SDK
-    # Workaround https://github.com/nektos/act/issues/1875
-    uses: apple/swift-nio/.github/workflows/static_sdk.yml@main
-
-  release-builds:
-    name: Release builds
-    uses: apple/swift-nio/.github/workflows/release_builds.yml@main
+      # Not run by this package.
+      enable_windows: false
+      enable_macos_swiftly: false
+      enable_wasm_sdk_build: false
+      enable_embedded_wasm_sdk_build: false
+      enable_android_sdk_build: false
+      enable_freebsd: false
 
   http3-integration-tests:
     name: swift-nio-http3 integration tests
