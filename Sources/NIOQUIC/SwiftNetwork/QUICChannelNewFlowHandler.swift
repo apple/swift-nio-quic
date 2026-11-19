@@ -263,7 +263,7 @@ final class QUICChannelNewFlowHandler<Consumer: QUICStreamConsumer & ~Copyable>:
                 )
                 streamHandler.swiftNetworkStreamHandle.attach(linkage: linkage, identifier: streamHandler.identifier)
                 streamHandler.setNewFlowMetadata(metadata)
-                streamHandler.start(fromNewFlowHandler: true, in: &eventContext)
+                streamHandler.start(in: &eventContext)
                 self.connectionView.newInboundStream(streamHandler)
 
                 // For new inbound flows, only set the keep-alive interval once for the connection.

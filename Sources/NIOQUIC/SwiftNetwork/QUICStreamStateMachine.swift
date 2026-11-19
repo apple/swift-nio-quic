@@ -414,8 +414,7 @@ struct QUICStreamStateMachine: ~Copyable {
 
     /// Called when an inbound data available event is received from the lower protocol.
     mutating func inboundDataAvailable() -> InboundDataAvailableAction {
-        // Allow reads even in pendingID: data can arrive before handleConnectedEvent fires
-        // (e.g. optimistic reads from start(fromNewFlowHandler:)). Only block when closed.
+        // Allow reads even in pendingID: data can arrive before handleConnectedEvent fires. Only block when closed.
         switch self.state {
         case .connected:
             return .readData
@@ -1037,8 +1036,7 @@ extension QUICStreamStateMachine.State {
             }
 
         case .pendingID(let pending):
-            // SwiftNetwork can deliver data before the connected event fires
-            // (e.g. optimistic reads from start(fromNewFlowHandler:)).
+            // SwiftNetwork can deliver data before the connected event fires.
             // Allow buffering — the receive sub-SM will track state once connected.
             self = .pendingID(pending)
             return .bufferData
