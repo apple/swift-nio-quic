@@ -361,8 +361,9 @@ extension QUICChannelNewFlowHandler where Consumer: ~Copyable {
                 break
             case .pathValidated(let info):
                 self.connectionView.pathValidated(remote: info.remote)
-            case .pathUnreachable(let info):
-                self.connectionView.pathUnreachable(remote: info.remote, in: &eventContext)
+            case .pathUnreachable:
+                // SwiftNetwork tears the path down itself, which detaches it from the connection.
+                break
             case .pathCurrent(let info):
                 self.connectionView?.pathCurrent(remote: info.remote)
             }

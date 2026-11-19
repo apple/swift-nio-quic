@@ -87,6 +87,58 @@ struct ConnectionMigrationTests {
     }
 
     @available(anyAppleOS 27, *)
+    @Test func clientReturnsBeforeItsNewAddressIsValidated() async throws {
+        try await Self.withConnectedPeers { peers in
+            // The client never receives on the new socket, so it never answers the server's PATH_CHALLENGE there.
+            let newSocket = try await peers.makeClientSocket(receives: false)
+            try await peers.rebindClient(to: newSocket)
+            let previousStream = peers.latestServerStreamChannel.withLockedValue { $0 }
+
+            let response = try await Self.request(on: peers.streamCreator) {
+                // Go back once the request reached the server from the new address.
+                try await peers.waitForServerStream(after: previousStream)
+                try await peers.rebindClient(to: nil)
+            }
+            #expect(response == ByteBuffer(string: "<b>Success</b>"))
+            #expect(peers.serverConnectionChannel.remoteAddress == peers.clientChannel.localAddress)
+        }
+    }
+
+    @available(anyAppleOS 27, *)
+    @Test func clientHopsThroughAddressesItNeverReceivesOn() async throws {
+        try await Self.withConnectedPeers { peers in
+            // Rotate a few addresses, but don't use them.
+            for _ in 0..<5 {
+                try await peers.rebindClient(to: try await peers.makeClientSocket(receives: false))
+                try await Self.sendRequest(on: peers)
+            }
+            // Switch back to our original path and expect the server to follow.
+            try await peers.rebindClient(to: nil)
+            #expect(try await Self.request(on: peers.streamCreator) == ByteBuffer(string: "<b>Success</b>"))
+            #expect(peers.serverConnectionChannel.remoteAddress == peers.clientChannel.localAddress)
+        }
+    }
+
+    @available(anyAppleOS 27, *)
+    @Test func serverLimitsWhatItSendsToAnUnvalidatedAddress() async throws {
+        try await Self.withConnectedPeers { peers in
+            // The client never receives on the new socket, so the server never validates its address.
+            let newSocket = try await peers.makeClientSocket(receives: false)
+            try await peers.rebindClient(to: newSocket)
+            try await Self.sendRequest(on: peers)
+            // Let SwiftNetwork's migration timer fire, and the client's retransmissions arrive.
+            try await Task.sleep(for: .seconds(1))
+            try await peers.rebindClient(to: nil)
+
+            // Until the server validated an address, it sends there at most three
+            // times what it received from there (RFC 9000, Section 8.1).
+            let counts = try await Self.byteCounts(of: newSocket)
+            #expect(counts.received > 0)
+            #expect(counts.received <= 3 * counts.sent)
+        }
+    }
+
+    @available(anyAppleOS 27, *)
     @Test func clientCloseReachesServerAfterMigration() async throws {
         try await Self.withConnectedPeers { peers in
             let newSocket = try await peers.makeClientSocket()
@@ -105,16 +157,28 @@ struct ConnectionMigrationTests {
         try await Self.withConnectedPeers { peers in
             let packet = try await peers.unauthenticatedPacket()
 
-            // Every new address makes the server set up a path, which SwiftNetwork then probes.
+            // Every new address makes the server set up a path, which SwiftNetwork may probe.
+            var spoofers: [any Channel] = []
             for _ in 0..<addressCount {
                 let spoofer = try await DatagramBootstrap(group: peers.eventLoopGroup)
+                    .channelInitializer { channel in
+                        channel.eventLoop.makeCompletedFuture {
+                            try channel.pipeline.syncOperations.addHandler(ByteCounter())
+                        }
+                    }
                     .bind(host: Self.host, port: 0)
                     .get()
                 try await spoofer.writeAndFlush(AddressedEnvelope(remoteAddress: peers.serverAddress, data: packet))
+                spoofers.append(spoofer)
             }
             // Let SwiftNetwork's migration timer fire.
             try await Task.sleep(for: .seconds(1))
 
+            // The server must not amplify a spoofer's traffic, not even by probing its address (RFC 9000, Section 8.1).
+            for spoofer in spoofers {
+                let counts = try await Self.byteCounts(of: spoofer)
+                #expect(counts.received <= 3 * counts.sent)
+            }
             #expect(peers.serverConnectionChannel.remoteAddress == peers.clientChannel.localAddress)
             #expect(try await Self.request(on: peers.streamCreator) == ByteBuffer(string: "<b>Success</b>"))
         }
@@ -274,17 +338,28 @@ struct ConnectionMigrationTests {
             return packet
         }
 
-        /// A new socket for the client: what it receives goes into the client's pipeline while the client uses it.
-        func makeClientSocket() async throws -> any Channel {
+        /// A new socket for the client: what it receives goes into the client's pipeline while the client uses it,
+        /// unless `receives` is `false`.
+        func makeClientSocket(receives: Bool = true) async throws -> any Channel {
             let clientChannel = self.clientChannel
             return try await DatagramBootstrap(group: self.eventLoopGroup)
                 .channelInitializer { channel in
                     channel.eventLoop.makeCompletedFuture {
-                        try channel.pipeline.syncOperations.addHandler(RelayHandler(clientChannel: clientChannel))
+                        try channel.pipeline.syncOperations.addHandler(ByteCounter())
+                        if receives {
+                            try channel.pipeline.syncOperations.addHandler(RelayHandler(clientChannel: clientChannel))
+                        }
                     }
                 }
                 .bind(host: ConnectionMigrationTests.host, port: 0)
                 .get()
+        }
+
+        /// Waits until the server has a stream newer than `previousStream`.
+        func waitForServerStream(after previousStream: (any Channel)?) async throws {
+            while self.latestServerStreamChannel.withLockedValue({ $0 }) === previousStream {
+                try await Task.sleep(for: .milliseconds(10))
+            }
         }
 
         /// Makes the client use `socket`, or its own socket for `nil`, as if its socket rebound to that port.
@@ -303,9 +378,32 @@ struct ConnectionMigrationTests {
         }
     }
 
-    /// Sends a request on a new stream and returns the full response.
+    /// The bytes `socket` sent and received so far, as its `ByteCounter` counted them.
     @available(anyAppleOS 27, *)
-    private static func request(on streamCreator: NIOQUIC.QUICStreamCreator) async throws -> ByteBuffer {
+    private static func byteCounts(of socket: any Channel) async throws -> (sent: Int, received: Int) {
+        try await socket.eventLoop.submit {
+            let counter = try socket.pipeline.syncOperations.handler(type: ByteCounter.self)
+            return (counter.sentBytes, counter.receivedBytes)
+        }.get()
+    }
+
+    /// Sends a request on a new stream without waiting for the response. Returns once the server has the stream.
+    @available(anyAppleOS 27, *)
+    private static func sendRequest(on peers: ConnectedPeers) async throws {
+        let previousStream = peers.latestServerStreamChannel.withLockedValue { $0 }
+        let stream = try await peers.streamCreator.createBidirectionalStream { initializer in
+            initializer.channel.eventLoop.makeSucceededFuture(initializer.channel)
+        }.get()
+        try await stream.writeAndFlush(ByteBuffer(string: "GET /foo"))
+        try await peers.waitForServerStream(after: previousStream)
+    }
+
+    /// Sends a request on a new stream and returns the full response. `afterSending` runs once the request is out.
+    @available(anyAppleOS 27, *)
+    private static func request(
+        on streamCreator: NIOQUIC.QUICStreamCreator,
+        afterSending: () async throws -> Void = {}
+    ) async throws -> ByteBuffer {
         let stream = try await streamCreator.createBidirectionalStream { initializer in
             initializer.channel.eventLoop.makeCompletedFuture {
                 try NIOAsyncChannel(
@@ -321,6 +419,7 @@ struct ConnectionMigrationTests {
         return try await stream.executeThenClose { inbound, outbound in
             try await outbound.write(ByteBuffer(string: "GET /foo"))
             outbound.finish()
+            try await afterSending()
             var response = ByteBuffer()
             for try await chunk in inbound {
                 response.writeImmutableBuffer(chunk)
@@ -403,6 +502,26 @@ private final class ShortHeaderRecorder: ChannelOutboundHandler {
         {
             self.lastPacket = envelope.data
         }
+        context.write(data, promise: promise)
+    }
+}
+
+/// Counts the bytes of the datagrams a socket sends and receives.
+@available(anyAppleOS 27, *)
+private final class ByteCounter: ChannelDuplexHandler {
+    typealias InboundIn = AddressedEnvelope<ByteBuffer>
+    typealias OutboundIn = AddressedEnvelope<ByteBuffer>
+
+    private(set) var sentBytes = 0
+    private(set) var receivedBytes = 0
+
+    func channelRead(context: ChannelHandlerContext, data: NIOAny) {
+        self.receivedBytes += self.unwrapInboundIn(data).data.readableBytes
+        context.fireChannelRead(data)
+    }
+
+    func write(context: ChannelHandlerContext, data: NIOAny, promise: EventLoopPromise<Void>?) {
+        self.sentBytes += self.unwrapOutboundIn(data).data.readableBytes
         context.write(data, promise: promise)
     }
 }
