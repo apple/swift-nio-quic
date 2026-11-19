@@ -625,7 +625,7 @@ final class QUICChannelStreamHandler: ExternalInboundStreamLinkage, @unchecked S
     }
 
     // Start the stream handler
-    func start(fromNewFlowHandler: Bool = false, in eventContext: inout NetworkContext.EventContext) {
+    func start(in eventContext: inout NetworkContext.EventContext) {
         log("start")
         self.eventLoop.preconditionInEventLoop()
         switch self.swiftNetworkStreamHandle.invokeConnect() {
@@ -633,15 +633,6 @@ final class QUICChannelStreamHandler: ExternalInboundStreamLinkage, @unchecked S
             linkage.invokeConnect(for: identifier, in: &eventContext)
         case .handleViolation(let reason):
             preconditionFailure("invokeConnect on SwiftNetworkStreamHandle: \(reason)")
-        }
-        // If started from NewFlowHandler then presumably there is application data waiting in the read queue
-        // Do an optimistic read here when the flow is started and then all future data that comes in will get the handleInboundDataAvailableEvent event.
-        // The handleInboundDataAvailableEvent signals that its time to read data on the stream.
-        if fromNewFlowHandler {
-            let bytesRead = self.read(in: &eventContext)
-            if bytesRead > 0 {
-                log("start new flow optimistic read returning: \(bytesRead) bytes")
-            }
         }
     }
 
@@ -768,8 +759,8 @@ final class QUICChannelStreamHandler: ExternalInboundStreamLinkage, @unchecked S
     }
 
     // Called when data is available to be read on the stream
-    // NOTE: New flows with a single read with not get this event and should optimistically read when the flow is started.
-    // This event will be called for all future input available after the flow starts.
+    // NOTE: A new flow doesn't get this event for the data it arrived with: the first read after its initializer pulls
+    // that data. This event is called for all input that arrives after the flow starts.
     internal func handleInboundDataAvailableEvent(
         for instance: InstanceIdentifier,
         in eventContext: inout NetworkContext.EventContext
@@ -1732,6 +1723,14 @@ extension QUICChannelStreamHandler {
     internal func _testOnly_appendToBufferedReadData(_ buffer: ByteBuffer) {
         self.eventLoop.preconditionInEventLoop()
         self.bufferedReadData.writeImmutableBuffer(buffer)
+    }
+
+    /// The bytes read from SwiftNetwork that haven't reached the pipeline yet.
+    ///
+    /// - Note: This property is intended to only be used in tests.
+    internal var _testOnly_bufferedReadBytes: Int {
+        self.eventLoop.preconditionInEventLoop()
+        return self.bufferedReadData.readableBytes
     }
 }
 
