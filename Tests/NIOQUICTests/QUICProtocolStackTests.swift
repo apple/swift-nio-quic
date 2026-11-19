@@ -73,7 +73,8 @@ final class QUICProtocolStackTests: XCTestCase {
         qlogConfiguration: QLogConfiguration? = nil,
         sendRetry: Bool = false,
         eventLoopGroup: any EventLoopGroup = MultiThreadedEventLoopGroup.singleton,
-        onConnectionChannel: (@Sendable (any Channel) -> Void)? = nil
+        onConnectionChannel: (@Sendable (any Channel) -> Void)? = nil,
+        onInboundStream: (@Sendable (any Channel) -> Void)? = nil
     ) async throws -> (
         any Channel, QUICHandler<QUICStreamChannels>.ConnectionMultiplexer<NIOAsyncChannel<ByteBuffer, ByteBuffer>>
     ) {
@@ -106,6 +107,7 @@ final class QUICProtocolStackTests: XCTestCase {
                                     if let onConnectionChannel, let connectionChannel = streamChannel.parent {
                                         onConnectionChannel(connectionChannel)
                                     }
+                                    onInboundStream?(streamChannel)
                                     let asyncChannel = try NIOAsyncChannel(
                                         wrappingChannelSynchronously: streamChannel,
                                         configuration: .init(
@@ -329,6 +331,79 @@ final class QUICProtocolStackTests: XCTestCase {
                 try await Task.sleep(for: .milliseconds(300))
             }
             XCTAssertEqual(clientResponses.load(ordering: .sequentiallyConsistent), 1)
+            group.cancelAll()
+        }
+    }
+
+    func testNewStreamLeavesItsDataInTheStackUntilItIsRead() async throws {
+        let loggers = getChannelLoggers()
+        let bufferedBytesInInitializer = NIOLockedValueBox<Int?>(nil)
+        let (serverChannel, serverMultiplexer) = try await buildServerChannel(
+            logger: loggers.serverLogger,
+            onInboundStream: { streamChannel in
+                let bufferedBytes = (streamChannel as? QUICChannelStreamHandler)?._testOnly_bufferedReadBytes
+                bufferedBytesInInitializer.withLockedValue { $0 = bufferedBytes }
+            }
+        )
+        let (_, clientMultiplexer) = try await buildClientChannel(logger: loggers.clientLogger)
+        let clientConnection = try await clientMultiplexer.createNewConnection(
+            serverName: serverChannel.localAddress!.ipAddress!,
+            remoteAddress: serverChannel.localAddress!,
+            inboundStreamInitializer: { channel in
+                channel.eventLoop.makeCompletedFuture {
+                    try NIOAsyncChannel(
+                        wrappingChannelSynchronously: channel,
+                        configuration: .init(
+                            isOutboundHalfClosureEnabled: true,
+                            inboundType: ByteBuffer.self,
+                            outboundType: ByteBuffer.self
+                        )
+                    )
+                }
+            }
+        )
+
+        let receivedMessage = NIOLockedValueBox<ByteBuffer?>(nil)
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask {
+                for await connection in serverMultiplexer.inboundConnections {
+                    for await stream in connection.inboundStreams {
+                        try await stream.executeThenClose { inbound, _ in
+                            var message = ByteBuffer()
+                            for try await buffer in inbound {
+                                message.writeImmutableBuffer(buffer)
+                            }
+                            receivedMessage.withLockedValue { $0 = message }
+                        }
+                    }
+                }
+            }
+
+            let clientStream = try await clientConnection.createUnidirectionalStream { streamInitializer in
+                streamInitializer.channel.eventLoop.makeCompletedFuture {
+                    try NIOAsyncChannel(
+                        wrappingChannelSynchronously: streamInitializer.channel,
+                        configuration: .init(
+                            isOutboundHalfClosureEnabled: true,
+                            inboundType: ByteBuffer.self,
+                            outboundType: ByteBuffer.self
+                        )
+                    )
+                }
+            }
+            try await clientStream.executeThenClose { _, outbound in
+                try await outbound.write(ByteBuffer(string: "Message to server"))
+                outbound.finish()
+                // Keep the stream open until the server has the whole message, for at most five seconds.
+                var attempts = 0
+                while receivedMessage.withLockedValue({ $0 }) == nil, attempts < 500 {
+                    try await Task.sleep(for: .milliseconds(10))
+                    attempts += 1
+                }
+            }
+
+            XCTAssertEqual(receivedMessage.withLockedValue { $0 }, ByteBuffer(string: "Message to server"))
+            XCTAssertEqual(bufferedBytesInInitializer.withLockedValue { $0 }, 0)
             group.cancelAll()
         }
     }

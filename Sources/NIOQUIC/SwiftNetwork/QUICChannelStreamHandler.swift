@@ -1724,6 +1724,14 @@ extension QUICChannelStreamHandler {
         self.eventLoop.preconditionInEventLoop()
         self.bufferedReadData.writeImmutableBuffer(buffer)
     }
+
+    /// The bytes read from SwiftNetwork that haven't reached the pipeline yet.
+    ///
+    /// - Note: This property is intended to only be used in tests.
+    internal var _testOnly_bufferedReadBytes: Int {
+        self.eventLoop.preconditionInEventLoop()
+        return self.bufferedReadData.readableBytes
+    }
 }
 
 @available(anyAppleOS 27, *)
