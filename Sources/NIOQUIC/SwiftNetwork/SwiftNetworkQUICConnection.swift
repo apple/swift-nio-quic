@@ -1730,26 +1730,6 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
 
 // MARK: - Paths
 
-// How a connection's paths come and go:
-//
-// * A server sets up a path when a packet arrives from a new address, before the packet is authenticated.
-//   SwiftNetwork only probes it with PATH_CHALLENGEs once the peer sent an authenticated packet on it.
-// * A server tracks at most `ConnectionConstants.maximumPaths` paths. A new address beyond that drops the oldest
-//   unvalidated path. SwiftNetwork still uses the dropped path, so it has to be told
-//   (`removePath(_:notifySwiftNetwork:)`).
-// * The active path is SwiftNetwork's current path, which it reports with `pathCurrent` when it migrates. A server
-//   moves to the path of the peer's highest-numbered non-probing packet as soon as it starts validating it, and goes
-//   back to the last validated path if that validation fails (RFC 9000, Sections 9.3 and 9.3.2). A peer that only
-//   probes a path doesn't move the active path.
-// * When SwiftNetwork detaches from a path, the path stays until the packets queued on it are flushed.
-// * SwiftNetwork releases paths from above: destroying a QUIC path detaches its path here, then tears it down, which
-//   unregisters it. A server destroys every other path once it's on a validated path the peer uses, and any unusable
-//   path but its current one, such as a path it was told is gone. A released path is never entered again.
-// * A path registers as it's created and attaches with nothing held, since both acquire the event context. Packets
-//   arrive from the parent channel's read, which holds nothing.
-// * SwiftNetwork tears down the paths it gives up on itself: the connection doesn't act on `pathUnreachable`.
-// * Path events reach the connection through the new-flow handler while SwiftNetwork holds the event context.
-
 @available(anyAppleOS 27, *)
 extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
     /// Returns the path for packets from `remoteAddress`.
@@ -1788,10 +1768,9 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
                 )
                 return nil
             }
-            // At the limit, the oldest unvalidated path makes room, so that packets from new addresses can't push out
-            // the validated path SwiftNetwork goes back to when validating a new address fails (RFC 9000, Section
-            // 9.3.2). Only if all of them are validated does the oldest one go. That should be rare: SwiftNetwork tears
-            // down the other paths once it's on a validated path the peer uses.
+            // To keep path state within bounds, start discarding old unvalidated paths once
+            // the maximum is reached. Since SwiftNetwork does not keep multliple valdiated paths
+            // around, this should discard unvalidated paths.
             if 1 + self.otherPaths.count >= ConnectionConstants.maximumPaths {
                 let droppedPath: QUICConnectionPath<Consumer>
                 if let path = self.otherPaths.first(where: { !$0.isValidated }) {
