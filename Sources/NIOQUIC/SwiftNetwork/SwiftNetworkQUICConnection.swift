@@ -58,6 +58,16 @@ private enum ConnectionConstants {
     /// Older ones are forgotten to avoid boundless state.
     static var maximumRetiredConnectionIDs: Int { 2 * Self.maximumAnnouncedConnectionIDs }
 
+    /// The most paths a connection tracks, the active one included. A packet from a new address beyond that makes
+    /// room for its path by dropping an older (unvalidated) one. This limit prevents peers from accumulating state
+    /// by spoofing paths.
+    ///
+    /// The limit is arbitrarily chosen, but larger than the connection IDs we hand out to our peer. As such, we don't
+    /// ever expect there to be this many paths. Since we cannot see into the packets, we cannot make some related
+    /// decisions (non-probing frames, do packets decrypt) and depend on SwiftNetwork to make them. To account
+    /// for this, we leave a bit of additional room here.
+    static var maximumPaths: Int { 20 }
+
     /// Track IDs for qlog files to ensure connections write individual logs.
     private static let clientConnectionQLogIDCounter = Atomic<Int>(1)
 
@@ -1678,11 +1688,6 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
         _ = self.connectionStateMachine.receiveConnectedEvent()
     }
 
-    /// The number of paths SwiftNetwork tracks for this connection.
-    func _forTesting_getSwiftNetworkPathCount() -> Int {
-        self.protocolStorage.quicInstance(for: self.streamListenerLinkage)?.multiplexingPaths.count ?? 0
-    }
-
     /// The path considered active.
     func _forTesting_getActivePath() -> QUICConnectionPath<Consumer> {
         self.activePath
@@ -1701,15 +1706,6 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
     /// Simulate a current path event for the path to `remote`.
     func _forTesting_handlePathCurrent(remote: AddressEndpoint) {
         self.handlePathCurrent(remote: remote)
-    }
-
-    /// Simulate a path unreachable event for the path to `remote`, which reaches the connection through
-    /// the new-flow handler.
-    func _forTesting_handlePathUnreachable(remote: AddressEndpoint) {
-        guard let newFlowHandler = self.connectionNewFlowHandler else { return }
-        self.callouts.enter(as: newFlowHandler) { eventContext in
-            self.handlePathUnreachable(remote: remote, in: &eventContext)
-        }
     }
 
     /// Simulate a new inbound connection ID event for `connectionID`, which reaches the connection
@@ -1733,27 +1729,6 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
 }
 
 // MARK: - Paths
-
-// How a connection's paths come and go:
-//
-// * A server sets up a path when a packet arrives from a new address, before the packet is authenticated.
-//   SwiftNetwork then validates the path by probing it with PATH_CHALLENGEs.
-// * SwiftNetwork crashes when two paths probe at once: sending a PATH_CHALLENGE re-arms its migration timer, which
-//   starts sending on every other path with validation pending while the first send is still running. So a server
-//   tracks at most one unvalidated path, and drops it before it sets up the next one. SwiftNetwork probes the paths
-//   it tracks itself, so it has to be told about the drop (`removePath(_:notifySwiftNetwork:)`). The cost: a client
-//   that probes two new paths at once only gets the newer one validated.
-// * The active path is SwiftNetwork's current path, which it reports with `pathCurrent` when it migrates. A server
-//   migrates to a path once the peer sent non-probing packets on it and the path is validated, so a peer that only
-//   probes a path doesn't move the active path.
-// * When SwiftNetwork detaches from a path, the path stays until the packets queued on it are flushed.
-// * SwiftNetwork releases paths from above: destroying a QUIC path detaches its path here, then tears it down, which
-//   unregisters it. A server destroys the path it migrated away from, and any unavailable path but its current one,
-//   such as a path it was told is gone. A released path is never entered again.
-// * A path registers as it's created and attaches with nothing held, since both acquire the event context. Packets
-//   arrive from the parent channel's read, which holds nothing.
-// * Path events reach the connection through the new-flow handler while SwiftNetwork holds the event context, so
-//   telling SwiftNetwork about a dropped path from there enters as the path with the context it holds.
 
 @available(anyAppleOS 27, *)
 extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
@@ -1793,10 +1768,21 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
                 )
                 return nil
             }
-            // One unvalidated path at a time, dropped before the next one is attached: SwiftNetwork
-            // crashes when probing two paths simultaneously.
-            if let unvalidatedPath = self.otherPaths.first(where: { !$0.isValidated }) {
-                self.removePath(unvalidatedPath, notifySwiftNetwork: true)
+            // To keep path state within bounds, start discarding old unvalidated paths once
+            // the maximum is reached. Since SwiftNetwork does not keep multliple valdiated paths
+            // around, this should discard unvalidated paths.
+            if 1 + self.otherPaths.count >= ConnectionConstants.maximumPaths {
+                let droppedPath: QUICConnectionPath<Consumer>
+                if let path = self.otherPaths.first(where: { !$0.isValidated }) {
+                    droppedPath = path
+                } else {
+                    droppedPath = self.otherPaths[0]
+                    self.logger.warning(
+                        "Dropping the oldest of \(self.otherPaths.count) validated paths",
+                        metadata: [LoggingKeys.pathRemoteEndpoint: "\(droppedPath.remoteAddress)"]
+                    )
+                }
+                self.removePath(droppedPath, notifySwiftNetwork: true)
             }
             return self.setUpPath(to: remoteAddress)
         }
@@ -1855,18 +1841,14 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
         return path
     }
 
-    /// Stops tracking `path`, unless it's the active path: only SwiftNetwork moves the connection off that one.
-    ///
-    /// The SwiftNetwork version we're on never asks to remove the active path: it only reports paths it probes as
-    /// unreachable, a validated path is never probed again, and the first path reports no events. Handling the
-    /// active path is a safeguard.
+    /// Stops tracking `path`, one of the other paths: only SwiftNetwork moves the connection off the active path.
     ///
     /// - Parameter notifySwiftNetwork: Whether SwiftNetwork still uses the path and has to be told to drop it.
     ///   Telling it enters the stack, so then this must be called with no event context held.
+    /// - Precondition: Path must not be the active path.
     private func removePath(_ path: QUICConnectionPath<Consumer>, notifySwiftNetwork: Bool) {
-        guard self.stopTracking(path) else {
-            return
-        }
+        precondition(path !== self.activePath, "Only SwiftNetwork moves the connection off the active path")
+        self.otherPaths.removeAll { $0 === path }
         // A path SwiftNetwork already released needs no notification, and can't be entered any more.
         if notifySwiftNetwork, !path.identifier.isNone {
             // Delivers upward from the path, which requires it to be mid-call: enter as it. In response, a
@@ -1877,37 +1859,6 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
             }
         }
         self.discard(path)
-    }
-
-    /// As ``removePath(_:notifySwiftNetwork:)``, telling SwiftNetwork, from code that holds the event
-    /// context.
-    private func removePath(
-        _ path: QUICConnectionPath<Consumer>,
-        notifyingSwiftNetworkIn eventContext: inout NetworkContext.EventContext
-    ) {
-        guard self.stopTracking(path) else {
-            return
-        }
-        if !path.identifier.isNone {
-            // As above, entering as the path with the context held here.
-            path.identifier.fromExternal(in: &eventContext) { eventContext in
-                path.invokeDisconnected(in: &eventContext)
-            }
-        }
-        self.discard(path)
-    }
-
-    /// Removes `path` from the tracked paths.
-    ///
-    /// - Returns: Whether the path was removed: the active path stays until SwiftNetwork migrates away from it.
-    private func stopTracking(_ path: QUICConnectionPath<Consumer>) -> Bool {
-        if path === self.activePath {
-            self.log("Keeping the active path until SwiftNetwork migrates away from it")
-            return false
-        } else {
-            self.otherPaths.removeAll { $0 === path }
-            return true
-        }
     }
 
     /// Fails what's queued on a removed path, and detaches it.
@@ -1949,26 +1900,10 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
             )
             return
         }
-        // `path(for:)` only keeps the other paths to one unvalidated path, so an unvalidated active path would let
-        // SwiftNetwork probe two paths at once.
-        assert(path.isValidated, "SwiftNetwork migrated to an unvalidated path")
         if let index = self.otherPaths.firstIndex(where: { $0 === path }) {
             self.otherPaths.append(self.activePath)
             self.activePath = self.otherPaths.remove(at: index)
         }
-    }
-
-    /// SwiftNetwork gave up on the path to `remote`.
-    private func handlePathUnreachable(remote: AddressEndpoint, in eventContext: inout NetworkContext.EventContext) {
-        guard let path = self.trackedPath(remote.type) else {
-            self.log(
-                "Ignoring untracked unreachable path",
-                metadata: [LoggingKeys.pathRemoteEndpoint: "\(remote)"]
-            )
-            return
-        }
-        // SwiftNetwork keeps unreachable paths around until it is told to drop them.
-        self.removePath(path, notifyingSwiftNetworkIn: &eventContext)
     }
 
     /// SwiftNetwork detached from `path`, e.g. after migrating away from it.
@@ -2093,10 +2028,6 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
 
         func pathCurrent(remote: AddressEndpoint) {
             self.connection.handlePathCurrent(remote: remote)
-        }
-
-        func pathUnreachable(remote: AddressEndpoint, in eventContext: inout NetworkContext.EventContext) {
-            self.connection.handlePathUnreachable(remote: remote, in: &eventContext)
         }
     }
 

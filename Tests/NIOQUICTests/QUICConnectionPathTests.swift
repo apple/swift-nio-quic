@@ -210,11 +210,22 @@ struct QUICConnectionPathTests {
         let connection = try self.makeConnection(role: .server)
         connection.receivePacket(AddressedEnvelope(remoteAddress: Self.newAddress, data: Self.payload))
 
-        // SwiftNetwork only migrates to validated paths.
         connection._forTesting_handlePathValidated(remote: Self.newAddress.toAddressEndpoint())
         connection._forTesting_handlePathCurrent(remote: Self.newAddress.toAddressEndpoint())
         #expect(connection._forTesting_getActivePath().remoteAddress == Self.newAddress)
         #expect(connection.remoteAddress.value == Self.newAddress)
+        #expect(connection._forTesting_getOtherPaths().map(\.remoteAddress) == [Self.pathAddress])
+    }
+
+    @available(anyAppleOS 27, *)
+    @Test func pathCurrentPromotesUnvalidatedPath() throws {
+        let connection = try self.makeConnection(role: .server)
+        connection.receivePacket(AddressedEnvelope(remoteAddress: Self.newAddress, data: Self.payload))
+
+        // A server moves to the path of the peer's non-probing packets before validating it (RFC 9000, Section 9.3).
+        connection._forTesting_handlePathCurrent(remote: Self.newAddress.toAddressEndpoint())
+        #expect(connection._forTesting_getActivePath().remoteAddress == Self.newAddress)
+        #expect(!connection._forTesting_getActivePath().isValidated)
         #expect(connection._forTesting_getOtherPaths().map(\.remoteAddress) == [Self.pathAddress])
     }
 
@@ -234,40 +245,49 @@ struct QUICConnectionPathTests {
     }
 
     @available(anyAppleOS 27, *)
-    @Test
-    func pathUnreachableRemovesPath() throws {
+    @Test func newAddressAtThePathLimitReplacesTheOldestUnvalidatedPath() throws {
         let connection = try self.makeConnection(role: .server)
-        connection.receivePacket(AddressedEnvelope(remoteAddress: Self.newAddress, data: Self.payload))
-        try #require(connection._forTesting_getOtherPaths().count == 1)
-        var removedPath = connection._forTesting_getOtherPaths()[0]
+        // With the first path, 19 more fill the connection up. The oldest of them is validated.
+        let addresses = try (9001...9019).map { try SocketAddress(ipAddress: "127.0.0.1", port: $0) }
+        for address in addresses {
+            connection.receivePacket(AddressedEnvelope(remoteAddress: address, data: Self.payload))
+        }
+        connection._forTesting_handlePathValidated(remote: addresses[0].toAddressEndpoint())
+        try #require(self.trackedPaths(connection).count == 20)
+        let replacedPath = try #require(self.trackedPaths(connection).first { $0.remoteAddress == addresses[1] })
 
-        connection._forTesting_handlePathUnreachable(remote: Self.newAddress.toAddressEndpoint())
-        #expect(connection._forTesting_getOtherPaths().isEmpty)
-        #expect(connection._forTesting_getActivePath().remoteAddress == Self.pathAddress)
-        #expect(!removedPath.hasQueuedInboundPackets)
-        // SwiftNetwork keeps unreachable paths until it is told to drop them.
-        #expect(connection._forTesting_getSwiftNetworkPathCount() == 1)
-        // Nothing holds on to the removed path anymore, neither the connection nor SwiftNetwork.
-        let isReleased = isKnownUniquelyReferenced(&removedPath)
-        #expect(isReleased)
+        let newAddress = try SocketAddress(ipAddress: "127.0.0.1", port: 9020)
+        connection.receivePacket(AddressedEnvelope(remoteAddress: newAddress, data: Self.payload))
+        let trackedAddresses = self.trackedPaths(connection).map(\.remoteAddress)
+        #expect(trackedAddresses.count == 20)
+        #expect(trackedAddresses.contains(newAddress))
+        #expect(trackedAddresses.contains(addresses[0]))
+        #expect(!trackedAddresses.contains(addresses[1]))
+        replacedPath.enqueueInboundPacket(Self.payload)
+        #expect(!replacedPath.hasQueuedInboundPackets)
+        // SwiftNetwork is told about the replaced path, but only tears it down once the handshake is confirmed,
+        // which it never is here. So SwiftNetwork still holds on to the path.
     }
 
     @available(anyAppleOS 27, *)
-    @Test
-    func newAddressReplacesUnvalidatedPath() throws {
+    @Test func newAddressAtThePathLimitReplacesTheOldestValidatedPathIfAllAreValidated() throws {
         let connection = try self.makeConnection(role: .server)
-        let replacedAddress = try SocketAddress(ipAddress: "127.0.0.1", port: 9002)
-        connection.receivePacket(AddressedEnvelope(remoteAddress: replacedAddress, data: Self.payload))
-        var replacedPath = try #require(self.trackedPaths(connection).first { $0.remoteAddress == replacedAddress })
+        // With the first path, 19 more fill the connection up, all of them validated.
+        let addresses = try (9001...9019).map { try SocketAddress(ipAddress: "127.0.0.1", port: $0) }
+        for address in addresses {
+            connection.receivePacket(AddressedEnvelope(remoteAddress: address, data: Self.payload))
+            connection._forTesting_handlePathValidated(remote: address.toAddressEndpoint())
+        }
+        try #require(self.trackedPaths(connection).count == 20)
 
-        connection.receivePacket(AddressedEnvelope(remoteAddress: Self.newAddress, data: Self.payload))
-        #expect(Set(self.trackedPaths(connection).map(\.remoteAddress)) == [Self.pathAddress, Self.newAddress])
-        #expect(connection._forTesting_getSwiftNetworkPathCount() == 2)
-        replacedPath.enqueueInboundPacket(Self.payload)
-        #expect(!replacedPath.hasQueuedInboundPackets)
-        // Nothing holds on to the replaced path anymore, neither the connection nor SwiftNetwork.
-        let isReleased = isKnownUniquelyReferenced(&replacedPath)
-        #expect(isReleased)
+        let newAddress = try SocketAddress(ipAddress: "127.0.0.1", port: 9020)
+        connection.receivePacket(AddressedEnvelope(remoteAddress: newAddress, data: Self.payload))
+        let trackedAddresses = self.trackedPaths(connection).map(\.remoteAddress)
+        #expect(trackedAddresses.count == 20)
+        #expect(trackedAddresses.contains(newAddress))
+        #expect(!trackedAddresses.contains(addresses[0]))
+        // The active path is never dropped.
+        #expect(connection._forTesting_getActivePath().remoteAddress == Self.pathAddress)
     }
 
     @available(anyAppleOS 27, *)
@@ -288,45 +308,6 @@ struct QUICConnectionPathTests {
         let isNewPathReleased = isKnownUniquelyReferenced(&newPath)
         #expect(isFirstPathReleased)
         #expect(isNewPathReleased)
-    }
-
-    @available(anyAppleOS 27, *)
-    @Test
-    func newAddressKeepsValidatedPaths() throws {
-        let connection = try self.makeConnection(role: .server)
-        let validatedAddress = try SocketAddress(ipAddress: "127.0.0.1", port: 9002)
-        connection.receivePacket(AddressedEnvelope(remoteAddress: validatedAddress, data: Self.payload))
-        connection._forTesting_handlePathValidated(remote: validatedAddress.toAddressEndpoint())
-
-        connection.receivePacket(AddressedEnvelope(remoteAddress: Self.newAddress, data: Self.payload))
-        #expect(
-            Set(self.trackedPaths(connection).map(\.remoteAddress))
-                == [Self.pathAddress, validatedAddress, Self.newAddress]
-        )
-    }
-
-    @available(anyAppleOS 27, *)
-    @Test func pathUnreachableKeepsActivePath() throws {
-        let connection = try self.makeConnection(role: .server)
-        connection.receivePacket(AddressedEnvelope(remoteAddress: Self.newAddress, data: Self.payload))
-        connection._forTesting_handlePathValidated(remote: Self.newAddress.toAddressEndpoint())
-
-        // Only SwiftNetwork moves the connection to another path, even when a validated one is available.
-        connection._forTesting_handlePathUnreachable(remote: Self.pathAddress.toAddressEndpoint())
-        #expect(connection._forTesting_getActivePath().remoteAddress == Self.pathAddress)
-        #expect(connection._forTesting_getOtherPaths().map(\.remoteAddress) == [Self.newAddress])
-    }
-
-    @available(anyAppleOS 27, *)
-    @Test
-    func lastPathSurvivesPathUnreachable() throws {
-        let connection = try self.makeConnection(role: .server)
-
-        connection._forTesting_handlePathUnreachable(remote: Self.pathAddress.toAddressEndpoint())
-        #expect(connection._forTesting_getActivePath().remoteAddress == Self.pathAddress)
-        #expect(connection._forTesting_getSwiftNetworkPathCount() == 1)
-        connection.receivePacket(AddressedEnvelope(remoteAddress: Self.pathAddress, data: Self.payload))
-        #expect(connection._forTesting_getActivePath().hasQueuedInboundPackets)
     }
 
     @available(anyAppleOS 27, *)
