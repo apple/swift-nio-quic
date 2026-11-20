@@ -1793,16 +1793,17 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
             // 9.3.2). Only if all of them are validated does the oldest one go. That should be rare: SwiftNetwork tears
             // down the other paths once it's on a validated path the peer uses.
             if 1 + self.otherPaths.count >= ConnectionConstants.maximumPaths {
-                if let droppedPath = self.otherPaths.first(where: { !$0.isValidated }) {
-                    self.removePath(droppedPath, notifySwiftNetwork: true)
+                let droppedPath: QUICConnectionPath<Consumer>
+                if let path = self.otherPaths.first(where: { !$0.isValidated }) {
+                    droppedPath = path
                 } else {
-                    let droppedPath = self.otherPaths[0]
+                    droppedPath = self.otherPaths[0]
                     self.logger.warning(
                         "Dropping the oldest of \(self.otherPaths.count) validated paths",
                         metadata: [LoggingKeys.pathRemoteEndpoint: "\(droppedPath.remoteAddress)"]
                     )
-                    self.removePath(droppedPath, notifySwiftNetwork: true)
                 }
+                self.removePath(droppedPath, notifySwiftNetwork: true)
             }
             return self.setUpPath(to: remoteAddress)
         }
