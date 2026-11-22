@@ -111,6 +111,36 @@ final class QUICHandlerTests: XCTestCase {
         try future2.wait()
     }
 
+    func testChannelShouldQuiesce_stopsAcceptingNewConnections() throws {
+        let eventLoop = EmbeddedEventLoop()
+        let channel = EmbeddedChannel(loop: eventLoop)
+        channel.localAddress = try SocketAddress(ipAddress: "127.0.0.0", port: 1234)
+        let acceptedConnections = NIOLockedValueBox<[any Channel]>([])
+        let handler = Self.makeHandlerWithConnectionAccess(
+            channel: channel,
+            channelHandler: NIOLoopBound(MockChannelHandler(), eventLoop: eventLoop),
+            connectionIDLength: Int(QUICConnectionID.randomIDLength),
+            connectionLimits: .unlimited,
+            onConnectionAccepted: { connection in acceptedConnections.withLockedValue { $0.append(connection) } }
+        )
+        try channel.pipeline.syncOperations.addHandler(handler)
+        defer { _ = try? channel.finish() }
+
+        // Accept a connection before quiescing.
+        try self.fireInitial(.random(using: &self.randomNumberGenerator), on: channel)
+        let connection = try XCTUnwrap(acceptedConnections.withLockedValue { $0 }.first)
+
+        // Now fire the `ChannelShouldQuiesceEvent`.
+        channel.pipeline.fireUserInboundEventTriggered(ChannelShouldQuiesceEvent())
+
+        // Any new connection attempt should be dropped.
+        try self.fireInitial(.random(using: &self.randomNumberGenerator), on: channel)
+        XCTAssertEqual(acceptedConnections.withLockedValue { $0 }.count, 1)
+
+        eventLoop.run()
+        XCTAssertNoThrow(try connection.closeFuture.wait())
+    }
+
     func testCreateOutboundConnection_whenHandlerHasNoConsumer_fails() throws {
         let future = self.serverHandler.createOutboundConnection(
             serverName: "quic-test.local",

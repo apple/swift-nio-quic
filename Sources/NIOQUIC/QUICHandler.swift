@@ -908,15 +908,12 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
     public func userInboundEventTriggered(context: ChannelHandlerContext, event: Any) {
         switch event {
         case is ChannelShouldQuiesceEvent:
-            let promise = context.eventLoop.makePromise(of: Void.self).assumeIsolated()
-            promise.futureResult.whenComplete { _ in
+            let promise = context.eventLoop.makePromise(of: Void.self)
+            promise.futureResult.assumeIsolated().whenComplete { _ in
                 context.close(promise: nil)
             }
 
-            self.connectionRegistry.shutdownConnections(
-                deadline: .now() + .minutes(1),
-                promise: promise
-            )
+            self.shutdownGracefully(deadline: .now() + .minutes(1), promise: promise)
 
         default:
             self.connectionRegistry.notifyParentChannelUserInboundEventTriggered(event)
