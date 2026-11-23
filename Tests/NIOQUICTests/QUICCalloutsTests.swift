@@ -47,7 +47,8 @@ struct QUICCalloutsTests {
                 let tag = String(buffer: datagram)
                 self.log.append(tag)
                 self.onRun?(tag)
-            case .handshakeCompleted, .closed, .connectionIDAssociated, .connectionIDRetired, .datagramError:
+            case .handshakeCompleted, .closed, .connectionIDAssociated, .connectionIDRetired, .datagramError,
+                .activePathUpdated:
                 Issue.record("Unexpected callout \(callout)")
             }
         }

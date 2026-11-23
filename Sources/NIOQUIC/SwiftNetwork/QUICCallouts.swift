@@ -233,6 +233,8 @@ enum QUICConnectionCallout {
     case datagramRead(ByteBuffer)
     /// The connection's datagram flow failed, for an `errorCaught`.
     case datagramError(any Error)
+    /// The active path information changed.
+    case activePathUpdated(remoteAddress: SocketAddress, isValidated: Bool)
 }
 
 /// The connection a ``QUICConnectionCallout`` runs on. `SwiftNetworkQUICConnection` is generic over
