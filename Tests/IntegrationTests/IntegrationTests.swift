@@ -370,6 +370,77 @@ final class IntegrationTests: XCTestCase {
         }
     }
 
+    func testChannelShouldQuiesce_forceClosesConnectionsAfterMaximumGracefulShutdownDuration() async throws {
+        let testingEventLoop = NIOAsyncTestingEventLoop()
+        let streamInitializerStarted = testingEventLoop.makePromise(of: Void.self)
+        let streamInitializerCompletion = testingEventLoop.makePromise(of: Void.self)
+
+        let (clientChannel, serverChannel, _, clientMultiplexer) = try await makeClientAndServerPair(
+            testMode: .testing(eventLoop: testingEventLoop),
+            serverMaximumGracefulShutdownDuration: .seconds(1),
+            serverInboundStreamChannelInitializer: { streamChannel in
+                streamInitializerStarted.succeed()
+                return streamInitializerCompletion.futureResult.flatMap {
+                    makeAsyncStreamChannel(streamChannel)
+                }
+            }
+        )
+        let testingClientChannel = clientChannel as! NIOAsyncTestingChannel
+        let testingServerChannel = serverChannel as! NIOAsyncTestingChannel
+
+        try await withThrowingTaskGroup { group in
+            group.addTask {
+                while !Task.isCancelled {
+                    try await Self.deliverAllBytes(from: testingClientChannel, to: testingServerChannel)
+                    try await Self.deliverAllBytes(from: testingServerChannel, to: testingClientChannel)
+                }
+            }
+
+            let connection = try await clientMultiplexer.createNewConnection(
+                serverName: "127.0.0.1",
+                remoteAddress: serverChannel.localAddress!,
+                inboundStreamInitializer: { channel in
+                    channel.eventLoop.makeCompletedFuture { fatalError() }
+                }
+            )
+            let stream = try await connection.createBidirectionalStream { streamInitializer in
+                streamInitializer.channel.eventLoop.makeSucceededFuture(streamInitializer.channel)
+            }
+
+            // Write some data on the stream; the server only becomes aware of a stream once data is sent on it.
+            try await stream.writeAndFlush(ByteBuffer(string: "GET /foo"))
+            // Wait for the stream initializer to start.
+            try await streamInitializerStarted.futureResult.get()
+
+            group.cancelAll()
+        }
+
+        let serverClosed = Self.recordClose(of: serverChannel)
+
+        serverChannel.pipeline.fireUserInboundEventTriggered(ChannelShouldQuiesceEvent())
+        await testingEventLoop.run()
+        await testingEventLoop.advanceTime(by: .milliseconds(999))
+
+        // The pending stream initializer stops the connection from closing gracefully.
+        XCTAssertFalse(serverClosed.withLockedValue { $0 })
+
+        // Reaching the deadline forcefully closes the connection. This should let the server channel close.
+        await testingEventLoop.advanceTime(by: .milliseconds(1))
+        XCTAssertTrue(serverClosed.withLockedValue { $0 })
+
+        // Now complete the stream initializer promise.
+        streamInitializerCompletion.succeed()
+        try await clientChannel.close()
+    }
+
+    private static func recordClose(of channel: any Channel) -> NIOLockedValueBox<Bool> {
+        let closed = NIOLockedValueBox(false)
+        channel.closeFuture.whenComplete { _ in
+            closed.withLockedValue { $0 = true }
+        }
+        return closed
+    }
+
     func testHandleVeryLargeInitialPackets() async throws {
         // This is like the HTTP/0.9 test, but we send a massive ALPN payload. This is done
         // to cause the initial packet to be spread across multiple datagrams.
