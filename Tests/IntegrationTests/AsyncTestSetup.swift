@@ -152,17 +152,19 @@ func makeMockClientAndServerPair(
     // Set up mock QUIC handlers and multiplexers
     let serverMultiplexer = try await testingEventLoop.executeInContext {
         // Mock server multiplexer setup
+        var serverConfiguration = QUICConfiguration.forServer(
+            serverName: "quic-test.local",
+            authenticationConfiguration: AuthenticationConfiguration.rawPublicKeys(
+                publicKeyFilePath: publicKeyPath,
+                privateKeyFilePath: privateKeyPath
+            ),
+            applicationProtocols: ["http/0.9"]
+        )
+        serverConfiguration.maximumGracefulShutdownDuration = serverMaximumGracefulShutdownDuration
+
         let (quicHandler, connectionMultiplexer) = try QUICHandler.makeHandlerAndConnectionMultiplexer(
             channel: serverChannel,
-            quicConfiguration: QUICConfiguration.forServer(
-                serverName: "quic-test.local",
-                authenticationConfiguration: AuthenticationConfiguration.rawPublicKeys(
-                    publicKeyFilePath: publicKeyPath,
-                    privateKeyFilePath: privateKeyPath
-                ),
-                applicationProtocols: ["http/0.9"]
-            ),
-            maximumGracefulShutdownDuration: serverMaximumGracefulShutdownDuration,
+            quicConfiguration: serverConfiguration,
             logger: Logger(label: "Testing Server"),
             inboundStreamChannelInitializer: serverInboundStreamChannelInitializer
         )
@@ -352,10 +354,10 @@ private func setUpServerChannelAndConnectionMultiplexer(
                 quicConfiguration.initialMaxStreamDataBidiLocal = initialMaxStreamDataBidi
                 quicConfiguration.initialMaxStreamDataBidiRemote = initialMaxStreamDataBidi
                 quicConfiguration.initialMaxStreamsBidi = initialMaxStreamsBidi
+                quicConfiguration.maximumGracefulShutdownDuration = maximumGracefulShutdownDuration
                 let (quicHandler, connectionMultiplexer) = try QUICHandler.makeHandlerAndConnectionMultiplexer(
                     channel: channel,
                     quicConfiguration: quicConfiguration,
-                    maximumGracefulShutdownDuration: maximumGracefulShutdownDuration,
                     logger: logger,
                     inboundStreamChannelInitializer: inboundStreamChannelInitializer,
                     connectionIDGenerator: connectionIDGenerator

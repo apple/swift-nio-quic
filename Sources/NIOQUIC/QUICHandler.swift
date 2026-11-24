@@ -89,12 +89,6 @@ public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
     private var connectionRegistry: ConnectionRegistry<QUICConnectionChannel<Consumer>.TransportView>
     /// Decides whether new connections may be admitted.
     private var connectionAdmissionController: ConnectionAdmissionController
-    /// The maximum amount of time that graceful shutdown is allowed to take after the handler receives a
-    /// `ChannelShouldQuiesceEvent`.
-    ///
-    /// After this time has elapsed, any remaining connections will be forcefully closed. When `nil`, no time limit is
-    /// enforced for connections to close.
-    private let maximumGracefulShutdownDuration: Duration?
 
     /// How new connections are surfaced to the user: either a multiplexer continuation or a pair
     /// of initializer closures.
@@ -141,9 +135,6 @@ public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
     ///   - channel: The channel this handler resides in.
     ///   - quicConfiguration: The quic configuration to use for this handler.
     ///   - connectionLimits: Limits on the inbound connections this handler admits.
-    ///   - maximumGracefulShutdownDuration: The maximum amount of time that graceful shutdown is allowed to take after
-    ///     the handler receives a `ChannelShouldQuiesceEvent`. After this time has elapsed, any remaining connections
-    ///     will be forcefully closed. When `nil`, no time limit is enforced for connections to close.
     ///   - asyncVerifier: Callback provider for SwiftTLS certificate verification.
     ///   - logger: The logger.
     ///   - makeConsumer: Builds the consumer servicing a connection's streams, or nil
@@ -154,7 +145,6 @@ public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
         channel: any Channel,
         quicConfiguration: QUICConfiguration,
         connectionLimits: QUICConnectionLimits,
-        maximumGracefulShutdownDuration: Duration?,
         asyncVerifier: AsyncVerifier?,
         authenticator: Authenticator?,
         logger: Logger,
@@ -165,7 +155,6 @@ public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
         self.udpChannel = channel
         self.eventLoop = channel.eventLoop
         self.quicConfiguration = quicConfiguration
-        self.maximumGracefulShutdownDuration = maximumGracefulShutdownDuration
         self.logger = logger
         self.connectionIDGenerator = connectionIDGenerator
         self.statelessResetTokenGenerator = statelessResetTokenGenerator
@@ -427,10 +416,6 @@ extension QUICHandler where Consumer == QUICStreamChannels {
     ///   - connectionLimits: Limits on the inbound connections this handler admits. Only used by servers.
     ///     Defaults to ``QUICConnectionLimits/perHandler(activeLimit:handshakeLimit:newConnectionRateLimit:)``
     ///     with 10,000 active connections and a rate limit of 1,000 new connections per second.
-    ///   - maximumGracefulShutdownDuration: The maximum amount of time that graceful shutdown is allowed to take after
-    ///     the handler receives a `ChannelShouldQuiesceEvent`. After this time has elapsed, any remaining connections
-    ///     will be forcefully closed. When `nil`, no time limit is enforced for connections to close. Defaults to 60
-    ///     seconds.
     ///   - logger: The logger.
     ///   - inboundStreamChannelInitializer: A closure called for any new inbound stream.
     /// - Returns: The handler and the connection multiplexer.
@@ -438,7 +423,6 @@ extension QUICHandler where Consumer == QUICStreamChannels {
         channel: any Channel,
         quicConfiguration: QUICConfiguration,
         connectionLimits: QUICConnectionLimits = .perHandler(),
-        maximumGracefulShutdownDuration: Duration? = .seconds(60),
         logger: Logger,
         inboundStreamChannelInitializer: @Sendable @escaping (any Channel) -> EventLoopFuture<Output>
     ) throws -> (QUICHandler, QUICHandler.ConnectionMultiplexer<Output>) {
@@ -446,7 +430,6 @@ extension QUICHandler where Consumer == QUICStreamChannels {
             channel: channel,
             quicConfiguration: quicConfiguration,
             connectionLimits: connectionLimits,
-            maximumGracefulShutdownDuration: maximumGracefulShutdownDuration,
             logger: logger,
             inboundStreamChannelInitializer: inboundStreamChannelInitializer,
             connectionIDGenerator: QUICConnectionID.RandomGenerator(),
@@ -467,10 +450,6 @@ extension QUICHandler where Consumer == QUICStreamChannels {
     ///   - connectionLimits: Limits on the inbound connections this handler admits. Only used by servers.
     ///     Defaults to ``QUICConnectionLimits/perHandler(activeLimit:handshakeLimit:newConnectionRateLimit:)``
     ///     with 10,000 active connections and a rate limit of 1,000 new connections per second.
-    ///   - maximumGracefulShutdownDuration: The maximum amount of time that graceful shutdown is allowed to take after
-    ///     the handler receives a `ChannelShouldQuiesceEvent`. After this time has elapsed, any remaining connections
-    ///     will be forcefully closed. When `nil`, no time limit is enforced for connections to close. Defaults to 60
-    ///     seconds.
     ///   - logger: The logger.
     ///   - inboundStreamChannelInitializer: A closure called for any new inbound stream.
     ///   - connectionIDGenerator: The generator used for creating source connection IDs.
@@ -480,7 +459,6 @@ extension QUICHandler where Consumer == QUICStreamChannels {
         channel: any Channel,
         quicConfiguration: QUICConfiguration,
         connectionLimits: QUICConnectionLimits = .perHandler(),
-        maximumGracefulShutdownDuration: Duration? = .seconds(60),
         logger: Logger,
         inboundStreamChannelInitializer: @Sendable @escaping (any Channel) -> EventLoopFuture<Output>,
         connectionIDGenerator: any QUICConnectionID.Generator,
@@ -533,7 +511,6 @@ extension QUICHandler where Consumer == QUICStreamChannels {
             channel: channel,
             quicConfiguration: quicConfiguration,
             connectionLimits: connectionLimits,
-            maximumGracefulShutdownDuration: maximumGracefulShutdownDuration,
             asyncVerifier: asyncVerifier,
             authenticator: authenticator,
             logger: logger,
@@ -567,10 +544,6 @@ extension QUICHandler where Consumer == QUICStreamChannels {
     ///   - connectionLimits: Limits on the inbound connections this handler admits. Only used by servers.
     ///     Defaults to ``QUICConnectionLimits/perHandler(activeLimit:handshakeLimit:newConnectionRateLimit:)``
     ///     with 10,000 active connections and a rate limit of 1,000 new connections per second.
-    ///   - maximumGracefulShutdownDuration: The maximum amount of time that graceful shutdown is allowed to take after
-    ///     the handler receives a `ChannelShouldQuiesceEvent`. After this time has elapsed, any remaining connections
-    ///     will be forcefully closed. When `nil`, no time limit is enforced for connections to close. Defaults to 60
-    ///     seconds.
     ///   - asyncVerifier: Callback provider for SwiftTLS certificate verification.
     ///   - authenticator: Authenticator for SwiftTLS certificate verification.
     ///   - logger: The logger.
@@ -583,7 +556,6 @@ extension QUICHandler where Consumer == QUICStreamChannels {
         channel: any Channel,
         quicConfiguration: QUICConfiguration,
         connectionLimits: QUICConnectionLimits = .perHandler(),
-        maximumGracefulShutdownDuration: Duration? = .seconds(60),
         asyncVerifier: AsyncVerifier?,
         authenticator: Authenticator?,
         logger: Logger,
@@ -597,7 +569,6 @@ extension QUICHandler where Consumer == QUICStreamChannels {
             channel: channel,
             quicConfiguration: quicConfiguration,
             connectionLimits: connectionLimits,
-            maximumGracefulShutdownDuration: maximumGracefulShutdownDuration,
             asyncVerifier: asyncVerifier,
             authenticator: authenticator,
             logger: logger,
@@ -661,10 +632,6 @@ extension QUICHandler where Consumer: ~Copyable {
     ///   - connectionLimits: Limits on the inbound connections this handler admits. Only used by servers.
     ///     Defaults to ``QUICConnectionLimits/perHandler(activeLimit:handshakeLimit:newConnectionRateLimit:)``
     ///     with 10,000 active connections and a rate limit of 1,000 new connections per second.
-    ///   - maximumGracefulShutdownDuration: The maximum amount of time that graceful shutdown is allowed to take after
-    ///     the handler receives a `ChannelShouldQuiesceEvent`. After this time has elapsed, any remaining connections
-    ///     will be forcefully closed. When `nil`, no time limit is enforced for connections to close. Defaults to 60
-    ///     seconds.
     ///   - asyncVerifier: Callback provider for SwiftTLS certificate verification.
     ///   - authenticator: Authenticator for SwiftTLS certificate verification.
     ///   - logger: The logger.
@@ -676,7 +643,6 @@ extension QUICHandler where Consumer: ~Copyable {
         channel: any Channel,
         quicConfiguration: QUICConfiguration,
         connectionLimits: QUICConnectionLimits = .perHandler(),
-        maximumGracefulShutdownDuration: Duration? = .seconds(60),
         asyncVerifier: AsyncVerifier?,
         authenticator: Authenticator?,
         logger: Logger,
@@ -688,7 +654,6 @@ extension QUICHandler where Consumer: ~Copyable {
             channel: channel,
             quicConfiguration: quicConfiguration,
             connectionLimits: connectionLimits,
-            maximumGracefulShutdownDuration: maximumGracefulShutdownDuration,
             asyncVerifier: asyncVerifier,
             authenticator: authenticator,
             logger: logger,
@@ -948,10 +913,10 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
                 context.close(promise: nil)
             }
 
-            self.shutdownGracefully(
-                deadline: self.maximumGracefulShutdownDuration.map { context.eventLoop.now + TimeAmount($0) },
-                promise: promise
-            )
+            let deadline = self.quicConfiguration.maximumGracefulShutdownDuration.map {
+                context.eventLoop.now + TimeAmount($0)
+            }
+            self.shutdownGracefully(deadline: deadline, promise: promise)
 
         default:
             self.connectionRegistry.notifyParentChannelUserInboundEventTriggered(event)
