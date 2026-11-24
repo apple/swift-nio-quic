@@ -172,10 +172,17 @@ public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
         )
     }
 
-    /// Shuts the server down gracefully.
+    /// Shuts the server down gracefully, unless a shutdown has already begun:
+    ///
+    /// 1. If the server has already shut down, the returned future completes immediately. `deadline` is ignored.
+    /// 2. If the server is already shutting down, for example because it received a `ChannelShouldQuiesceEvent`, the
+    ///    returned future completes once the server has fully shut down. `deadline` is ignored.
+    /// 3. If the server is active, it starts closing its connections gracefully, and forcefully closes any connections
+    ///    that are still open at `deadline`. The returned future completes once the server has fully shut down.
     ///
     /// - Parameters:
     ///     - deadline: Deadline until connections are closed gracefully. Afterwards they will be forcibly closed.
+    ///
     /// - Returns: A future that is notified once the server is closed.
     public func shutdownGracefully(deadline: NIODeadline) -> EventLoopFuture<Void> {
         let promise = self.eventLoop.makePromise(of: Void.self)
@@ -183,6 +190,13 @@ public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
         return promise.futureResult
     }
 
+    /// Shuts the server down gracefully, unless a shutdown has already begun.
+    ///
+    /// - Parameters:
+    ///     - deadline: Deadline until connections are closed gracefully. Afterwards they will be forcibly closed.
+    ///       When `nil`, no time limit is enforced for connections to close. Note that this argument is only used if
+    ///       the server is the `.accepting` state.
+    ///     - promise: Completed once the server is closed.
     private func shutdownGracefully(deadline: NIODeadline?, promise: EventLoopPromise<Void>) {
         self.eventLoop.assertInEventLoop()
 
