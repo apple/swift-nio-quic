@@ -392,6 +392,7 @@ struct QUICConnectionPathTests {
 
     @available(anyAppleOS 27, *)
     @Test func pathCurrentOfActivePathFiresNoEvent() throws {
+        let newPath = QUICPathUpdateEvent(remoteAddress: Self.newAddress, isValidated: false)
         let recorder = QUICPathUpdateEventRecorder()
         let connection = try self.makeLiveConnection(role: .server) { $0.pipeline.addHandler(recorder) }
 
@@ -400,15 +401,17 @@ struct QUICConnectionPathTests {
 
         // Fire pathCurrent on the new path.
         connection._forTesting_handlePathCurrent(remote: Self.newAddress.toAddressEndpoint(), isValidated: false)
-        #expect(recorder.events == [.updated(Self.newAddress, false)])
+        #expect(recorder.events == [newPath])
 
         // Fire pathCurrent on the new path, again. This should not give a new event.
         connection._forTesting_handlePathCurrent(remote: Self.newAddress.toAddressEndpoint(), isValidated: false)
-        #expect(recorder.events == [.updated(Self.newAddress, false)])
+        #expect(recorder.events == [newPath])
     }
 
     @available(anyAppleOS 27, *)
     @Test func pathValidationOfActivePathEmitsExpectedEvents() throws {
+        let newPath = QUICPathUpdateEvent(remoteAddress: Self.newAddress, isValidated: false)
+        let validatedNewPath = QUICPathUpdateEvent(remoteAddress: Self.newAddress, isValidated: true)
         let recorder = QUICPathUpdateEventRecorder()
         let connection = try self.makeLiveConnection(role: .server) { $0.pipeline.addHandler(recorder) }
 
@@ -417,19 +420,21 @@ struct QUICConnectionPathTests {
 
         // Fire pathCurrent on the new path.
         connection._forTesting_handlePathCurrent(remote: Self.newAddress.toAddressEndpoint(), isValidated: false)
-        #expect(recorder.events == [.updated(Self.newAddress, false)])
+        #expect(recorder.events == [newPath])
 
         // Fire pathValidated on the new path.
         connection._forTesting_handlePathValidated(remote: Self.newAddress.toAddressEndpoint())
-        #expect(recorder.events == [.updated(Self.newAddress, false), .updated(Self.newAddress, true)])
+        #expect(recorder.events == [newPath, validatedNewPath])
 
         // Fire pathValidated on the new path again, but no new event arrives.
         connection._forTesting_handlePathValidated(remote: Self.newAddress.toAddressEndpoint())
-        #expect(recorder.events == [.updated(Self.newAddress, false), .updated(Self.newAddress, true)])
+        #expect(recorder.events == [newPath, validatedNewPath])
     }
 
     @available(anyAppleOS 27, *)
     @Test func pathValidationOfNonActivePathEmitsNoEvent() throws {
+        let newPath = QUICPathUpdateEvent(remoteAddress: Self.newAddress, isValidated: false)
+        let oldPath = QUICPathUpdateEvent(remoteAddress: Self.pathAddress, isValidated: true)
         let recorder = QUICPathUpdateEventRecorder()
         let connection = try self.makeLiveConnection(role: .server) { $0.pipeline.addHandler(recorder) }
 
@@ -438,18 +443,18 @@ struct QUICConnectionPathTests {
 
         // Fire pathCurrent on the new path.
         connection._forTesting_handlePathCurrent(remote: Self.newAddress.toAddressEndpoint(), isValidated: false)
-        #expect(recorder.events == [.updated(Self.newAddress, false)])
+        #expect(recorder.events == [newPath])
 
         // Go back to old path.
         connection.receivePacket(AddressedEnvelope(remoteAddress: Self.pathAddress, data: Self.payload))
 
         // Fire pathCurrent on the old path, this is the initial path and it is considered validated.
         connection._forTesting_handlePathCurrent(remote: Self.pathAddress.toAddressEndpoint(), isValidated: true)
-        #expect(recorder.events == [.updated(Self.newAddress, false), .updated(Self.pathAddress, true)])
+        #expect(recorder.events == [newPath, oldPath])
 
         // Fire pathValidated on the new path, but there is no new event.
         connection._forTesting_handlePathValidated(remote: Self.newAddress.toAddressEndpoint())
-        #expect(recorder.events == [.updated(Self.newAddress, false), .updated(Self.pathAddress, true)])
+        #expect(recorder.events == [newPath, oldPath])
     }
 
     // MARK: Helpers
@@ -576,17 +581,13 @@ struct QUICConnectionPathTests {
     final class QUICPathUpdateEventRecorder: ChannelInboundHandler, Sendable {
         typealias InboundIn = Any
 
-        enum Event: Hashable, Sendable {
-            case updated(SocketAddress, Bool)
-        }
-
-        // Only store Event, we can't smuggle a non-Sendable Any out via Mutex.
-        private let _events: Mutex<[Event]> = Mutex([])
-        var events: [Event] { self._events.withLock { $0 } }
+        // Only store the path update events, we can't smuggle a non-Sendable Any out via Mutex.
+        private let _events: Mutex<[QUICPathUpdateEvent]> = Mutex([])
+        var events: [QUICPathUpdateEvent] { self._events.withLock { $0 } }
 
         func userInboundEventTriggered(context: ChannelHandlerContext, event: Any) {
             if let event = event as? QUICPathUpdateEvent {
-                self._events.withLock { $0.append(.updated(event.remoteAddress, event.isValidated)) }
+                self._events.withLock { $0.append(event) }
             }
         }
     }

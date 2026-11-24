@@ -216,8 +216,8 @@ struct ConnectionMigrationTests {
             let updates = try await peers.serverPathUpdates(atLeast: 2)
             #expect(
                 updates == [
-                    PathUpdate(remoteAddress: newAddress, isValidated: false),
-                    PathUpdate(remoteAddress: newAddress, isValidated: true),
+                    QUICPathUpdateEvent(remoteAddress: newAddress, isValidated: false),
+                    QUICPathUpdateEvent(remoteAddress: newAddress, isValidated: true),
                 ]
             )
         }
@@ -242,10 +242,10 @@ struct ConnectionMigrationTests {
             let updates = try await peers.serverPathUpdates(atLeast: 4)
             #expect(
                 updates == [
-                    PathUpdate(remoteAddress: newAddress, isValidated: false),
-                    PathUpdate(remoteAddress: newAddress, isValidated: true),
-                    PathUpdate(remoteAddress: firstAddress, isValidated: false),
-                    PathUpdate(remoteAddress: firstAddress, isValidated: true),
+                    QUICPathUpdateEvent(remoteAddress: newAddress, isValidated: false),
+                    QUICPathUpdateEvent(remoteAddress: newAddress, isValidated: true),
+                    QUICPathUpdateEvent(remoteAddress: firstAddress, isValidated: false),
+                    QUICPathUpdateEvent(remoteAddress: firstAddress, isValidated: true),
                 ]
             )
         }
@@ -271,8 +271,8 @@ struct ConnectionMigrationTests {
             let updates = try await peers.serverPathUpdates(atLeast: 2)
             #expect(
                 updates == [
-                    PathUpdate(remoteAddress: newAddress, isValidated: false),
-                    PathUpdate(remoteAddress: firstAddress, isValidated: true),
+                    QUICPathUpdateEvent(remoteAddress: newAddress, isValidated: false),
+                    QUICPathUpdateEvent(remoteAddress: firstAddress, isValidated: true),
                 ]
             )
         }
@@ -440,7 +440,7 @@ struct ConnectionMigrationTests {
         }
 
         /// The path updates the server's connection reported, once there are at least `count` or after five seconds.
-        func serverPathUpdates(atLeast count: Int = 0) async throws -> [PathUpdate] {
+        func serverPathUpdates(atLeast count: Int = 0) async throws -> [QUICPathUpdateEvent] {
             let connectionChannel = self.serverConnectionChannel
             let deadline = ContinuousClock.now + .seconds(5)
             while true {
@@ -598,22 +598,16 @@ private final class ShortHeaderRecorder: ChannelOutboundHandler {
     }
 }
 
-/// A `QUICPathUpdateEvent`, comparable.
-private struct PathUpdate: Equatable, Sendable {
-    var remoteAddress: SocketAddress
-    var isValidated: Bool
-}
-
 /// Sits in a connection channel's pipeline and records the `QUICPathUpdateEvent`s it receives.
 @available(anyAppleOS 27, *)
 private final class PathUpdateRecorder: ChannelInboundHandler {
     typealias InboundIn = Any
 
-    private(set) var updates: [PathUpdate] = []
+    private(set) var updates: [QUICPathUpdateEvent] = []
 
     func userInboundEventTriggered(context: ChannelHandlerContext, event: Any) {
         if let event = event as? QUICPathUpdateEvent {
-            self.updates.append(PathUpdate(remoteAddress: event.remoteAddress, isValidated: event.isValidated))
+            self.updates.append(event)
         }
         context.fireUserInboundEventTriggered(event)
     }
