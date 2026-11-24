@@ -639,7 +639,7 @@ struct QUICChannelStreamHandlerTests {
             #expect(streamChannel.remoteAddress == (try SocketAddress(ipAddress: "127.0.0.1", port: 1234)))
 
             connection._forTesting_handlePathValidated(remote: newAddress.toAddressEndpoint())
-            connection._forTesting_handlePathCurrent(remote: newAddress.toAddressEndpoint())
+            connection._forTesting_handlePathCurrent(remote: newAddress.toAddressEndpoint(), isValidated: true)
             #expect(streamChannel.remoteAddress == newAddress)
         }
     }

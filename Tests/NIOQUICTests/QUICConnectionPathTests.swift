@@ -16,7 +16,9 @@ import Foundation
 import Logging
 import NIOCore
 import NIOEmbedded
+import NIOQUICHelpers
 @_spi(Essentials) @_spi(ProtocolProvider) import SwiftNetwork
+import Synchronization
 import Testing
 
 @testable import NIOQUIC
@@ -211,7 +213,7 @@ struct QUICConnectionPathTests {
         connection.receivePacket(AddressedEnvelope(remoteAddress: Self.newAddress, data: Self.payload))
 
         connection._forTesting_handlePathValidated(remote: Self.newAddress.toAddressEndpoint())
-        connection._forTesting_handlePathCurrent(remote: Self.newAddress.toAddressEndpoint())
+        connection._forTesting_handlePathCurrent(remote: Self.newAddress.toAddressEndpoint(), isValidated: true)
         #expect(connection._forTesting_getActivePath().remoteAddress == Self.newAddress)
         #expect(connection.remoteAddress.value == Self.newAddress)
         #expect(connection._forTesting_getOtherPaths().map(\.remoteAddress) == [Self.pathAddress])
@@ -223,7 +225,7 @@ struct QUICConnectionPathTests {
         connection.receivePacket(AddressedEnvelope(remoteAddress: Self.newAddress, data: Self.payload))
 
         // A server moves to the path of the peer's non-probing packets before validating it (RFC 9000, Section 9.3).
-        connection._forTesting_handlePathCurrent(remote: Self.newAddress.toAddressEndpoint())
+        connection._forTesting_handlePathCurrent(remote: Self.newAddress.toAddressEndpoint(), isValidated: false)
         #expect(connection._forTesting_getActivePath().remoteAddress == Self.newAddress)
         #expect(!connection._forTesting_getActivePath().isValidated)
         #expect(connection._forTesting_getOtherPaths().map(\.remoteAddress) == [Self.pathAddress])
@@ -240,7 +242,7 @@ struct QUICConnectionPathTests {
 
         // SwiftNetwork names the path by the `Endpoint` it was attached with.
         connection._forTesting_handlePathValidated(remote: newAddress.toAddressEndpoint())
-        connection._forTesting_handlePathCurrent(remote: newAddress.toAddressEndpoint())
+        connection._forTesting_handlePathCurrent(remote: newAddress.toAddressEndpoint(), isValidated: true)
         #expect(connection._forTesting_getActivePath().remoteAddress == newAddress)
     }
 
@@ -388,6 +390,70 @@ struct QUICConnectionPathTests {
         #expect(connection._forTesting_getRetiredSCIDs() == Array(retiredIDs.suffix(16)))
     }
 
+    @available(anyAppleOS 27, *)
+    @Test func pathCurrentOfActivePathFiresNoEvent() throws {
+        let recorder = QUICPathUpdateEventRecorder()
+        let connection = try self.makeLiveConnection(role: .server) { $0.pipeline.addHandler(recorder) }
+
+        // Introduce a new path.
+        connection.receivePacket(AddressedEnvelope(remoteAddress: Self.newAddress, data: Self.payload))
+
+        // Fire pathCurrent on the new path.
+        connection._forTesting_handlePathCurrent(remote: Self.newAddress.toAddressEndpoint(), isValidated: false)
+        #expect(recorder.events == [.updated(Self.newAddress, false)])
+
+        // Fire pathCurrent on the new path, again. This should not give a new event.
+        connection._forTesting_handlePathCurrent(remote: Self.newAddress.toAddressEndpoint(), isValidated: false)
+        #expect(recorder.events == [.updated(Self.newAddress, false)])
+    }
+
+    @available(anyAppleOS 27, *)
+    @Test func pathValidationOfActivePathEmitsExpectedEvents() throws {
+        let recorder = QUICPathUpdateEventRecorder()
+        let connection = try self.makeLiveConnection(role: .server) { $0.pipeline.addHandler(recorder) }
+
+        // Introduce a new path.
+        connection.receivePacket(AddressedEnvelope(remoteAddress: Self.newAddress, data: Self.payload))
+
+        // Fire pathCurrent on the new path.
+        connection._forTesting_handlePathCurrent(remote: Self.newAddress.toAddressEndpoint(), isValidated: false)
+        #expect(recorder.events == [.updated(Self.newAddress, false)])
+
+        // Fire pathValidated on the new path.
+        connection._forTesting_handlePathValidated(remote: Self.newAddress.toAddressEndpoint())
+        #expect(recorder.events == [.updated(Self.newAddress, false), .updated(Self.newAddress, true)])
+
+        // Fire pathValidated on the new path again, but no new event arrives.
+        connection._forTesting_handlePathValidated(remote: Self.newAddress.toAddressEndpoint())
+        #expect(recorder.events == [.updated(Self.newAddress, false), .updated(Self.newAddress, true)])
+    }
+
+    @available(anyAppleOS 27, *)
+    @Test func pathValidationOfNonActivePathEmitsNoEvent() throws {
+        let recorder = QUICPathUpdateEventRecorder()
+        let connection = try self.makeLiveConnection(role: .server) { $0.pipeline.addHandler(recorder) }
+
+        // Introduce a new path.
+        connection.receivePacket(AddressedEnvelope(remoteAddress: Self.newAddress, data: Self.payload))
+
+        // Fire pathCurrent on the new path.
+        connection._forTesting_handlePathCurrent(remote: Self.newAddress.toAddressEndpoint(), isValidated: false)
+        #expect(recorder.events == [.updated(Self.newAddress, false)])
+
+        // Go back to old path.
+        connection.receivePacket(AddressedEnvelope(remoteAddress: Self.pathAddress, data: Self.payload))
+
+        // Fire pathCurrent on the old path, this is the initial path and it is considered validated.
+        connection._forTesting_handlePathCurrent(remote: Self.pathAddress.toAddressEndpoint(), isValidated: true)
+        #expect(recorder.events == [.updated(Self.newAddress, false), .updated(Self.pathAddress, true)])
+
+        // Fire pathValidated on the new path, but there is no new event.
+        connection._forTesting_handlePathValidated(remote: Self.newAddress.toAddressEndpoint())
+        #expect(recorder.events == [.updated(Self.newAddress, false), .updated(Self.pathAddress, true)])
+    }
+
+    // MARK: Helpers
+
     /// Every path `connection` tracks, the active one first.
     @available(anyAppleOS 27, *)
     private func trackedPaths(
@@ -427,7 +493,8 @@ struct QUICConnectionPathTests {
     private func makeConnection(
         role: Role,
         isConnected: Bool = true,
-        pathAddress: SocketAddress = Self.pathAddress
+        pathAddress: SocketAddress = Self.pathAddress,
+        eventLoop: EmbeddedEventLoop = EmbeddedEventLoop()
     ) throws -> SwiftNetworkQUICConnection<QUICStreamChannels> {
         var rng: any RandomNumberGenerator = SystemRandomNumberGenerator()
         let publicKeyPath = Bundle.module.url(forResource: "publicKey", withExtension: "der")!.path
@@ -446,7 +513,7 @@ struct QUICConnectionPathTests {
                 asyncVerifier: nil,
                 localAddress: localAddress,
                 remoteAddress: pathAddress,
-                eventLoop: EmbeddedEventLoop(),
+                eventLoop: eventLoop,
                 logger: Logger(label: "test")
             )
         case .server:
@@ -465,13 +532,63 @@ struct QUICConnectionPathTests {
                 localAddress: localAddress,
                 remoteAddress: pathAddress,
                 logger: Logger(label: "test"),
-                eventLoop: EmbeddedEventLoop()
+                eventLoop: eventLoop
             )
         }
         if isConnected {
             connection._forTesting_markConnected()
         }
         return connection
+    }
+
+    /// A connected connection whose only path leads to `pathAddress`, driving a connection channel
+    /// whose pipeline `initializer` sets up.
+    @available(anyAppleOS 27, *)
+    private func makeLiveConnection(
+        role: Role,
+        pathAddress: SocketAddress = Self.pathAddress,
+        initializer: (any Channel) -> EventLoopFuture<Void>
+    ) throws -> SwiftNetworkQUICConnection<QUICStreamChannels> {
+        let eventLoop = EmbeddedEventLoop()
+        let connection = try self.makeConnection(
+            role: role,
+            isConnected: true,
+            pathAddress: pathAddress,
+            eventLoop: eventLoop
+        )
+        // Constructing the channel wires it into the connection, which reports to it.
+        let channel = QUICConnectionChannel<QUICStreamChannels>(
+            udpChannel: EmbeddedChannel(loop: eventLoop),
+            connection: .live(connection),
+            registrar: .test(RecordingRegistrar()),
+            transport: .test(RecordingTransport()),
+            isServer: role == .server,
+            table: nil
+        )
+        let promise = eventLoop.makePromise(of: Void.self)
+        channel.transportView.initialize(readyPromise: promise, handshakePromise: nil, initializer: initializer)
+        try promise.futureResult.wait()
+        return connection
+    }
+
+    /// Records the active path events `ConnectionView` fires into the channel's pipeline.
+    @available(anyAppleOS 27, *)
+    final class QUICPathUpdateEventRecorder: ChannelInboundHandler, Sendable {
+        typealias InboundIn = Any
+
+        enum Event: Hashable, Sendable {
+            case updated(SocketAddress, Bool)
+        }
+
+        // Only store Event, we can't smuggle a non-Sendable Any out via Mutex.
+        private let _events: Mutex<[Event]> = Mutex([])
+        var events: [Event] { self._events.withLock { $0 } }
+
+        func userInboundEventTriggered(context: ChannelHandlerContext, event: Any) {
+            if let event = event as? QUICPathUpdateEvent {
+                self._events.withLock { $0.append(.updated(event.remoteAddress, event.isValidated)) }
+            }
+        }
     }
 }
 

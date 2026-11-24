@@ -1706,11 +1706,11 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
         }
     }
 
-    /// Simulate a current path event for the path to `remote`.
-    func _forTesting_handlePathCurrent(remote: AddressEndpoint) {
+    /// Simulate a current path event for the path to `remote`, which SwiftNetwork reports as validated or not.
+    func _forTesting_handlePathCurrent(remote: AddressEndpoint, isValidated: Bool) {
         guard let newFlowHandler = self.connectionNewFlowHandler else { return }
         self.callouts.enter(as: newFlowHandler) { eventContext in
-            self.handlePathCurrent(remote: remote, in: &eventContext)
+            self.handlePathCurrent(remote: remote, isValidated: isValidated, in: &eventContext)
         }
     }
 
@@ -1893,6 +1893,10 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
             )
             return
         }
+        // Avoid emitting events twice.
+        if path.isValidated {
+            return
+        }
         path.isValidated = true
         // Only send an event if the validation event concerns the active path.
         if path === self.activePath {
@@ -1906,7 +1910,11 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
 
     /// SwiftNetwork migrated the connection to the path to `remote`, and sends on it from now on.
     /// Promotes the path to the active path.
-    private func handlePathCurrent(remote: AddressEndpoint, in eventContext: inout NetworkContext.EventContext) {
+    private func handlePathCurrent(
+        remote: AddressEndpoint,
+        isValidated: Bool,
+        in eventContext: inout NetworkContext.EventContext
+    ) {
         guard let path = self.trackedPath(remote.type) else {
             self.log(
                 "Ignoring untracked current path",
@@ -1917,6 +1925,7 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
         if let index = self.otherPaths.firstIndex(where: { $0 === path }) {
             self.otherPaths.append(self.activePath)
             self.activePath = self.otherPaths.remove(at: index)
+            self.activePath.isValidated = isValidated
             self.sendPathUpdateEvent(
                 for: self.activePath.remoteAddress,
                 isValidated: self.activePath.isValidated,
@@ -1935,6 +1944,18 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
             return
         }
         self.removePath(path, notifySwiftNetwork: false)
+    }
+
+    /// Queue an inbound path update event because the active path changed.
+    private func sendPathUpdateEvent(
+        for remoteAddress: SocketAddress,
+        isValidated: Bool,
+        in eventContext: inout NetworkContext.EventContext
+    ) {
+        self.callouts.add(
+            .connection(self, .activePathUpdated(remoteAddress: remoteAddress, isValidated: isValidated)),
+            in: &eventContext
+        )
     }
 }
 
@@ -2045,8 +2066,9 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
             self.connection.handlePathValidated(remote: remote, in: &eventContext)
         }
 
-        func pathCurrent(remote: AddressEndpoint, in eventContext: inout NetworkContext.EventContext) {
-            self.connection.handlePathCurrent(remote: remote, in: &eventContext)
+        func pathCurrent(remote: AddressEndpoint, isValidated: Bool, in eventContext: inout NetworkContext.EventContext)
+        {
+            self.connection.handlePathCurrent(remote: remote, isValidated: isValidated, in: &eventContext)
         }
     }
 
@@ -2085,17 +2107,6 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
         transport.setReader(connection: self)
         self.datagramTransport = transport
     }
-
-    func sendPathUpdateEvent(
-        for remoteAddress: SocketAddress,
-        isValidated: Bool,
-        in eventContext: inout NetworkContext.EventContext
-    ) {
-        self.callouts.add(
-            .connection(self, .activePathUpdated(remoteAddress: remoteAddress, isValidated: isValidated)),
-            in: &eventContext
-        )
-    }
 }
 
 // MARK: - Queued callouts
@@ -2118,8 +2129,8 @@ extension SwiftNetworkQUICConnection: QUICConnectionCalloutTarget where Consumer
             self.channelView?.datagramRead(datagram)
         case .datagramError(let error):
             self.channelView?.datagramError(error)
-        case .activePathUpdated(let addr, let isValidated):
-            self.channelView?.activePathUpdated(using: addr, isValidated: isValidated)
+        case .activePathUpdated(let remoteAddress, let isValidated):
+            self.channelView?.activePathUpdated(remoteAddress: remoteAddress, isValidated: isValidated)
         }
     }
 }

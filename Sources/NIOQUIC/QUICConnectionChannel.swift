@@ -454,7 +454,7 @@ extension QUICConnectionChannel.ConnectionView where Consumer: ~Copyable {
     }
 
     /// The active path or its validation status changes.
-    func activePathUpdated(using remoteAddress: SocketAddress, isValidated: Bool) {
+    func activePathUpdated(remoteAddress: SocketAddress, isValidated: Bool) {
         self._channel.pipeline.fireUserInboundEventTriggered(
             QUICPathUpdateEvent(
                 remoteAddress: remoteAddress,

@@ -233,7 +233,7 @@ enum QUICConnectionCallout {
     case datagramRead(ByteBuffer)
     /// The connection's datagram flow failed, for an `errorCaught`.
     case datagramError(any Error)
-    /// The active path information changed.
+    /// The active path information changed: `QUICPathUpdateEvent`.
     case activePathUpdated(remoteAddress: SocketAddress, isValidated: Bool)
 }
 
