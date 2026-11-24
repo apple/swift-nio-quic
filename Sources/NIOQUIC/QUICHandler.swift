@@ -195,7 +195,7 @@ public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
     /// - Parameters:
     ///     - deadline: Deadline until connections are closed gracefully. Afterwards they will be forcibly closed.
     ///       When `nil`, no time limit is enforced for connections to close. Note that this argument is only used if
-    ///       the server is the `.accepting` state.
+    ///       the server is in the `.accepting` state.
     ///     - promise: Completed once the server is closed.
     private func shutdownGracefully(deadline: NIODeadline?, promise: EventLoopPromise<Void>) {
         self.eventLoop.assertInEventLoop()
