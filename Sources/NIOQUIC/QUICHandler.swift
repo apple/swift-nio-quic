@@ -172,24 +172,6 @@ public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
         )
     }
 
-    /// Shuts the server down gracefully, unless a shutdown has already begun:
-    ///
-    /// 1. If the server has already shut down, the returned future completes immediately. `deadline` is ignored.
-    /// 2. If the server is already shutting down, for example because it received a `ChannelShouldQuiesceEvent`, the
-    ///    returned future completes once the server has fully shut down. `deadline` is ignored.
-    /// 3. If the server is active, it starts closing its connections gracefully, and forcefully closes any connections
-    ///    that are still open at `deadline`. The returned future completes once the server has fully shut down.
-    ///
-    /// - Parameters:
-    ///     - deadline: Deadline until connections are closed gracefully. Afterwards they will be forcibly closed.
-    ///
-    /// - Returns: A future that is notified once the server is closed.
-    public func shutdownGracefully(deadline: NIODeadline) -> EventLoopFuture<Void> {
-        let promise = self.eventLoop.makePromise(of: Void.self)
-        self.shutdownGracefully(deadline: deadline, promise: promise)
-        return promise.futureResult
-    }
-
     /// Shuts the server down gracefully, unless a shutdown has already begun.
     ///
     /// - Parameters:
@@ -197,7 +179,7 @@ public final class QUICHandler<Consumer: QUICStreamConsumer & ~Copyable> {
     ///       When `nil`, no time limit is enforced for connections to close. Note that this argument is only used if
     ///       the server is in the `.accepting` state.
     ///     - promise: Completed once the server is closed.
-    private func shutdownGracefully(deadline: NIODeadline?, promise: EventLoopPromise<Void>) {
+    func shutdownGracefully(deadline: NIODeadline?, promise: EventLoopPromise<Void>) {
         self.eventLoop.assertInEventLoop()
 
         switch self.state {
@@ -1116,39 +1098,6 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
             self.connectionAdmissionController.closingConnection()
             self.connectionDidClose(handle)
         }
-    }
-}
-
-@available(anyAppleOS 27, *)
-public struct QUICHandlerHandle: Sendable {
-    private let _shutdownGracefully: NIOLoopBound<(NIODeadline) -> EventLoopFuture<Void>>
-
-    internal init<Consumer: QUICStreamConsumer & ~Copyable>(
-        wrapping handler: QUICHandler<Consumer>,
-        eventLoop: any EventLoop
-    ) {
-        // Wrap the function to drop the generics.
-        let fn: (NIODeadline) -> EventLoopFuture<Void> = {
-            handler.shutdownGracefully(deadline: $0)
-        }
-
-        self._shutdownGracefully = NIOLoopBound(fn, eventLoop: eventLoop)
-    }
-
-    /// Shuts the server down gracefully.
-    ///
-    /// - Parameters:
-    ///     - deadline: Deadline until connections are closed gracefully. Afterwards they will be forcibly closed.
-    /// - Returns: A future that is notified once the server is closed.
-    public func shutdownGracefully(deadline: NIODeadline) async throws {
-        try await self._shutdownGracefully.flatSubmit { $0(deadline) }.get()
-    }
-}
-
-@available(anyAppleOS 27, *)
-extension QUICHandler where Consumer: ~Copyable {
-    public func makeHandle() -> QUICHandlerHandle {
-        QUICHandlerHandle(wrapping: self, eventLoop: self.eventLoop)
     }
 }
 

@@ -162,7 +162,9 @@ final class IntegrationTests: XCTestCase {
     }
 
     func testShutdownForcefully() async throws {
-        let (_, serverChannel, serverMultiplexer, clientMultiplexer) = try await makeClientAndServerPair()
+        let (_, serverChannel, serverMultiplexer, clientMultiplexer) = try await makeClientAndServerPair(
+            serverMaximumGracefulShutdownDuration: .zero
+        )
 
         let connection = try await clientMultiplexer.createNewConnection(
             serverName: serverChannel.localAddress!.ipAddress!,
@@ -205,19 +207,8 @@ final class IntegrationTests: XCTestCase {
                 for try await buffer in inbound {
                     XCTAssertEqual(buffer, .init(string: "<b>Success</b>"))
 
-                    let serverHandle = try await serverChannel.pipeline.handler(
-                        type: QUICHandler<QUICStreamChannels>.self
-                    ).map {
-                        $0.makeHandle()
-                    }.get()
-
-                    try await serverHandle.shutdownGracefully(deadline: .now())
-
-                    do {
-                        try await serverHandle.shutdownGracefully(deadline: .now())
-                    } catch {
-                        XCTFail("Starting a graceful shutdown when already shutting down should not fail")
-                    }
+                    serverChannel.pipeline.fireUserInboundEventTriggered(ChannelShouldQuiesceEvent())
+                    try await serverChannel.closeFuture.get()
                 }
             }
 
@@ -372,12 +363,78 @@ final class IntegrationTests: XCTestCase {
 
     func testChannelShouldQuiesce_forceClosesConnectionsAfterMaximumGracefulShutdownDuration() async throws {
         let testingEventLoop = NIOAsyncTestingEventLoop()
+        let (clientChannel, serverChannel, streamInitializerCompletion) =
+            try await Self.makeClientAndServerWithPendingStream(
+                testingEventLoop: testingEventLoop,
+                serverMaximumGracefulShutdownDuration: .seconds(1)
+            )
+
+        let serverClosed = Self.recordClose(of: serverChannel)
+
+        serverChannel.pipeline.fireUserInboundEventTriggered(ChannelShouldQuiesceEvent())
+        await testingEventLoop.run()
+        await testingEventLoop.advanceTime(by: .milliseconds(999))
+
+        // The pending stream initializer stops the connection from closing gracefully.
+        XCTAssertFalse(serverClosed.withLockedValue { $0 })
+
+        // Reaching the deadline forcefully closes the connection. This should let the server channel close.
+        await testingEventLoop.advanceTime(by: .milliseconds(1))
+        XCTAssertTrue(serverClosed.withLockedValue { $0 })
+
+        // Now complete the stream initializer promise.
+        streamInitializerCompletion.succeed()
+        try await clientChannel.close()
+    }
+
+    func testChannelShouldQuiesce_whenAlreadyShuttingDown_isIgnored() async throws {
+        let testingEventLoop = NIOAsyncTestingEventLoop()
+        let (clientChannel, serverChannel, streamInitializerCompletion) =
+            try await Self.makeClientAndServerWithPendingStream(
+                testingEventLoop: testingEventLoop,
+                serverMaximumGracefulShutdownDuration: .seconds(1)
+            )
+
+        let serverClosed = Self.recordClose(of: serverChannel)
+
+        serverChannel.pipeline.fireUserInboundEventTriggered(ChannelShouldQuiesceEvent())
+        await testingEventLoop.run()
+        await testingEventLoop.advanceTime(by: .milliseconds(500))
+
+        // Quiesce again while the first shutdown is still in progress. This must neither close the server early nor
+        // restart the shutdown with a new deadline.
+        serverChannel.pipeline.fireUserInboundEventTriggered(ChannelShouldQuiesceEvent())
+        await testingEventLoop.run()
+        XCTAssertFalse(serverClosed.withLockedValue { $0 })
+
+        await testingEventLoop.advanceTime(by: .milliseconds(499))
+        XCTAssertFalse(serverClosed.withLockedValue { $0 })
+
+        // The deadline set by the first event still applies.
+        await testingEventLoop.advanceTime(by: .milliseconds(1))
+        XCTAssertTrue(serverClosed.withLockedValue { $0 })
+
+        streamInitializerCompletion.succeed()
+        try await clientChannel.close()
+    }
+
+    /// Creates a client and server on `testingEventLoop` where the server has one connection which can't close
+    /// gracefully, because the initializer of its only stream doesn't complete until `streamInitializerCompletion`
+    /// succeeds.
+    private static func makeClientAndServerWithPendingStream(
+        testingEventLoop: NIOAsyncTestingEventLoop,
+        serverMaximumGracefulShutdownDuration: Duration?
+    ) async throws -> (
+        clientChannel: any Channel,
+        serverChannel: any Channel,
+        streamInitializerCompletion: EventLoopPromise<Void>
+    ) {
         let streamInitializerStarted = testingEventLoop.makePromise(of: Void.self)
         let streamInitializerCompletion = testingEventLoop.makePromise(of: Void.self)
 
         let (clientChannel, serverChannel, _, clientMultiplexer) = try await makeClientAndServerPair(
             testMode: .testing(eventLoop: testingEventLoop),
-            serverMaximumGracefulShutdownDuration: .seconds(1),
+            serverMaximumGracefulShutdownDuration: serverMaximumGracefulShutdownDuration,
             serverInboundStreamChannelInitializer: { streamChannel in
                 streamInitializerStarted.succeed()
                 return streamInitializerCompletion.futureResult.flatMap {
@@ -415,22 +472,7 @@ final class IntegrationTests: XCTestCase {
             group.cancelAll()
         }
 
-        let serverClosed = Self.recordClose(of: serverChannel)
-
-        serverChannel.pipeline.fireUserInboundEventTriggered(ChannelShouldQuiesceEvent())
-        await testingEventLoop.run()
-        await testingEventLoop.advanceTime(by: .milliseconds(999))
-
-        // The pending stream initializer stops the connection from closing gracefully.
-        XCTAssertFalse(serverClosed.withLockedValue { $0 })
-
-        // Reaching the deadline forcefully closes the connection. This should let the server channel close.
-        await testingEventLoop.advanceTime(by: .milliseconds(1))
-        XCTAssertTrue(serverClosed.withLockedValue { $0 })
-
-        // Now complete the stream initializer promise.
-        streamInitializerCompletion.succeed()
-        try await clientChannel.close()
+        return (clientChannel, serverChannel, streamInitializerCompletion)
     }
 
     private static func recordClose(of channel: any Channel) -> NIOLockedValueBox<Bool> {
