@@ -332,11 +332,11 @@ extension QUICChannelNewFlowHandler where Consumer: ~Copyable {
             case .newInboundConnectionID(let connectionID):
                 self.log("New inbound connection ID \(connectionID)")
                 let nioConnectionID = NIOQUIC.QUICConnectionID(connectionID)
-                self.connectionView.associateConnectionID(nioConnectionID, in: &eventContext)
+                self.connectionView?.associateConnectionID(nioConnectionID, in: &eventContext)
             case .retiredInboundConnectionID(let connectionID):
                 self.log("Retired inbound connection ID \(connectionID)")
                 let nioConnectionID = NIOQUIC.QUICConnectionID(connectionID)
-                self.connectionView.retireConnectionID(nioConnectionID, in: &eventContext)
+                self.connectionView?.retireConnectionID(nioConnectionID, in: &eventContext)
             case .newOutboundConnectionID:
                 break
             case .retiredOutboundConnectionID:
@@ -360,12 +360,12 @@ extension QUICChannelNewFlowHandler where Consumer: ~Copyable {
                 // SwiftNetwork announces a path as soon as it is attached. Not much to do at that point.
                 break
             case .pathValidated(let info):
-                self.connectionView.pathValidated(remote: info.remote)
+                self.connectionView?.pathValidated(remote: info.remote, in: &eventContext)
             case .pathUnreachable:
                 // SwiftNetwork tears the path down itself, which detaches it from the connection.
                 break
             case .pathCurrent(let info):
-                self.connectionView?.pathCurrent(remote: info.remote)
+                self.connectionView?.pathCurrent(remote: info.remote, isValidated: info.isValidated, in: &eventContext)
             }
         } else {
             // There might be more that we are interested in.

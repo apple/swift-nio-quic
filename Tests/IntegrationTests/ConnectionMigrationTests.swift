@@ -180,6 +180,7 @@ struct ConnectionMigrationTests {
                 #expect(counts.received <= 3 * counts.sent)
             }
             #expect(peers.serverConnectionChannel.remoteAddress == peers.clientChannel.localAddress)
+            #expect(try await peers.serverPathUpdates().isEmpty)
             #expect(try await Self.request(on: peers.streamCreator) == ByteBuffer(string: "<b>Success</b>"))
         }
     }
@@ -200,6 +201,80 @@ struct ConnectionMigrationTests {
             try await peers.clientConnectionChannel.closeFuture.get()
             // Without the server's CONNECTION_CLOSE the client only notices once its idle timeout fires.
             #expect(ContinuousClock.now - start < .seconds(5))
+        }
+    }
+
+    @available(anyAppleOS 27, *)
+    @Test func serverReportsTheClientsNewAddressAndItsValidation() async throws {
+        try await Self.withConnectedPeers { peers in
+            let newSocket = try await peers.makeClientSocket()
+            try await peers.rebindClient(to: newSocket)
+            #expect(try await Self.request(on: peers.streamCreator) == ByteBuffer(string: "<b>Success</b>"))
+
+            // The server moves to the new address before validating it (RFC 9000, Section 9.3).
+            let newAddress = try #require(newSocket.localAddress)
+            let updates = try await peers.serverPathUpdates(atLeast: 2)
+            #expect(
+                updates == [
+                    QUICPathUpdateEvent(remoteAddress: newAddress, isValidated: false),
+                    QUICPathUpdateEvent(remoteAddress: newAddress, isValidated: true),
+                ]
+            )
+        }
+    }
+
+    @available(anyAppleOS 27, *)
+    @Test func serverRevalidatesTheClientsFirstAddressOnReturn() async throws {
+        try await Self.withConnectedPeers { peers in
+            let newSocket = try await peers.makeClientSocket()
+            try await peers.rebindClient(to: newSocket)
+            #expect(try await Self.request(on: peers.streamCreator) == ByteBuffer(string: "<b>Success</b>"))
+            // Go back only once the server validated the new address.
+            #expect(try await peers.serverPathUpdates(atLeast: 2).count == 2)
+
+            try await peers.rebindClient(to: nil)
+            #expect(try await Self.request(on: peers.streamCreator) == ByteBuffer(string: "<b>Success</b>"))
+
+            // SwiftNetwork dropped the path to the first address after validating the new one, so the
+            // server validates the first address again.
+            let firstAddress = try #require(peers.clientChannel.localAddress)
+            let newAddress = try #require(newSocket.localAddress)
+            let updates = try await peers.serverPathUpdates(atLeast: 4)
+            #expect(
+                updates == [
+                    QUICPathUpdateEvent(remoteAddress: newAddress, isValidated: false),
+                    QUICPathUpdateEvent(remoteAddress: newAddress, isValidated: true),
+                    QUICPathUpdateEvent(remoteAddress: firstAddress, isValidated: false),
+                    QUICPathUpdateEvent(remoteAddress: firstAddress, isValidated: true),
+                ]
+            )
+        }
+    }
+
+    @available(anyAppleOS 27, *)
+    @Test func serverReportsTheClientsReturnBeforeItsNewAddressIsValidated() async throws {
+        try await Self.withConnectedPeers { peers in
+            // The client never receives on the new socket, so it never answers the server's PATH_CHALLENGE there.
+            let newSocket = try await peers.makeClientSocket(receives: false)
+            try await peers.rebindClient(to: newSocket)
+            let previousStream = peers.latestServerStreamChannel.withLockedValue { $0 }
+
+            let response = try await Self.request(on: peers.streamCreator) {
+                // Go back once the request reached the server from the new address.
+                try await peers.waitForServerStream(after: previousStream)
+                try await peers.rebindClient(to: nil)
+            }
+            #expect(response == ByteBuffer(string: "<b>Success</b>"))
+
+            let firstAddress = try #require(peers.clientChannel.localAddress)
+            let newAddress = try #require(newSocket.localAddress)
+            let updates = try await peers.serverPathUpdates(atLeast: 2)
+            #expect(
+                updates == [
+                    QUICPathUpdateEvent(remoteAddress: newAddress, isValidated: false),
+                    QUICPathUpdateEvent(remoteAddress: firstAddress, isValidated: true),
+                ]
+            )
         }
     }
 
@@ -268,7 +343,9 @@ struct ConnectionMigrationTests {
                 logger: Logger(label: "Server"),
                 inboundConnectionInitializer: { connectionChannel, _ in
                     serverConnectionChannel.withLockedValue { $0 = connectionChannel }
-                    return connectionChannel.eventLoop.makeSucceededVoidFuture()
+                    return connectionChannel.eventLoop.makeCompletedFuture {
+                        try connectionChannel.pipeline.syncOperations.addHandler(PathUpdateRecorder())
+                    }
                 },
                 inboundStreamInitializer: { streamChannel in
                     latestServerStreamChannel.withLockedValue { $0 = streamChannel }
@@ -358,6 +435,21 @@ struct ConnectionMigrationTests {
         /// Waits until the server has a stream newer than `previousStream`.
         func waitForServerStream(after previousStream: (any Channel)?) async throws {
             while self.latestServerStreamChannel.withLockedValue({ $0 }) === previousStream {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+
+        /// The path updates the server's connection reported, once there are at least `count` or after five seconds.
+        func serverPathUpdates(atLeast count: Int = 0) async throws -> [QUICPathUpdateEvent] {
+            let connectionChannel = self.serverConnectionChannel
+            let deadline = ContinuousClock.now + .seconds(5)
+            while true {
+                let updates = try await connectionChannel.eventLoop.submit {
+                    try connectionChannel.pipeline.syncOperations.handler(type: PathUpdateRecorder.self).updates
+                }.get()
+                if updates.count >= count || ContinuousClock.now >= deadline {
+                    return updates
+                }
                 try await Task.sleep(for: .milliseconds(10))
             }
         }
@@ -503,6 +595,21 @@ private final class ShortHeaderRecorder: ChannelOutboundHandler {
             self.lastPacket = envelope.data
         }
         context.write(data, promise: promise)
+    }
+}
+
+/// Sits in a connection channel's pipeline and records the `QUICPathUpdateEvent`s it receives.
+@available(anyAppleOS 27, *)
+private final class PathUpdateRecorder: ChannelInboundHandler {
+    typealias InboundIn = Any
+
+    private(set) var updates: [QUICPathUpdateEvent] = []
+
+    func userInboundEventTriggered(context: ChannelHandlerContext, event: Any) {
+        if let event = event as? QUICPathUpdateEvent {
+            self.updates.append(event)
+        }
+        context.fireUserInboundEventTriggered(event)
     }
 }
 

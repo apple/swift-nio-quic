@@ -53,7 +53,8 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-certificates.git", from: "1.21.0"),
         .package(url: "https://github.com/apple/swift-collections.git", from: "1.6.0"),
         .package(url: "https://github.com/apple/swift-crypto.git", from: "5.0.0"),
-        .package(url: "https://github.com/apple/swift-nio-quic-helpers.git", .upToNextMinor(from: "0.1.1")),
+        // .package(url: "https://github.com/apple/swift-nio-quic-helpers.git", .upToNextMinor(from: "0.1.2")),
+        .package(url: "https://github.com/josephnoir/swift-nio-quic-helpers.git", branch: "path-event"),
         .package(
             url: "https://github.com/apple/swift-network-evolution",
             .upToNextMinor(from: "0.8.0"),

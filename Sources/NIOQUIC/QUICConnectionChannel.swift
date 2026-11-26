@@ -453,6 +453,16 @@ extension QUICConnectionChannel.ConnectionView where Consumer: ~Copyable {
         self._channel.pipeline.fireUserInboundEventTriggered(QUICSCIDRetiredEvent(scid: id))
     }
 
+    /// The active path or its validation status changes.
+    func activePathUpdated(remoteAddress: SocketAddress, isValidated: Bool) {
+        self._channel.pipeline.fireUserInboundEventTriggered(
+            QUICPathUpdateEvent(
+                remoteAddress: remoteAddress,
+                isValidated: isValidated
+            )
+        )
+    }
+
     /// Generate a new connection ID for the connection.
     func generateID() -> QUICConnectionID {
         self._channel._registrar.generateID()

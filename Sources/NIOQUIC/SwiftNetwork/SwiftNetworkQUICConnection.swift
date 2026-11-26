@@ -1700,12 +1700,18 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
 
     /// Simulate a path validation event for the path to `remote`.
     func _forTesting_handlePathValidated(remote: AddressEndpoint) {
-        self.handlePathValidated(remote: remote)
+        guard let newFlowHandler = self.connectionNewFlowHandler else { return }
+        self.callouts.enter(as: newFlowHandler) { eventContext in
+            self.handlePathValidated(remote: remote, in: &eventContext)
+        }
     }
 
-    /// Simulate a current path event for the path to `remote`.
-    func _forTesting_handlePathCurrent(remote: AddressEndpoint) {
-        self.handlePathCurrent(remote: remote)
+    /// Simulate a current path event for the path to `remote`, which SwiftNetwork reports as validated or not.
+    func _forTesting_handlePathCurrent(remote: AddressEndpoint, isValidated: Bool) {
+        guard let newFlowHandler = self.connectionNewFlowHandler else { return }
+        self.callouts.enter(as: newFlowHandler) { eventContext in
+            self.handlePathCurrent(remote: remote, isValidated: isValidated, in: &eventContext)
+        }
     }
 
     /// Simulate a new inbound connection ID event for `connectionID`, which reaches the connection
@@ -1879,7 +1885,7 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
 
     /// SwiftNetwork validated the path to `remote`. That alone doesn't make it the active path.
     /// A peer can validate a path without migrating to it (RFC 9000, Section 9.1).
-    private func handlePathValidated(remote: AddressEndpoint) {
+    private func handlePathValidated(remote: AddressEndpoint, in eventContext: inout NetworkContext.EventContext) {
         guard let path = self.trackedPath(remote.type) else {
             self.log(
                 "Ignoring validation of untracked path",
@@ -1887,12 +1893,28 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
             )
             return
         }
+        // Avoid emitting events twice.
+        if path.isValidated {
+            return
+        }
         path.isValidated = true
+        // Only send an event if the validation event concerns the active path.
+        if path === self.activePath {
+            self.sendPathUpdateEvent(
+                for: self.activePath.remoteAddress,
+                isValidated: self.activePath.isValidated,
+                in: &eventContext
+            )
+        }
     }
 
     /// SwiftNetwork migrated the connection to the path to `remote`, and sends on it from now on.
     /// Promotes the path to the active path.
-    private func handlePathCurrent(remote: AddressEndpoint) {
+    private func handlePathCurrent(
+        remote: AddressEndpoint,
+        isValidated: Bool,
+        in eventContext: inout NetworkContext.EventContext
+    ) {
         guard let path = self.trackedPath(remote.type) else {
             self.log(
                 "Ignoring untracked current path",
@@ -1903,6 +1925,12 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
         if let index = self.otherPaths.firstIndex(where: { $0 === path }) {
             self.otherPaths.append(self.activePath)
             self.activePath = self.otherPaths.remove(at: index)
+            self.activePath.isValidated = isValidated
+            self.sendPathUpdateEvent(
+                for: self.activePath.remoteAddress,
+                isValidated: self.activePath.isValidated,
+                in: &eventContext
+            )
         }
     }
 
@@ -1916,6 +1944,18 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
             return
         }
         self.removePath(path, notifySwiftNetwork: false)
+    }
+
+    /// Queue an inbound path update event because the active path changed.
+    private func sendPathUpdateEvent(
+        for remoteAddress: SocketAddress,
+        isValidated: Bool,
+        in eventContext: inout NetworkContext.EventContext
+    ) {
+        self.callouts.add(
+            .connection(self, .activePathUpdated(remoteAddress: remoteAddress, isValidated: isValidated)),
+            in: &eventContext
+        )
     }
 }
 
@@ -2022,12 +2062,13 @@ extension SwiftNetworkQUICConnection where Consumer: ~Copyable {
             self.connection.handleRetireConnectionID(cid, in: &eventContext)
         }
 
-        func pathValidated(remote: AddressEndpoint) {
-            self.connection.handlePathValidated(remote: remote)
+        func pathValidated(remote: AddressEndpoint, in eventContext: inout NetworkContext.EventContext) {
+            self.connection.handlePathValidated(remote: remote, in: &eventContext)
         }
 
-        func pathCurrent(remote: AddressEndpoint) {
-            self.connection.handlePathCurrent(remote: remote)
+        func pathCurrent(remote: AddressEndpoint, isValidated: Bool, in eventContext: inout NetworkContext.EventContext)
+        {
+            self.connection.handlePathCurrent(remote: remote, isValidated: isValidated, in: &eventContext)
         }
     }
 
@@ -2088,6 +2129,8 @@ extension SwiftNetworkQUICConnection: QUICConnectionCalloutTarget where Consumer
             self.channelView?.datagramRead(datagram)
         case .datagramError(let error):
             self.channelView?.datagramError(error)
+        case .activePathUpdated(let remoteAddress, let isValidated):
+            self.channelView?.activePathUpdated(remoteAddress: remoteAddress, isValidated: isValidated)
         }
     }
 }
