@@ -486,14 +486,9 @@ struct StreamTableTests {
             let closed = visits.filter { $0.events.contains(.closed) }
             #expect(Set(closed.map { $0.handle }) == Set(opened))
 
-            // Shutting a server down which is already shutting down must not fail.
-            let handle = try await pair.serverChannel.pipeline
-                .handler(type: QUICHandler<EchoConsumer>.self)
-                .map { $0.makeHandle() }
-                .get()
-
-            try await handle.shutdownGracefully(deadline: .now())
-            try await handle.shutdownGracefully(deadline: .now())
+            // Shutting a server down which has already shut down must not fail.
+            try await pair.shutdownServerGracefully(deadline: .now())
+            try await pair.shutdownServerGracefully(deadline: .now())
         }
 
         #expect(counter.load() == 0)

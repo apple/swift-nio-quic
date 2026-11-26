@@ -98,17 +98,20 @@ final class QUICHandlerTests: XCTestCase {
     }
 
     func testShutdownGracefully_whenNoOpenConnection() throws {
-        let future = self.serverHandler.shutdownGracefully(deadline: .now())
+        let promise = self.eventLoop.makePromise(of: Void.self)
+        self.serverHandler.shutdownGracefully(deadline: .now(), promise: promise)
 
-        XCTAssertNoThrow(try future.wait())
+        XCTAssertNoThrow(try promise.futureResult.wait())
     }
 
     func testShutdownGracefully_whenAlreadyShutDown() throws {
-        let future = self.serverHandler.shutdownGracefully(deadline: .now())
-        try future.wait()
+        let promise = self.eventLoop.makePromise(of: Void.self)
+        self.serverHandler.shutdownGracefully(deadline: .now(), promise: promise)
+        try promise.futureResult.wait()
 
-        let future2 = self.serverHandler.shutdownGracefully(deadline: .now())
-        try future2.wait()
+        let promise2 = self.eventLoop.makePromise(of: Void.self)
+        self.serverHandler.shutdownGracefully(deadline: .now(), promise: promise2)
+        try promise2.futureResult.wait()
     }
 
     func testChannelShouldQuiesce_stopsAcceptingNewConnections() throws {

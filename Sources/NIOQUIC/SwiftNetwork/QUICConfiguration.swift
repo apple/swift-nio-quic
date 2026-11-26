@@ -167,6 +167,11 @@ public struct QUICConfiguration: Sendable {
     /// The interval at which to send keep-alives. Defaults to `nil`, no keep-alives.
     public var keepAliveInterval: Duration?
 
+    /// The maximum amount of time that graceful shutdown is allowed to take after the handler receives a
+    /// `ChannelShouldQuiesceEvent`. After this time has elapsed, any remaining connections will be forcefully closed.
+    /// When `nil`, no time limit is enforced for connections to close. Defaults to 60 seconds.
+    public var maxGracefulShutdownDuration: Duration? = .seconds(60)
+
     /// Maximum datagram frame size in bytes. Set to 0 to disable datagrams.
     /// Defaults to 65535 (the max value allowed) as recommended in RFC 9221.
     public var maxDatagramFrameSize: Int = 65535

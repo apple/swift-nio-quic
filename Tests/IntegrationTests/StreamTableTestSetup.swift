@@ -41,6 +41,16 @@ struct ConsumerPair<Client: QUICStreamConsumer, Server: QUICStreamConsumer>: Sen
         try await self.clientChannel.close()
     }
 
+    /// Gracefully shuts down the server's `QUICHandler` and returns once the shutdown has completed.
+    func shutdownServerGracefully(deadline: NIODeadline) async throws {
+        let promise = self.serverChannel.eventLoop.makePromise(of: Void.self)
+        try await self.serverChannel.eventLoop.submit {
+            let handler = try self.serverChannel.pipeline.syncOperations.handler(type: QUICHandler<Server>.self)
+            handler.shutdownGracefully(deadline: deadline, promise: promise)
+        }.get()
+        try await promise.futureResult.get()
+    }
+
     func openClientStream(
         _ type: QUICStreamType = .clientInitiatedBidirectional,
         state: @autoclosure @escaping @Sendable () -> Client.StreamState

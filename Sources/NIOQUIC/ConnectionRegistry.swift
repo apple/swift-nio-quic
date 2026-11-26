@@ -157,10 +157,11 @@ extension ConnectionRegistry where Value: QUICConnectionRegistryView {
     /// If all connections drain before the deadline, `promise` succeeds. If the deadline wins,
     /// any connections still open are torn down abruptly via `parentChannelInactive` and the
     /// promise still succeeds — the caller is told the shutdown completed even if it had to
-    /// be forced.
+    /// be forced. When `deadline` is `nil`, no time limit is enforced and `promise` succeeds
+    /// once all connections have closed.
     ///
     /// When `promise` is `nil` shutdown is best-effort and the deadline is ignored.
-    func shutdownConnections(deadline: NIODeadline, promise: EventLoopPromise<Void>.Isolated?) {
+    func shutdownConnections(deadline: NIODeadline?, promise: EventLoopPromise<Void>.Isolated?) {
         guard let promise = promise else {
             for view in self.values {
                 view.shutdown(promise: nil)
@@ -179,6 +180,14 @@ extension ConnectionRegistry where Value: QUICConnectionRegistryView {
         }
 
         let allCompleteFuture = EventLoopFuture.andAllComplete(futures, on: eventLoop)
+
+        guard let deadline else {
+            allCompleteFuture.assumeIsolated().whenComplete { _ in
+                promise.succeed(())
+            }
+            return
+        }
+
         let connectionsSnapshot = Array(self.values)
         let race = ShutdownRace()
 

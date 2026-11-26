@@ -28,6 +28,23 @@ enum TestingMode {
 }
 
 @available(anyAppleOS 27, *)
+@Sendable
+func makeAsyncStreamChannel(
+    _ streamChannel: any Channel
+) -> EventLoopFuture<NIOAsyncChannel<ByteBuffer, ByteBuffer>> {
+    streamChannel.eventLoop.makeCompletedFuture {
+        try NIOAsyncChannel(
+            wrappingChannelSynchronously: streamChannel,
+            configuration: .init(
+                isOutboundHalfClosureEnabled: true,
+                inboundType: ByteBuffer.self,
+                outboundType: ByteBuffer.self
+            )
+        )
+    }
+}
+
+@available(anyAppleOS 27, *)
 func makeClientAndServerPair(
     testMode: TestingMode = .network(
         eventLoopGroup: MultiThreadedEventLoopGroup.singleton,
@@ -41,7 +58,11 @@ func makeClientAndServerPair(
     serverConnectionIDGenerator: any QUICConnectionID.Generator = QUICConnectionID.RandomGenerator(),
     initialMaxData: Int = 16_777_216,
     initialMaxStreamDataBidi: Int = 2_097_152,
-    initialMaxStreamsBidi: Int = 8
+    initialMaxStreamsBidi: Int = 8,
+    serverMaxGracefulShutdownDuration: Duration? = .seconds(60),
+    serverInboundStreamChannelInitializer:
+        @escaping @Sendable (any Channel) -> EventLoopFuture<NIOAsyncChannel<ByteBuffer, ByteBuffer>> =
+        makeAsyncStreamChannel
 ) async throws -> (
     clientChannel: any Channel,
     serverChannel: any Channel,
@@ -77,7 +98,9 @@ func makeClientAndServerPair(
             serverConnectionIDGenerator: serverConnectionIDGenerator,
             initialMaxData: initialMaxData,
             initialMaxStreamDataBidi: initialMaxStreamDataBidi,
-            initialMaxStreamsBidi: initialMaxStreamsBidi
+            initialMaxStreamsBidi: initialMaxStreamsBidi,
+            serverMaxGracefulShutdownDuration: serverMaxGracefulShutdownDuration,
+            serverInboundStreamChannelInitializer: serverInboundStreamChannelInitializer
         )
 
     case .testing(let testingEventLoop):
@@ -87,6 +110,8 @@ func makeClientAndServerPair(
             privateKeyPath: privateKeyPath.path,
             maxIdleTimeout: maxIdleTimeout,
             clientKeepAliveTime: clientKeepAliveTime,
+            serverMaxGracefulShutdownDuration: serverMaxGracefulShutdownDuration,
+            serverInboundStreamChannelInitializer: serverInboundStreamChannelInitializer
         )
     }
 }
@@ -99,7 +124,11 @@ func makeMockClientAndServerPair(
     maxIdleTimeout: Duration = .milliseconds(5000),
     clientKeepAliveTime: Duration? = nil,
     extraClientALPNs: [String] = [],
-    clientDebugChannelInitializer: (@Sendable (any Channel) throws -> Void)? = nil
+    clientDebugChannelInitializer: (@Sendable (any Channel) throws -> Void)? = nil,
+    serverMaxGracefulShutdownDuration: Duration? = .seconds(60),
+    serverInboundStreamChannelInitializer:
+        @escaping @Sendable (any Channel) -> EventLoopFuture<NIOAsyncChannel<ByteBuffer, ByteBuffer>> =
+        makeAsyncStreamChannel
 ) async throws -> (
     clientChannel: any Channel,
     serverChannel: any Channel,
@@ -123,29 +152,21 @@ func makeMockClientAndServerPair(
     // Set up mock QUIC handlers and multiplexers
     let serverMultiplexer = try await testingEventLoop.executeInContext {
         // Mock server multiplexer setup
+        var serverConfiguration = QUICConfiguration.forServer(
+            serverName: "quic-test.local",
+            authenticationConfiguration: AuthenticationConfiguration.rawPublicKeys(
+                publicKeyFilePath: publicKeyPath,
+                privateKeyFilePath: privateKeyPath
+            ),
+            applicationProtocols: ["http/0.9"]
+        )
+        serverConfiguration.maxGracefulShutdownDuration = serverMaxGracefulShutdownDuration
+
         let (quicHandler, connectionMultiplexer) = try QUICHandler.makeHandlerAndConnectionMultiplexer(
             channel: serverChannel,
-            quicConfiguration: QUICConfiguration.forServer(
-                serverName: "quic-test.local",
-                authenticationConfiguration: AuthenticationConfiguration.rawPublicKeys(
-                    publicKeyFilePath: publicKeyPath,
-                    privateKeyFilePath: privateKeyPath
-                ),
-                applicationProtocols: ["http/0.9"]
-            ),
+            quicConfiguration: serverConfiguration,
             logger: Logger(label: "Testing Server"),
-            inboundStreamChannelInitializer: { streamChannel in
-                streamChannel.eventLoop.makeCompletedFuture {
-                    try NIOAsyncChannel(
-                        wrappingChannelSynchronously: streamChannel,
-                        configuration: .init(
-                            isOutboundHalfClosureEnabled: true,
-                            inboundType: ByteBuffer.self,
-                            outboundType: ByteBuffer.self
-                        )
-                    )
-                }
-            }
+            inboundStreamChannelInitializer: serverInboundStreamChannelInitializer
         )
         try serverChannel.pipeline.syncOperations.addHandler(quicHandler)
         serverChannel.pipeline.fireChannelActive()
@@ -198,7 +219,11 @@ func makeNetworkClientAndServerPair(
     serverConnectionIDGenerator: any QUICConnectionID.Generator = QUICConnectionID.RandomGenerator(),
     initialMaxData: Int = 16_777_216,
     initialMaxStreamDataBidi: Int = 2_097_152,
-    initialMaxStreamsBidi: Int = 8
+    initialMaxStreamsBidi: Int = 8,
+    serverMaxGracefulShutdownDuration: Duration? = .seconds(60),
+    serverInboundStreamChannelInitializer:
+        @escaping @Sendable (any Channel) -> EventLoopFuture<NIOAsyncChannel<ByteBuffer, ByteBuffer>> =
+        makeAsyncStreamChannel
 ) async throws -> (
     clientChannel: any Channel,
     serverChannel: any Channel,
@@ -213,7 +238,9 @@ func makeNetworkClientAndServerPair(
         connectionIDGenerator: serverConnectionIDGenerator,
         initialMaxData: initialMaxData,
         initialMaxStreamDataBidi: initialMaxStreamDataBidi,
-        initialMaxStreamsBidi: initialMaxStreamsBidi
+        initialMaxStreamsBidi: initialMaxStreamsBidi,
+        maximumGracefulShutdownDuration: serverMaxGracefulShutdownDuration,
+        inboundStreamChannelInitializer: serverInboundStreamChannelInitializer
     )
     let (clientChannel, clientMultiplexer) = try await setUpClientConnectionMultiplexer(
         eventLoopGroup: eventLoopGroup,
@@ -300,7 +327,11 @@ private func setUpServerChannelAndConnectionMultiplexer(
     connectionIDGenerator: any QUICConnectionID.Generator = QUICConnectionID.RandomGenerator(),
     initialMaxData: Int = 16_777_216,
     initialMaxStreamDataBidi: Int = 2_097_152,
-    initialMaxStreamsBidi: Int = 8
+    initialMaxStreamsBidi: Int = 8,
+    maximumGracefulShutdownDuration: Duration? = .seconds(60),
+    inboundStreamChannelInitializer:
+        @escaping @Sendable (any Channel) -> EventLoopFuture<NIOAsyncChannel<ByteBuffer, ByteBuffer>> =
+        makeAsyncStreamChannel
 ) async throws -> (
     any Channel, QUICHandler<QUICStreamChannels>.ConnectionMultiplexer<NIOAsyncChannel<ByteBuffer, ByteBuffer>>
 ) {
@@ -323,23 +354,12 @@ private func setUpServerChannelAndConnectionMultiplexer(
                 quicConfiguration.initialMaxStreamDataBidiLocal = initialMaxStreamDataBidi
                 quicConfiguration.initialMaxStreamDataBidiRemote = initialMaxStreamDataBidi
                 quicConfiguration.initialMaxStreamsBidi = initialMaxStreamsBidi
+                quicConfiguration.maxGracefulShutdownDuration = maximumGracefulShutdownDuration
                 let (quicHandler, connectionMultiplexer) = try QUICHandler.makeHandlerAndConnectionMultiplexer(
                     channel: channel,
                     quicConfiguration: quicConfiguration,
                     logger: logger,
-                    inboundStreamChannelInitializer: { streamChannel in
-                        streamChannel.eventLoop.makeCompletedFuture {
-                            let asyncChannel = try NIOAsyncChannel(
-                                wrappingChannelSynchronously: streamChannel,
-                                configuration: .init(
-                                    isOutboundHalfClosureEnabled: true,
-                                    inboundType: ByteBuffer.self,
-                                    outboundType: ByteBuffer.self
-                                )
-                            )
-                            return asyncChannel
-                        }
-                    },
+                    inboundStreamChannelInitializer: inboundStreamChannelInitializer,
                     connectionIDGenerator: connectionIDGenerator
                 )
                 try channel.pipeline.syncOperations.addHandler(quicHandler)
