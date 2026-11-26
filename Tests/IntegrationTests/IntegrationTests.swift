@@ -163,7 +163,7 @@ final class IntegrationTests: XCTestCase {
 
     func testShutdownForcefully() async throws {
         let (_, serverChannel, serverMultiplexer, clientMultiplexer) = try await makeClientAndServerPair(
-            serverMaximumGracefulShutdownDuration: .zero
+            serverMaxGracefulShutdownDuration: .zero
         )
 
         let connection = try await clientMultiplexer.createNewConnection(
@@ -366,7 +366,7 @@ final class IntegrationTests: XCTestCase {
         let (clientChannel, serverChannel, streamInitializerCompletion) =
             try await Self.makeClientAndServerWithPendingStream(
                 testingEventLoop: testingEventLoop,
-                serverMaximumGracefulShutdownDuration: .seconds(1)
+                serverMaxGracefulShutdownDuration: .seconds(1)
             )
 
         let serverClosed = Self.recordClose(of: serverChannel)
@@ -392,7 +392,7 @@ final class IntegrationTests: XCTestCase {
         let (clientChannel, serverChannel, streamInitializerCompletion) =
             try await Self.makeClientAndServerWithPendingStream(
                 testingEventLoop: testingEventLoop,
-                serverMaximumGracefulShutdownDuration: .seconds(1)
+                serverMaxGracefulShutdownDuration: .seconds(1)
             )
 
         let serverClosed = Self.recordClose(of: serverChannel)
@@ -423,7 +423,7 @@ final class IntegrationTests: XCTestCase {
     /// succeeds.
     private static func makeClientAndServerWithPendingStream(
         testingEventLoop: NIOAsyncTestingEventLoop,
-        serverMaximumGracefulShutdownDuration: Duration?
+        serverMaxGracefulShutdownDuration: Duration?
     ) async throws -> (
         clientChannel: any Channel,
         serverChannel: any Channel,
@@ -434,7 +434,7 @@ final class IntegrationTests: XCTestCase {
 
         let (clientChannel, serverChannel, _, clientMultiplexer) = try await makeClientAndServerPair(
             testMode: .testing(eventLoop: testingEventLoop),
-            serverMaximumGracefulShutdownDuration: serverMaximumGracefulShutdownDuration,
+            serverMaxGracefulShutdownDuration: serverMaxGracefulShutdownDuration,
             serverInboundStreamChannelInitializer: { streamChannel in
                 streamInitializerStarted.succeed()
                 return streamInitializerCompletion.futureResult.flatMap {

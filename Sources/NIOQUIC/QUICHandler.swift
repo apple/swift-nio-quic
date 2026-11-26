@@ -909,7 +909,7 @@ extension QUICHandler: ChannelInboundHandler where Consumer: ~Copyable {
                 context.close(promise: nil)
             }
 
-            let deadline = self.quicConfiguration.maximumGracefulShutdownDuration.map {
+            let deadline = self.quicConfiguration.maxGracefulShutdownDuration.map {
                 context.eventLoop.now + TimeAmount($0)
             }
             self.shutdownGracefully(deadline: deadline, promise: promise)

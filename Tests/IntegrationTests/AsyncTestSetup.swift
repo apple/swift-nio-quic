@@ -59,7 +59,7 @@ func makeClientAndServerPair(
     initialMaxData: Int = 16_777_216,
     initialMaxStreamDataBidi: Int = 2_097_152,
     initialMaxStreamsBidi: Int = 8,
-    serverMaximumGracefulShutdownDuration: Duration? = .seconds(60),
+    serverMaxGracefulShutdownDuration: Duration? = .seconds(60),
     serverInboundStreamChannelInitializer:
         @escaping @Sendable (any Channel) -> EventLoopFuture<NIOAsyncChannel<ByteBuffer, ByteBuffer>> =
         makeAsyncStreamChannel
@@ -99,7 +99,7 @@ func makeClientAndServerPair(
             initialMaxData: initialMaxData,
             initialMaxStreamDataBidi: initialMaxStreamDataBidi,
             initialMaxStreamsBidi: initialMaxStreamsBidi,
-            serverMaximumGracefulShutdownDuration: serverMaximumGracefulShutdownDuration,
+            serverMaxGracefulShutdownDuration: serverMaxGracefulShutdownDuration,
             serverInboundStreamChannelInitializer: serverInboundStreamChannelInitializer
         )
 
@@ -110,7 +110,7 @@ func makeClientAndServerPair(
             privateKeyPath: privateKeyPath.path,
             maxIdleTimeout: maxIdleTimeout,
             clientKeepAliveTime: clientKeepAliveTime,
-            serverMaximumGracefulShutdownDuration: serverMaximumGracefulShutdownDuration,
+            serverMaxGracefulShutdownDuration: serverMaxGracefulShutdownDuration,
             serverInboundStreamChannelInitializer: serverInboundStreamChannelInitializer
         )
     }
@@ -125,7 +125,7 @@ func makeMockClientAndServerPair(
     clientKeepAliveTime: Duration? = nil,
     extraClientALPNs: [String] = [],
     clientDebugChannelInitializer: (@Sendable (any Channel) throws -> Void)? = nil,
-    serverMaximumGracefulShutdownDuration: Duration? = .seconds(60),
+    serverMaxGracefulShutdownDuration: Duration? = .seconds(60),
     serverInboundStreamChannelInitializer:
         @escaping @Sendable (any Channel) -> EventLoopFuture<NIOAsyncChannel<ByteBuffer, ByteBuffer>> =
         makeAsyncStreamChannel
@@ -160,7 +160,7 @@ func makeMockClientAndServerPair(
             ),
             applicationProtocols: ["http/0.9"]
         )
-        serverConfiguration.maximumGracefulShutdownDuration = serverMaximumGracefulShutdownDuration
+        serverConfiguration.maxGracefulShutdownDuration = serverMaxGracefulShutdownDuration
 
         let (quicHandler, connectionMultiplexer) = try QUICHandler.makeHandlerAndConnectionMultiplexer(
             channel: serverChannel,
@@ -220,7 +220,7 @@ func makeNetworkClientAndServerPair(
     initialMaxData: Int = 16_777_216,
     initialMaxStreamDataBidi: Int = 2_097_152,
     initialMaxStreamsBidi: Int = 8,
-    serverMaximumGracefulShutdownDuration: Duration? = .seconds(60),
+    serverMaxGracefulShutdownDuration: Duration? = .seconds(60),
     serverInboundStreamChannelInitializer:
         @escaping @Sendable (any Channel) -> EventLoopFuture<NIOAsyncChannel<ByteBuffer, ByteBuffer>> =
         makeAsyncStreamChannel
@@ -239,7 +239,7 @@ func makeNetworkClientAndServerPair(
         initialMaxData: initialMaxData,
         initialMaxStreamDataBidi: initialMaxStreamDataBidi,
         initialMaxStreamsBidi: initialMaxStreamsBidi,
-        maximumGracefulShutdownDuration: serverMaximumGracefulShutdownDuration,
+        maximumGracefulShutdownDuration: serverMaxGracefulShutdownDuration,
         inboundStreamChannelInitializer: serverInboundStreamChannelInitializer
     )
     let (clientChannel, clientMultiplexer) = try await setUpClientConnectionMultiplexer(
@@ -354,7 +354,7 @@ private func setUpServerChannelAndConnectionMultiplexer(
                 quicConfiguration.initialMaxStreamDataBidiLocal = initialMaxStreamDataBidi
                 quicConfiguration.initialMaxStreamDataBidiRemote = initialMaxStreamDataBidi
                 quicConfiguration.initialMaxStreamsBidi = initialMaxStreamsBidi
-                quicConfiguration.maximumGracefulShutdownDuration = maximumGracefulShutdownDuration
+                quicConfiguration.maxGracefulShutdownDuration = maximumGracefulShutdownDuration
                 let (quicHandler, connectionMultiplexer) = try QUICHandler.makeHandlerAndConnectionMultiplexer(
                     channel: channel,
                     quicConfiguration: quicConfiguration,
