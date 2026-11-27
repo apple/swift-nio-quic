@@ -212,37 +212,34 @@ extension QUICStreamCore {
 
         let contiguous = max(minContiguous, 1)
         var totalDelivered = 0
-        var totalRead = 0
 
         while true {
-            let askedForBytes: Bool
-            let bytesRead: Int
+            var bytesRead = 0
 
-            switch self.state.attemptRead() {
-            case .proceedWithRead:
-                askedForBytes = true
-                bytesRead = withEventContext { eventContext in self.fillUndeliveredReads(in: &eventContext) }
-                totalRead &+= bytesRead
+            // Nothing follows a FIN. There's nothing more to pull.
+            if !self.finPending {
+                switch self.state.attemptRead() {
+                case .proceedWithRead:
+                    bytesRead = withEventContext { eventContext in self.fillUndeliveredReads(in: &eventContext) }
 
-            case .doNotRead:
-                // Receive side closed: only what is already held here can still be handed over.
-                askedForBytes = false
-                bytesRead = 0
+                case .doNotRead:
+                    // Receive side closed: only what is already held here can still be handed over.
+                    ()
+                }
             }
 
             // Deliver the bytes.
             totalDelivered &+= self.deliver(minContiguous: contiguous, body)
 
-            if askedForBytes && bytesRead == 0 {
-                self.confirmFin()
-            }
-
-            // If no bytes were read or there are undelivered reads then there's no point in asking
-            // for more data: the consumer stopped reading.
-            if bytesRead == 0 || !self.undeliveredReads.isEmpty {
+            // Stop once there's nothing more to pull (the pull came back empty, or a FIN arrived:
+            // nothing follows it), or once the consumer stopped reading and left bytes undelivered.
+            if bytesRead == 0 || self.finPending || !self.undeliveredReads.isEmpty {
                 break
             }
         }
+
+        // A pending FIN ends the loop, so confirming it once afterwards is enough.
+        self.confirmFin()
 
         let outcome: QUICStreamReadOutcome
         if self.undeliveredReads.isEmpty && self.state.hasReceivedFin {
