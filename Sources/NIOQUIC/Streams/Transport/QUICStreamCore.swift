@@ -231,19 +231,15 @@ extension QUICStreamCore {
             // Deliver the bytes.
             totalDelivered &+= self.deliver(minContiguous: contiguous, body)
 
-            // An empty pull shows the stack has nothing more, and so does the FIN, without another
-            // entry into the stack: nothing follows it.
-            let nothingMoreToPull = bytesRead == 0 || self.finPending
-            if nothingMoreToPull {
-                self.confirmFin()
-            }
-
-            // Stop once there's nothing more to pull, or once the consumer stopped reading and left
-            // bytes undelivered.
-            if nothingMoreToPull || !self.undeliveredReads.isEmpty {
+            // Stop once there's nothing more to pull (the pull came back empty, or a FIN arrived:
+            // nothing follows it), or once the consumer stopped reading and left bytes undelivered.
+            if bytesRead == 0 || self.finPending || !self.undeliveredReads.isEmpty {
                 break
             }
         }
+
+        // A pending FIN ends the loop, so confirming it once afterwards is enough.
+        self.confirmFin()
 
         let outcome: QUICStreamReadOutcome
         if self.undeliveredReads.isEmpty && self.state.hasReceivedFin {
